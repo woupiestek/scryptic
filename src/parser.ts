@@ -1,10 +1,5 @@
+import { Term } from "./model.ts";
 import { Lexer, Token, TokenType } from "./lexer.ts";
-
-type Id = string;
-type Term = ["ident", Id] | ["where", Term, Id, Term] | ["lambda", Term] | [
-  "force",
-  Term,
-] | ["thunk", Term];
 
 export class ParseError extends Error {
   constructor(readonly token: Token, msg: string) {
@@ -50,19 +45,19 @@ export class Parser {
     let term: Term;
     switch (this.current.type) {
       case TokenType.BRACE_LEFT: {
-        this.#advance();
+        this.current = this.lexer.next();
         term = this.term();
         this.#consume(TokenType.BRACE_RIGHT);
         break;
       }
       case TokenType.IDENTIFIER:
         term = ["ident", this.#quote()];
-        this.#advance();
+        this.current = this.lexer.next();
         break;
       default:
         throw this.#error(`unexpected token`);
     }
-    this.current = this.lexer.next();
+    // this.current = this.lexer.next();
     while (this.current.type === TokenType.DOT) {
       term = ["force", term];
       this.#advance();
@@ -77,6 +72,7 @@ export class Parser {
         return ["lambda", this.#term1()];
       }
       case TokenType.DOLLAR:
+        this.#advance();
         return ["thunk", this.#term1()];
       default:
         return this.#term0();

@@ -25,7 +25,7 @@ export class Lexer {
   private from = 0;
   private current = 0;
   private line = 1;
-  private column = 1;
+  private startLine = 1;
   constructor(private input: string) {}
 
   #space() {
@@ -33,12 +33,12 @@ export class Lexer {
       switch (this.input.charCodeAt(this.current)) {
         case 12:
           this.line++;
-          this.column = 1;
+          this.startLine = this.current;
           continue;
         case 9:
         case 10:
         case 11:
-          this.column++;
+        case 32:
           continue;
         case 13:
           continue;
@@ -49,7 +49,13 @@ export class Lexer {
   }
 
   #token(type: TokenType): Token {
-    return new Token(type, this.from, this.current, this.line, this.column);
+    return new Token(
+      type,
+      this.from,
+      this.current,
+      this.line,
+      this.current - this.startLine + 1,
+    );
   }
 
   #identifier(): Token {

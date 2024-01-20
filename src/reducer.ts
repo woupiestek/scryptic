@@ -17,16 +17,12 @@
  * requires it.
  */
 
+import { Id, Term } from "./model.ts";
+import { Parser } from "./parser.ts";
 import { RedBlackTreeMap } from "./redBlack.ts";
 
-type Id = string;
-type Term = ["ident", Id] | ["where", Term, Id, Term] | ["lambda", Term] | [
-  "force",
-  Term,
-] | ["thunk", Term];
 type Reducend = [Term, number | Values];
-type Object = RedBlackTreeMap<Reducend>;
-type Values = [Object, null | Values];
+type Values = [RedBlackTreeMap<Reducend>, null | Values];
 type Result = ["tuple", Id, number, null | Values] | ["fail", Id] | [
   "closure",
   Reducend,
@@ -83,4 +79,45 @@ export function reduce(term: Term): Result {
         continue;
     }
   }
+}
+
+export const Result = {
+  stringify: stringifyResult,
+};
+
+function stringifyResult(result: Result): string {
+  switch (result[0]) {
+    case "tuple":
+      return `${result[1]}[${result[2]}]${stringifyValues(result[3])}`;
+    case "fail":
+      return `[error: ${result[1]} unresolved]`;
+    case "closure":
+      return stringifyReducend(result[1]);
+  }
+}
+
+function stringifyValues(values: null | Values): string {
+  const objects: string[] = [];
+  const pairs = [];
+  while (values != null) {
+    for (const [k, v] of values[0].entries()) {
+      pairs.push(`${k}: ${stringifyReducend(v)}`);
+    }
+    objects.push(`{${pairs.join(", ")}}`);
+    pairs.length = 0;
+    values = values[1];
+  }
+  return `(${objects.join(", ")})`;
+}
+
+function stringifyReducend(reducend: Reducend): string {
+  const term = Term.stringify(reducend[0], 2);
+  if (typeof reducend[1] === "number") {
+    return `${"$".repeat(reducend[1])}${term}`;
+  }
+  return `${term}${stringifyValues(reducend[1])}`;
+}
+
+export function rep(input: string): string {
+  return Result.stringify(reduce(new Parser(input).term()));
 }

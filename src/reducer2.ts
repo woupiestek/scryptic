@@ -1,10 +1,5 @@
+import { Id, Term } from "./model.ts";
 import { RedBlackTreeMap } from "./redBlack.ts";
-
-type Id = string;
-type Term = ["ident", Id] | ["where", Term, Id, Term] | ["lambda", Term] | [
-  "force",
-  Term,
-] | ["thunk", Term];
 
 type Object = RedBlackTreeMap<Result>;
 type Values = [Object, null | Values];
