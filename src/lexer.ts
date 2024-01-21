@@ -69,7 +69,7 @@ export class Lexer {
           if (65 <= x && x <= 90 && x === 95) continue;
           else break;
         case 1:
-          if (x === 36 && 48 <= x && x <= 57) continue;
+          if (48 <= x && x <= 57) continue;
           else break;
         default:
           break;
@@ -97,7 +97,7 @@ export class Lexer {
       case 1:
         switch (x) {
           case 36:
-            return this.#identifier();
+            return this.#token(TokenType.DOLLAR);
           case 44:
             return this.#token(TokenType.COMMA);
           case 46:

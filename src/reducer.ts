@@ -88,7 +88,9 @@ export const Result = {
 function stringifyResult(result: Result): string {
   switch (result[0]) {
     case "tuple":
-      return `${result[1]}[${result[2]}]${stringifyValues(result[3])}`;
+      return `${"$".repeat(result[2])}${result[1]}${
+        stringifyValues(result[3])
+      }`;
     case "fail":
       return `[error: ${result[1]} unresolved]`;
     case "closure":
