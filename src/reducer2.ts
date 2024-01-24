@@ -60,11 +60,11 @@ export function reduce(term: Term, values: number | Values): Result {
         operands = operands[1];
         term = term[1];
         continue;
-      case "force":
+      case "alpha":
         operands = [new RedBlackTreeMap(), operands];
         term = term[1];
         continue;
-      case "thunk":
+      case "kappa":
         if (typeof values === "number") {
           values++;
         } else {

@@ -21,16 +21,16 @@ import { Id, Term } from "./model.ts";
 import { Parser } from "./parser.ts";
 import { RedBlackTreeMap } from "./redBlack.ts";
 
-type Reducend = [Term, number | Values];
-type Values = [RedBlackTreeMap<Reducend>, null | Values];
-type Result = ["tuple", Id, number, null | Values] | ["fail", Id] | [
+type Reducend = [Term, number | Values<number>];
+type Values<E> = E | [RedBlackTreeMap<Reducend>, Values<E>];
+type Result = ["tuple", Id, number, Values<null>] | [
   "closure",
   Reducend,
 ];
 
 export function reduce(term: Term): Result {
-  let values: number | Values = 0;
-  let operands: null | Values = null;
+  let values: Values<number> = 0;
+  let operands: Values<null> = null;
   for (;;) {
     switch (term[0]) {
       case "ident": {
@@ -41,14 +41,14 @@ export function reduce(term: Term): Result {
         const y: Reducend | undefined = values[0].get(term[1]);
         if (y === undefined) {
           // unresolved variable
-          return ["fail", term[1]];
+          return ["tuple", term[1], 0, operands];
         }
         [term, values] = y;
         continue;
       }
       case "where":
         if (operands !== null) {
-          operands[0].set(term[2], [term[3], values]);
+          operands[0] = operands[0].add(term[2], [term[3], values]);
         } // else ignore?
         term = term[1];
         continue;
@@ -57,23 +57,19 @@ export function reduce(term: Term): Result {
           // weak head normal form 2: closure
           return ["closure", [term, values]];
         }
-        if (typeof values === "number" && values !== 0) {
-          values--;
-        } else {
-          values = [operands[0], values || null];
-        }
+        values = [operands[0], values];
         operands = operands[1];
         term = term[1];
         continue;
-      case "force":
+      case "alpha": // todo
         operands = [new RedBlackTreeMap(), operands];
         term = term[1];
         continue;
-      case "thunk":
+      case "kappa":
         if (typeof values === "number") {
           values++;
         } else {
-          values = values[1] || 0;
+          values = values[1];
         }
         term = term[1];
         continue;
@@ -91,17 +87,20 @@ function stringifyResult(result: Result): string {
       return `${"$".repeat(result[2])}${result[1]}${
         stringifyValues(result[3])
       }`;
-    case "fail":
-      return `[error: ${result[1]} unresolved]`;
     case "closure":
       return stringifyReducend(result[1]);
   }
 }
 
-function stringifyValues(values: null | Values): string {
+function stringifyValues(values: Values<null | number>): string {
   const objects: string[] = [];
   const pairs = [];
-  while (values != null) {
+  for (;;) {
+    if (typeof values === "number") {
+      objects.push(values.toString());
+      break;
+    }
+    if (values === null) break;
     for (const [k, v] of values[0].entries()) {
       pairs.push(`${k}: ${stringifyReducend(v)}`);
     }

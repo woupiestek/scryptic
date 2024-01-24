@@ -23,3 +23,19 @@ Deno.test(function parser() {
 Deno.test(function tryRep() {
   assertEquals(rep(test), "$y()");
 });
+
+Deno.test(function trySomeMore() {
+  assertEquals(
+    [
+      "$x",
+      "\\$x.",
+      "{\\$x}.",
+      "{a = $b, \\a}.",
+      "{a = $b, \\$a}.",
+      "{c=\\t,\\{t=a,f=b,c}.}.",
+    ].map(
+      rep,
+    ),
+    ["$x()", "\\$x.", "x()", "$b()", "a()", "a()"],
+  );
+});

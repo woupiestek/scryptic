@@ -59,7 +59,7 @@ export class Parser {
     }
     // this.current = this.lexer.next();
     while (this.current.type === TokenType.DOT) {
-      term = ["force", term];
+      term = ["alpha", term];
       this.#advance();
     }
     return term;
@@ -73,7 +73,7 @@ export class Parser {
       }
       case TokenType.DOLLAR:
         this.#advance();
-        return ["thunk", this.#term1()];
+        return ["kappa", this.#term1()];
       default:
         return this.#term0();
     }
@@ -88,7 +88,7 @@ export class Parser {
     if (this.current.type !== TokenType.IS) {
       let term: Term = ["ident", key];
       while (this.current.type === TokenType.DOT) {
-        term = ["force", term];
+        term = ["alpha", term];
         this.#advance();
       }
       return term;

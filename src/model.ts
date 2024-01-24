@@ -4,10 +4,10 @@ export type Term =
   | ["where", Term, Id, Term]
   | ["lambda", Term]
   | [
-    "force",
+    "alpha",
     Term,
   ]
-  | ["thunk", Term];
+  | ["kappa", Term];
 
 function stringify(term: Term, level = 3): string {
   switch (term[0]) {
@@ -23,13 +23,13 @@ function stringify(term: Term, level = 3): string {
       const b = `\\${stringify(term[1], 2)}`;
       return level < 2 ? `{${b}}` : b;
     }
-    case "force": {
+    case "alpha": {
       return `${stringify(term[1], 1)}.`;
       // level < 1 should never happen
       //   const b = `${stringify2(term[1],1)}.`;
       //   return level < 1 ? `{${b}}` : b;
     }
-    case "thunk": {
+    case "kappa": {
       const b = `$${stringify(term[1], 2)}`;
       return level < 2 ? `{${b}}` : b;
     }

@@ -155,6 +155,11 @@ export class RedBlackTreeMap<A> {
   set(key: string, value: A): void {
     this.node = add(key, value, this.node);
   }
+  add(key: string, value: A): RedBlackTreeMap<A> {
+    const copy = this.copy();
+    copy.set(key, value);
+    return copy;
+  }
   *entries(): Generator<[string, A]> {
     for (const e of entries(this.node)) {
       yield e;
