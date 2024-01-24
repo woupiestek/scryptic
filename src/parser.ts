@@ -33,12 +33,19 @@ export class Parser {
   }
 
   #consume(type: TokenType) {
-    if (this.current.type === type) this.#advance();
-    else {
+    if (!this.#match(type)) {
       throw this.#error(
         `expected ${TokenType[type]}, found ${TokenType[this.current.type]}`,
       );
     }
+  }
+
+  #match(type: TokenType) {
+    if (this.current.type === type) {
+      this.#advance();
+      return true;
+    }
+    return false;
   }
 
   #term0(): Term {
@@ -57,11 +64,6 @@ export class Parser {
       default:
         throw this.#error(`unexpected token`);
     }
-    // this.current = this.lexer.next();
-    while (this.current.type === TokenType.DOT) {
-      term = ["alpha", term];
-      this.#advance();
-    }
     return term;
   }
 
@@ -79,23 +81,28 @@ export class Parser {
     }
   }
 
-  term(): Term {
-    if (this.current.type !== TokenType.IDENTIFIER) {
+  #term2(): Term {
+    if (this.current.type === TokenType.IDENTIFIER) {
+      const key = this.#quote();
+      this.current = this.lexer.next();
+      if (this.current.type === TokenType.IS) {
+        this.#advance();
+        const value = this.#term1();
+        this.#consume(TokenType.COMMA);
+        return ["where", this.#term2(), key, value];
+      } else {
+        return ["ident", key];
+      }
+    } else {
       return this.#term1();
     }
-    const key = this.#quote();
-    this.current = this.lexer.next();
-    if (this.current.type !== TokenType.IS) {
-      let term: Term = ["ident", key];
-      while (this.current.type === TokenType.DOT) {
-        term = ["alpha", term];
-        this.#advance();
-      }
-      return term;
+  }
+
+  term(): Term {
+    let term = this.#term2();
+    while (this.#match(TokenType.DOT)) {
+      term = ["alpha", term];
     }
-    this.#advance();
-    const value = this.#term1();
-    this.#consume(TokenType.COMMA);
-    return ["where", this.term(), key, value];
+    return term;
   }
 }

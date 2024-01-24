@@ -14,24 +14,22 @@ function stringify(term: Term, level = 3): string {
     case "ident":
       return term[1];
     case "where": {
-      const b = stringify(term[3], 2);
-      const c = stringify(term[1], 3);
+      const b = stringify(term[3], 1);
+      const c = stringify(term[1], 2);
       const d = `${term[2]} = ${b}, ${c}`;
-      return level < 3 ? `{${d}}` : d;
+      return level < 2 ? `{${d}}` : d;
     }
     case "lambda": {
       const b = `\\${stringify(term[1], 2)}`;
-      return level < 2 ? `{${b}}` : b;
+      return level < 1 ? `{${b}}` : b;
     }
     case "alpha": {
-      return `${stringify(term[1], 1)}.`;
-      // level < 1 should never happen
-      //   const b = `${stringify2(term[1],1)}.`;
-      //   return level < 1 ? `{${b}}` : b;
+      const b = `${stringify(term[1], 2)}.`;
+      return level < 3 ? `{${b}}` : b;
     }
     case "kappa": {
       const b = `$${stringify(term[1], 2)}`;
-      return level < 2 ? `{${b}}` : b;
+      return level < 1 ? `{${b}}` : b;
     }
   }
 }

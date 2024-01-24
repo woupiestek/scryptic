@@ -4,7 +4,7 @@ import { Lexer, Token, TokenType } from "./lexer.ts";
 import { Parser } from "./parser.ts";
 import { Term } from "./model.ts";
 
-const test = "{x = $y, \\x}.";
+const test = "x = $y, \\x.";
 Deno.test(function lexer() {
   const lexer = new Lexer(test);
   const tokens: Token[] = [];
@@ -13,7 +13,7 @@ Deno.test(function lexer() {
     if (token.type === TokenType.END) break;
     tokens.push(token);
   }
-  assertEquals(tokens.length, 10);
+  assertEquals(tokens.length, 8);
 });
 
 Deno.test(function parser() {
@@ -28,14 +28,14 @@ Deno.test(function trySomeMore() {
   assertEquals(
     [
       "$x",
+      "\\{$x.}",
       "\\$x.",
-      "{\\$x}.",
-      "{a = $b, \\a}.",
-      "{a = $b, \\$a}.",
-      "{c=\\t,\\{t=a,f=b,c}.}.",
+      "a = $b, \\a.",
+      "a = $b, \\$a.",
+      "{c=\\t,\\{t=a,f=b,c.}.}",
     ].map(
       rep,
     ),
-    ["$x()", "\\$x.", "x()", "$b()", "a()", "a()"],
+    ["$x()", "\\{$x.}", "x()", "$b()", "a()", "a()"],
   );
 });
