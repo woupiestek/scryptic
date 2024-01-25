@@ -32,7 +32,7 @@ Deno.test(function trySomeMore() {
       "\\$x.",
       "a = $b, \\a.",
       "a = $b, \\$a.",
-      "{c=\\t,\\{t=a,f=b,c.}.}",
+      "{if = \\then, \\{then = a, else = b, if.}.}",
     ].map(
       rep,
     ),

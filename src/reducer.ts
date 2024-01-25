@@ -46,12 +46,6 @@ export function reduce(term: Term): Result {
         [term, values] = y;
         continue;
       }
-      case "where":
-        if (operands !== null) {
-          operands[0] = operands[0].add(term[2], [term[3], values]);
-        } // else ignore?
-        term = term[1];
-        continue;
       case "lambda":
         if (operands === null) {
           // weak head normal form 2: closure
@@ -59,6 +53,12 @@ export function reduce(term: Term): Result {
         }
         values = [operands[0], values];
         operands = operands[1];
+        term = term[1];
+        continue;
+      case "where":
+        if (operands !== null) {
+          operands[0] = operands[0].add(term[2], [term[3], values]);
+        } // else ignore?
         term = term[1];
         continue;
       case "alpha": // todo
