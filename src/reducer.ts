@@ -1,5 +1,5 @@
 /*
- * Stretched out idea:
+ * Sketched out idea:
  * Take for granted that functions always apply to tuples of arguments
  * Let abstracting always abstratc over all variables
  * Problem: how to get partial applied functions?
@@ -21,7 +21,7 @@ import { Id, Term } from "./model.ts";
 import { Parser } from "./parser.ts";
 import { RedBlackTreeMap } from "./redBlack.ts";
 
-type Reducend = [Term, number | Values<number>];
+type Reducend = [Term, Values<number>];
 type Values<E> = E | [RedBlackTreeMap<Reducend>, Values<E>];
 type Result = ["tuple", Id, number, Values<null>] | [
   "closure",
@@ -61,7 +61,7 @@ export function reduce(term: Term): Result {
         } // else ignore?
         term = term[1];
         continue;
-      case "alpha": // todo
+      case "alpha":
         operands = [new RedBlackTreeMap(), operands];
         term = term[1];
         continue;
