@@ -1,8 +1,12 @@
-export function add(a: number, b: number): number {
-  return a + b;
-}
-
-// Learn more at https://deno.land/manual/examples/module_metadata#concepts
-if (import.meta.main) {
-  console.log("Add 2 + 3 =", add(2, 3));
-}
+console.info(
+  JSON.stringify(
+    Object.fromEntries(
+      Array.from({ length: 120 }).map((
+        _,
+        i,
+      ) => [String.fromCharCode(i + 8), i + 8]),
+    ),
+    null,
+    2,
+  ),
+);

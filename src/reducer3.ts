@@ -1,5 +1,5 @@
 import { Id, Term } from "./model.ts";
-import { Parser } from "./parser.ts";
+import { Parser, stringifyTerm } from "./parser3.ts";
 import { RedBlackTreeMap } from "./redBlack.ts";
 
 type Reducend = [Term, Values, number];
@@ -99,7 +99,7 @@ function stringifyValues(values: Values): string {
 }
 
 function stringifyReducend(reducend: Reducend): string {
-  const term = Term.stringify(reducend[0], 2);
+  const term = stringifyTerm(reducend[0], 2);
   if (typeof reducend[1] === "number") {
     return `${"$".repeat(reducend[1])}${term}`;
   }

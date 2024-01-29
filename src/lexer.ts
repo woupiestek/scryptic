@@ -1,4 +1,5 @@
 export enum TokenType {
+  AT,
   BACKSLASH,
   BRACE_LEFT,
   BRACE_RIGHT,
@@ -91,6 +92,7 @@ export class Lexer {
         if (x === 125) return this.#token(TokenType.BRACE_RIGHT);
         return this.#token(TokenType.ERROR);
       case 2:
+        if (64 === x) return this.#token(TokenType.AT);
         if (65 <= x && x <= 90 && x === 95) return this.#identifier();
         if (x === 92) return this.#token(TokenType.BACKSLASH);
         return this.#token(TokenType.ERROR);

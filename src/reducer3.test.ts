@@ -1,10 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { rep } from "./reducer3.ts";
 import { Lexer, Token, TokenType } from "./lexer.ts";
-import { Parser } from "./parser.ts";
-import { Term } from "./model.ts";
+import { Parser, stringifyTerm } from "./parser3.ts";
 
-const test = "x = $y, x";
+const test = "x, x = $y";
 Deno.test(function lexer() {
   const lexer = new Lexer(test);
   const tokens: Token[] = [];
@@ -17,7 +16,7 @@ Deno.test(function lexer() {
 });
 
 Deno.test(function parser() {
-  assertEquals(Term.stringify(new Parser(test).term()), test);
+  assertEquals(stringifyTerm(new Parser(test).term()), test);
 });
 
 Deno.test(function tryRep() {
@@ -28,14 +27,14 @@ Deno.test(function trySomeMore() {
   assertEquals(
     [
       "$x",
-      "\\{$x.}",
-      "\\$x.",
-      "a = $b, a",
-      "a = $b, $a",
-      "if = \\then, then = $a, else = b, {if.}",
+      "\\@$x",
+      "@\\$x",
+      "a, a = $b",
+      "$a, a = $b",
+      "@if, if = \\then, then = a, else = b",
     ].map(
       rep,
     ),
-    ["$x()", "\\{$x.}()", "x()", "$b()", "$a()", "$a()"],
+    ["$x()", "\\@$x()", "x()", "$b()", "$a()", "$a()"],
   );
 });
