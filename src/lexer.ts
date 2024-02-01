@@ -1,4 +1,5 @@
 export enum TokenType {
+  AND,
   AT,
   BACKSLASH,
   BRACE_LEFT,
@@ -100,6 +101,8 @@ export class Lexer {
         switch (x) {
           case 36:
             return this.#token(TokenType.DOLLAR);
+          case 38:
+            return this.#token(TokenType.AND);
           case 44:
             return this.#token(TokenType.COMMA);
           case 46:

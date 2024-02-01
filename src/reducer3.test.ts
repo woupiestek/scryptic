@@ -28,13 +28,15 @@ Deno.test(function trySomeMore() {
     [
       "$x",
       "\\@$x",
-      "@\\$x",
+      "@\\x",
+      "&$z",
+      "&@$\\w",
       "a, a = $b",
       "$a, a = $b",
-      "@if, if = \\then, then = a, else = b",
+      "&@if, if = \\then, then = a, else = b",
     ].map(
       rep,
     ),
-    ["$x()", "\\@$x()", "x()", "$b()", "$a()", "$a()"],
+    ["$x()", "\\@$x()", "x()", "z()", "w()", "$b()", "$a()", "a()"],
   );
 });
