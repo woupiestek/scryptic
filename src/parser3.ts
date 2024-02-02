@@ -2,7 +2,7 @@ import { Lexer, Token, TokenType } from "./lexer.ts";
 
 export type Term =
   | [0, string]
-  | [1, ("A" | "K" | "L" | "W")[], Term]
+  | [1, ("A" | "K" | "L")[], Term]
   | [2, Term, [string, Term][]];
 
 export class ParseError extends Error {
@@ -53,13 +53,9 @@ export class Parser {
   }
 
   #term0(): Term {
-    const ops: ("A" | "K" | "L" | "W")[] = [];
+    const ops: ("A" | "K" | "L")[] = [];
     for (;;) {
       switch (this.current.type) {
-        case TokenType.AND:
-          ops.push("W");
-          this.#advance();
-          continue;
         case TokenType.AT:
           ops.push("A");
           this.#advance();

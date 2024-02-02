@@ -1,5 +1,15 @@
 # Scryptic
 
+## 2024-2-3
+
+Three operator system:
+
+- `$` drop context [ab] -> [b]
+- `\` move [a]bc -> [ba]c
+- `@` copy [ab]c -> [ab]ac
+
+This appears to be a mimimal functional set.
+
 ## 2024-1-27
 
 New option found:

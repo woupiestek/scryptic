@@ -9,6 +9,7 @@ type Result = ["tuple", string, number, Values] | [
 ];
 
 export function reduce(term: Term): Result {
+  const empty: RedBlackTreeMap<Reducend> = new RedBlackTreeMap();
   let kappa = 0;
   let values: Values = null;
   let operands: Values = null;
@@ -36,11 +37,9 @@ export function reduce(term: Term): Result {
           switch (term[1][i]) {
             case "A":
               if (values === null) {
-                operands = [new RedBlackTreeMap(), operands];
-                kappa++;
+                operands = [empty, operands];
               } else {
                 operands = [values[0], operands];
-                values = values[1];
               }
               continue;
             case "K":
@@ -62,20 +61,13 @@ export function reduce(term: Term): Result {
               values = [operands[0], values];
               operands = operands[1];
               continue;
-            case "W":
-              if (values === null) {
-                values = [new RedBlackTreeMap(), values];
-              } else {
-                values = [values[0], values];
-              }
-              continue;
           }
         }
         term = term[2];
         continue;
       case 2:
         if (values === null) {
-          values = [new RedBlackTreeMap(), null];
+          values = [empty, null];
           kappa++;
         }
         for (const [k, v] of term[2]) {
