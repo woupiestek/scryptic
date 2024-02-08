@@ -130,18 +130,10 @@ function add<A>(key: string, value: A, node?: Node<A>): Node<A> {
 }
 
 function* entries<A>(node?: Node<A>): Generator<[string, A]> {
-  const rights = [];
-  for (;;) {
-    if (node) {
-      rights.push(node);
-      node = node.left;
-      continue;
-    }
-    node = rights.pop();
-    if (!node) return;
-    yield [node.key, node.value];
-    node = node.right;
-  }
+  if (!node) return;
+  for (const pair of entries(node.right)) yield pair;
+  yield [node.key, node.value];
+  for (const pair of entries(node.left)) yield pair;
 }
 
 export class RedBlackTreeMap<A> {
