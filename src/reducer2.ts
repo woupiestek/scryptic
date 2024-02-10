@@ -1,74 +1,70 @@
+import { LinkedList } from "./linkedList.ts";
 import { Id, Term } from "./model.ts";
-import { RedBlackTreeMap } from "./redBlack.ts";
+import { RedBlackTreeMap } from "./redBlack2.ts";
 
 type Object = RedBlackTreeMap<Result>;
-type Values = [Object, null | Values];
-type Result = ["tuple", Id, number, null | Values] | ["fail", Id] | [
+type Values = LinkedList<Object>;
+type Result = ["tuple", Id, number, Values] | [
   "closure",
   Term,
-  number | Values,
+  Values,
+  number,
 ];
 
-function concat(x: null | Values, y: null | Values): null | Values {
-  if (x === null) return y;
-  return [x[0], concat(x[1], y)];
+function concat(x: Values, y: Values): Values {
+  if (x.isEmpty) return y;
+  return concat(x.tail, y).prepend(x.head);
 }
 
-export function reduce(term: Term, values: number | Values): Result {
-  let operands: null | Values = null;
+export function reduce(term: Term, values: Values, kappa: number): Result {
+  let operands: Values = LinkedList.EMPTY;
   for (;;) {
     switch (term[0]) {
       case "ident": {
-        if (typeof values === "number") {
+        if (values.isEmpty) {
           // weak head normal form 1: tagged tuple
-          return ["tuple", term[1], values, operands];
+          return ["tuple", term[1], kappa, operands];
         }
-        const y: Result | undefined = values[0].get(term[1]);
+        const y: Result | undefined = values.head.get(term[1]);
         if (y === undefined) {
           // unresolved variable
-          return ["fail", term[1]];
+          return ["tuple", term[1], kappa, operands];
         }
         switch (y[0]) {
           case "tuple":
             return ["tuple", y[1], y[2], concat(y[3], operands)];
-            // todo
-          case "fail":
-            return y;
           case "closure":
             term = y[1];
             values = y[2];
-            continue;
         }
         continue;
       }
       case "where":
-        if (operands !== null) {
-          operands[0].set(term[2], reduce(term[3], values));
+        if (!operands.isEmpty) {
+          operands = operands.tail.prepend(
+            operands.head.add(term[2], reduce(term[3], values, kappa)),
+          );
         } // else ignore?
         term = term[1];
         continue;
       case "lambda":
-        if (operands === null) {
+        if (operands.isEmpty) {
           // weak head normal form 2: closure
-          return ["closure", term, values];
+          return ["closure", term, values, kappa];
         }
-        if (typeof values === "number" && values !== 0) {
-          values--;
-        } else {
-          values = [operands[0], values || null];
-        }
-        operands = operands[1];
+        values = values.prepend(operands.head);
+        operands = operands.tail;
         term = term[1];
         continue;
       case "alpha":
-        operands = [new RedBlackTreeMap(), operands];
+        operands = operands.prepend(RedBlackTreeMap.EMPTY);
         term = term[1];
         continue;
       case "kappa":
-        if (typeof values === "number") {
-          values++;
+        if (values.isEmpty) {
+          kappa++;
         } else {
-          values = values[1] || 0;
+          values = values.tail;
         }
         term = term[1];
         continue;

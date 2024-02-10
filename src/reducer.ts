@@ -17,59 +17,63 @@
  * requires it.
  */
 
+import { LinkedList } from "./linkedList.ts";
 import { Id, Term } from "./model.ts";
 import { Parser } from "./parser.ts";
-import { RedBlackTreeMap } from "./redBlack.ts";
+import { RedBlackTreeMap } from "./redBlack2.ts";
 
-type Reducend = [Term, Values<number>];
-type Values<E> = E | [RedBlackTreeMap<Reducend>, Values<E>];
-type Result = ["tuple", Id, number, Values<null>] | [
+type Reducend = [Term, Values, number];
+type Values = LinkedList<RedBlackTreeMap<Reducend>>;
+type Result = ["tuple", Id, number, Values] | [
   "closure",
   Reducend,
 ];
 
 export function reduce(term: Term): Result {
-  let values: Values<number> = 0;
-  let operands: Values<null> = null;
+  let kappa = 0;
+  let values: Values = LinkedList.EMPTY;
+  let operands: Values = LinkedList.EMPTY;
   for (;;) {
     switch (term[0]) {
       case "ident": {
-        if (typeof values === "number") {
+        if (values.isEmpty) {
           // weak head normal form 1: tagged tuple
-          return ["tuple", term[1], values, operands];
+          return ["tuple", term[1], kappa, operands];
         }
-        const y: Reducend | undefined = values[0].get(term[1]);
+        const y: Reducend | undefined = values.head.get(term[1]);
         if (y === undefined) {
           // unresolved variable
-          return ["tuple", term[1], 0, operands];
+          return ["tuple", term[1], kappa, operands];
         }
         [term, values] = y;
         continue;
       }
       case "lambda":
-        if (operands === null) {
+        if (operands.isEmpty) {
           // weak head normal form 2: closure
-          return ["closure", [term, values]];
+          return ["closure", [term, values, kappa]];
         }
-        values = [operands[0], values];
-        operands = operands[1];
+        values = values.prepend(operands.head); //[operands[0], values];
+        operands = operands.tail;
         term = term[1];
         continue;
       case "where":
-        if (operands !== null) {
-          operands[0] = operands[0].add(term[2], [term[3], values]);
+        if (!operands.isEmpty) {
+          operands = operands.tail.prepend(
+            operands.head.add(term[2], [term[3], values, kappa]),
+          );
         } // else ignore?
         term = term[1];
         continue;
       case "alpha":
-        operands = [new RedBlackTreeMap(), operands];
+        operands = operands.prepend(RedBlackTreeMap.EMPTY);
         term = term[1];
         continue;
       case "kappa":
-        if (typeof values === "number") {
-          values++;
+        if (values.isEmpty) {
+          kappa++;
         } else {
-          values = values[1];
+          values = values.tail;
         }
         term = term[1];
         continue;
@@ -92,31 +96,22 @@ function stringifyResult(result: Result): string {
   }
 }
 
-function stringifyValues(values: Values<null | number>): string {
+function stringifyValues(values: Values): string {
   const objects: string[] = [];
   const pairs = [];
-  for (;;) {
-    if (typeof values === "number") {
-      objects.push(values.toString());
-      break;
-    }
-    if (values === null) break;
-    for (const [k, v] of values[0].entries()) {
+  for (const r of values.entries()) {
+    for (const [k, v] of r.entries()) {
       pairs.push(`${k}: ${stringifyReducend(v)}`);
     }
     objects.push(`{${pairs.join(", ")}}`);
     pairs.length = 0;
-    values = values[1];
   }
   return `(${objects.join(", ")})`;
 }
 
 function stringifyReducend(reducend: Reducend): string {
   const term = Term.stringify(reducend[0], 2);
-  if (typeof reducend[1] === "number") {
-    return `${"$".repeat(reducend[1])}${term}`;
-  }
-  return `${term}${stringifyValues(reducend[1])}`;
+  return `${"$".repeat(reducend[2])}${term}${stringifyValues(reducend[1])}`;
 }
 
 export function rep(input: string): string {

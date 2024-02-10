@@ -1,31 +1,31 @@
+import { LinkedList } from "./linkedList.ts";
 import { Parser, stringifyTerm, Term } from "./parser3.ts";
-import { RedBlackTreeMap } from "./redBlack.ts";
+import { RedBlackTreeMap } from "./redBlack2.ts";
 
 type Reducend = [Term, Values, number];
-type Values = null | [RedBlackTreeMap<Reducend>, Values];
+type Values = LinkedList<RedBlackTreeMap<Reducend>>;
 type Result = ["tuple", string, number, Values] | [
   "closure",
   Reducend,
 ];
 
 export function reduce(term: Term): Result {
-  const empty: RedBlackTreeMap<Reducend> = new RedBlackTreeMap();
   let kappa = 0;
-  let values: Values = null;
-  let operands: Values = null;
+  let values: Values = LinkedList.EMPTY;
+  let operands: Values = LinkedList.EMPTY;
   for (;;) {
     switch (term[0]) {
       case 0: {
-        if (values === null) {
+        if (values.isEmpty) {
           return ["tuple", term[1], kappa, operands];
         }
-        const y: Reducend | undefined = values[0].get(term[1]);
+        const y: Reducend | undefined = values.head.get(term[1]);
         if (y === undefined) {
           let k = kappa;
-          let v: Values = values;
-          while (v != null && k > 0) {
-            k--;
-            v = v[1];
+          for (const _ of values.entries()) {
+            if (k > 0) {
+              k--;
+            } else break;
           }
           return ["tuple", term[1], k, operands];
         }
@@ -36,21 +36,19 @@ export function reduce(term: Term): Result {
         for (let i = 0, l = term[1].length; i < l; i++) {
           switch (term[1][i]) {
             case "A":
-              if (values === null) {
-                operands = [empty, operands];
-              } else {
-                operands = [values[0], operands];
-              }
+              operands = operands.prepend(
+                values.isEmpty ? RedBlackTreeMap.EMPTY : values.head,
+              );
               continue;
             case "K":
-              if (values === null) {
+              if (values.isEmpty) {
                 kappa++;
               } else {
-                values = values[1];
+                values = values.tail;
               }
               continue;
             case "L":
-              if (operands === null) {
+              if (operands.isEmpty) {
                 // weak head normal form 2: closure
                 return ["closure", [
                   [term[0], term[1].slice(i), term[2]],
@@ -58,20 +56,20 @@ export function reduce(term: Term): Result {
                   kappa,
                 ]];
               }
-              values = [operands[0], values];
-              operands = operands[1];
+              values = values.prepend(operands.head);
+              operands = operands.tail;
               continue;
           }
         }
         term = term[2];
         continue;
       case 2:
-        if (values === null) {
-          values = [empty, null];
+        if (values.isEmpty) {
+          values = values.prepend(RedBlackTreeMap.EMPTY);
           kappa++;
         }
         for (const [k, v] of term[2]) {
-          values[0] = values[0].add(k, [v, values, kappa]);
+          values = values.tail.prepend(values.head.add(k, [v, values, kappa]));
         }
         term = term[1];
         continue;
@@ -97,14 +95,12 @@ function stringifyResult(result: Result): string {
 function stringifyValues(values: Values): string {
   const objects: string[] = [];
   const pairs = [];
-  for (;;) {
-    if (values === null) break;
-    for (const [k, v] of values[0].entries()) {
+  for (const reducend of values.entries()) {
+    for (const [k, v] of reducend.entries()) {
       pairs.push(`${k}: ${stringifyReducend(v)}`);
     }
     objects.push(`{${pairs.join(", ")}}`);
     pairs.length = 0;
-    values = values[1];
   }
   return `(${objects.join(", ")})`;
 }

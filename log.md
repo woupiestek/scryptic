@@ -1,5 +1,32 @@
 # Scryptic
 
+## 2024-2-10
+
+Unrelated thinking. Well, this is about combining this project with nominal.
+
+### encapsulated types
+
+To hide implementation in second order propositional logic, let the
+implementation types be local variables that go out of scope, while only
+exporting or publishing an existential type or an interface. So there is a
+structural type that gvein information on how data is allocated and released,
+but it isn't available to the user. The existential case comes down to merely
+sharing the information that a type is there. The other option is to use another
+structural type, like a record that has the public fields an methods, but
+nothing else.
+
+It should be possible for an implementation to use several types, but present as
+a single type to the outside world. The joint image types may not the wrong
+construct.
+
+### experiment with red black tree
+
+Classes have a specific memory layout, but types can be unions of classes
+without limit. Those unions would introduce a new encapsulation level, but it
+could be the friendly
+
+Or maybe there should be a destinction between structs and traits.
+
 ## 2024-2-3
 
 Three operator system:
