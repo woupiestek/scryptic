@@ -1,5 +1,83 @@
 # Scryptic
 
+## 2024-02-16
+
+### accumulator
+
+Like default registers to deposit results. Advantage: one less register per
+instruction, including return.
+
+The registers of the register machine are not on the stack, the stack is needed
+to store reguster contents suring function calls how does this normally work
+though?
+
+The register machine doesn't need the offsets! However, the virtual register
+machine of dalvik Works this way.
+
+I guess a combination is best:
+
+- the start of the stack frame contains long lived variables
+- intermediates can be stored on a local stack, depending on how much is needed
+
+Ideas around functions calls:
+
+1. the caller can put the argument values at the start of the about to be
+   allocated frame, the end of its own frame
+2. the callee can leave its return value at the start if its frame
+
+So what is the strategy for expressions with function calls?
+
+I think my instincts are right: the stack is the same as before, but since the
+sources an targets of operations are specified, a value can be kept as long as
+it is needed.
+
+## 2024-02-15
+
+### the instructions
+
+Somehow lower level instructions, like selecting a method could be seperated
+from calling it, but what would be the benefit?
+
+But think about it: the frame could look like this: `fp, op, args...` How to get
+the function pointer?
+
+- For static, it is a constant loaded from the constant table
+- For dynamic, it is a loaded from a class... The dynamic case introduces an
+  instruction for selecting method similar to moving a field into a register,
+  but with no other use, and no other way to be used.
+
+Think about it though, if interpreting the lambda calculus is a goal, the
+closures usually take the form `fp, op`. These are equivalent reduction: a
+closure is an object with one method, an object is a record contain a number of
+closures. So in the object case, you get a select-and-invoke method instruction,
+which may be expensive for the special case of closures, since the selection
+step is superfluous. But in the closure case, each closure would need its own
+pointer to the heap...
+
+Remember how the system is supposed to work with unions of classes as well,
+which also require a form of dynamic dispatch. I assume that these types are
+eliminated by the compiler, which either uses a sequence of compare and jump, or
+perhaps a switch construct. Jump to computed offset is not a supported option...
+yet.
+
+### simple register machine finished
+
+A lot is missing now, especially a compiler, and unit tests of course. There is
+little the machine can do as well. And it won't be fast, dues to al the
+indirection on how everything is stored. The ideas are there. So now we need to
+test it.
+
+### abstract classes and classes in general
+
+Perhaps the effect is reached by some other means. Much is left to the
+compiler...
+
+### next steps
+
+- write tests for the machine
+- write an assembler parser, perhaps
+- write a compiler
+
 ## 2024-02-14
 
 ### Thinking through dispatch
@@ -89,8 +167,8 @@ I made this analysis for rlox:
 - byte instructions, bytes are offsets into the stack, the upvalues, etc.
 - constant, where the constants are strings, functions or numbers
 - invoke (constant + byte), same idea, but more arguments.
-- jump, the distance for the instruction pointer to cover. Best solvable with labels
-  in assembler, of course.
+- jump, the distance for the instruction pointer to cover. Best solvable with
+  labels in assembler, of course.
 
 So the interpreter would just be rolling down the series of instructions.
 
