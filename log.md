@@ -1,5 +1,55 @@
 # Scryptic
 
+## 2024-02-17
+
+### threaded code
+
+Labels as first class values. This is sortof what I was looking for.
+
+### Dalvik analysis
+
+Ok, Dalvik has call instructions than can contain an array of arguments, always
+being registers. When a new frame is allocated, the arguments are copied into
+the new frame. So no overlapping stack frames for parameter passing, but in
+stack machines, lots of copies are needed anyway.
+
+Dalvik has 4 bit register addresses when it can.
+
+It feels like, if you see a call coming, you can first allocate a new frame,
+then write the arguments right into the frame... or maybe not. If functions are
+called in sequence, returning a value into the argument of the next function is
+not possible.
+
+Special instruction for copying return values into the current frame if desired.
+Note that this could be consider a part of an extended instruction thst
+specifies both type of register.
+
+### Compile time reference counting
+
+Reference countring is mostly for dynamic garbage colection, with the potential
+benefit of detecting garbage and freeing space early, compared to mark and
+sweep. Doing this at compile time means making predictions about how a method
+call affects each count, potentially allowing the complier to control when
+counts happen, and whether objects are dropped.
+
+Note that all copies of a reference on the stack are deleted when the methods
+return. So maybe don't count those, and focus on the references copied into the
+heap, e.g. by becoming part of either the arguments or the return value of a
+function.
+
+In effect, this is a reinvention of ownership: if a method owns an object, then
+the objects can be collected before the methods ends.
+
+Was interested in keeping the `mut` from rust anyway: instead fo making
+mutability part of the class, it is part of the method that operates on the
+class. Ownership would be another keeper, mainly as a way to collect garbage
+more efficiently.
+
+### allocation 'on the stack'
+
+Idea was: put all the fields of the object in registers. Downside: potentially
+huge frames with many registers, leading to less efficient memory access.
+
 ## 2024-02-16
 
 ### accumulator

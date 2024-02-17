@@ -9,10 +9,11 @@ export enum Op {
   // Not,
   // Print,
   // Subtract,
-  Call,
+  // Call,
   Constant,
   GetField,
   Move,
+  MoveResult,
   InvokeStatic,
   InvokeVirtual,
   Jump,
@@ -29,15 +30,16 @@ export type Record<A> = { [_: Identifier]: A };
 export type Instruction =
   | [Op.Constant, Local, Constant] // y = 1
   | [Op.GetField, Local, Local, Identifier] // y = x.i
-  | [Op.InvokeVirtual, Local, Local, Identifier] // x[0] = x[0].m(x[1],...,x[arity])... we don't use arity, but offset of stack frames
-  | [Op.InvokeStatic, Local, Method] // x[0] = x[0].m(x[1],...,x[arity])
+  | [Op.InvokeVirtual, Local, Identifier, Local[]] // x[0].m(x[1],...,x[arity])... 
+  | [Op.InvokeStatic, Method, Local[]] // x[0].m(x[1],...,x[arity])
   | [Op.JumpUnless, Local, Identifier] // unless x goto [label]
   | [Op.Move, Local, Local] // y = x
+  | [Op.MoveResult, Local] // y = (previous function call)
   | [Op.SetField, Local, Identifier, Local] // y.i = x
 ;
 export type LimitInstruction =
   | [Op.Jump, Identifier] // goto [label]
-  | [Op.Return] // return; whatever is left on the bottom can be taken as return value
+  | [Op.Return, Local?] // return; whatever is left on the bottom can be taken as return value
 ;
 
 function stringify(ins: Instruction | LimitInstruction): string {
@@ -50,6 +52,7 @@ function stringify(ins: Instruction | LimitInstruction): string {
 
 export class Method {
   constructor(
+    readonly size: number,
     readonly instructions: { //
       start: [...Instruction[], LimitInstruction];
       [_: Identifier]: [...Instruction[], LimitInstruction];
