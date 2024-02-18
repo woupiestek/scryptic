@@ -21,13 +21,18 @@ class Frame {
 
 export class VM {
   frames: Frame[] = [];
-  stack: Value[] = [null];
+  stack: Value[] = [{}];
   frame: Frame;
-  constructor(main: Method) {
-    this.frame = new Frame(main, 0);
+  constructor(run: Method) {
+    this.frame = new Frame(run, 0);
   }
   get(i: number): Value {
     return this.frame.get(this.stack, i);
+  }
+  getNumber(i: number): number {
+    const x = this.frame.get(this.stack, i);
+    if (typeof x !== "number") throw new Error("number expected");
+    return x;
   }
   set(i: number, value: Value) {
     this.frame.set(this.stack, i, value);
@@ -55,6 +60,9 @@ export class VM {
           this.set(instruction[1], result);
           result = null;
           continue;
+        case Op.New:
+          this.set(instruction[1], {});
+          continue;
         case Op.InvokeStatic:
           this.invoke(
             instruction[1],
@@ -72,10 +80,28 @@ export class VM {
           this.goto(instruction[1]);
           continue;
         }
-        case Op.JumpUnless:
-          if (!this.get(instruction[1])) {
-            this.goto(instruction[2]);
+        case Op.JumpIfDifferent:
+          if (this.get(instruction[1]) !== this.get(instruction[2])) {
+            this.goto(instruction[3]);
           }
+          continue;
+        case Op.JumpIfEqual:
+          if (this.get(instruction[1]) === this.get(instruction[2])) {
+            this.goto(instruction[3]);
+          }
+          continue;
+        case Op.JumpIfLess:
+          if (this.getNumber(instruction[1]) < this.getNumber(instruction[2])) {
+            this.goto(instruction[3]);
+          }
+          continue;
+        case Op.JumpIfMore:
+          if (this.getNumber(instruction[1]) > this.getNumber(instruction[2])) {
+            this.goto(instruction[3]);
+          }
+          continue;
+        case Op.Print:
+          console.log(this.get(instruction[1]));
           continue;
         case Op.Return: {
           if (instruction[1] !== undefined) {

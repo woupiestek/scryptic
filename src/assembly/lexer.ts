@@ -1,16 +1,15 @@
 export enum TokenType {
-  AND,
-  AT,
-  BACKSLASH,
   BRACE_LEFT,
   BRACE_RIGHT,
   COMMA,
-  DOLLAR,
   DOT,
   END,
   ERROR,
   IDENTIFIER,
   IS,
+  SEMICOLON,
+  STRING,
+  PRINT,
 }
 
 export class Token {
@@ -68,7 +67,7 @@ export class Lexer {
           if (97 <= x && x <= 122) continue;
           else break;
         case 2:
-          if ((65 <= x && x <= 90) || x === 95) continue;
+          if (65 <= x && x <= 90 && x === 95) continue;
           else break;
         case 1:
           if (48 <= x && x <= 57) continue;
@@ -78,7 +77,27 @@ export class Lexer {
       }
       break;
     }
+    switch (this.input.substring(this.from, this.current)) {
+      case "print":
+        return this.#token(TokenType.PRINT);
+    }
     return this.#token(TokenType.IDENTIFIER);
+  }
+
+  #string() {
+    for (; this.current < this.input.length; this.current++) {
+      switch (this.input.charCodeAt(this.current)) {
+        case 12:
+          break;
+        case 34:
+          this.current++;
+          return this.#token(TokenType.STRING);
+        case 92:
+          this.current++;
+          continue;
+      }
+    }
+    return this.#token(TokenType.ERROR);
   }
 
   next(): Token {
@@ -93,20 +112,20 @@ export class Lexer {
         if (x === 125) return this.#token(TokenType.BRACE_RIGHT);
         return this.#token(TokenType.ERROR);
       case 2:
-        if (64 === x) return this.#token(TokenType.AT);
-        if (65 <= x && x <= 90 && x === 95) return this.#identifier();
-        if (x === 92) return this.#token(TokenType.BACKSLASH);
+        if (x === 38 || (65 <= x && x <= 90) || x === 95) {
+          return this.#identifier();
+        }
         return this.#token(TokenType.ERROR);
       case 1:
         switch (x) {
-          case 36:
-            return this.#token(TokenType.DOLLAR);
-          case 38:
-            return this.#token(TokenType.AND);
+          case 34:
+            return this.#string();
           case 44:
             return this.#token(TokenType.COMMA);
           case 46:
             return this.#token(TokenType.DOT);
+          case 59:
+            return this.#token(TokenType.SEMICOLON);
           case 61:
             return this.#token(TokenType.IS);
           default:

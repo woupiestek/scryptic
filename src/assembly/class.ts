@@ -1,23 +1,17 @@
 export enum Op {
-  // Add,
-  // Divide,
-  // Equal,
-  // Greater,
-  // Less,
-  // Multiply,
-  // Negative,
-  // Not,
-  // Print,
-  // Subtract,
-  // Call,
   Constant,
   GetField,
   Move,
   MoveResult,
+  New,
   InvokeStatic,
   InvokeVirtual,
   Jump,
-  JumpUnless,
+  JumpIfLess,
+  JumpIfMore,
+  JumpIfEqual,
+  JumpIfDifferent,
+  Print,
   Return,
   SetField,
 }
@@ -30,11 +24,19 @@ export type Record<A> = { [_: Identifier]: A };
 export type Instruction =
   | [Op.Constant, Local, Constant] // y = 1
   | [Op.GetField, Local, Local, Identifier] // y = x.i
-  | [Op.InvokeVirtual, Local, Identifier, Local[]] // x[0].m(x[1],...,x[arity])... 
   | [Op.InvokeStatic, Method, Local[]] // x[0].m(x[1],...,x[arity])
-  | [Op.JumpUnless, Local, Identifier] // unless x goto [label]
+  | [Op.InvokeVirtual, Local, Identifier, Local[]] // x[0].m(x[1],...,x[arity])...
+  | [
+    Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfMore,
+    Local,
+    Local,
+    Identifier,
+  ]
+  | [Op.JumpIfLess, Local, Local, Identifier]
   | [Op.Move, Local, Local] // y = x
   | [Op.MoveResult, Local] // y = (previous function call)
+  | [Op.New, Local] // y = new(); -- constructor methonds may be required, but we  don't need them here.
+  | [Op.Print, Local]
   | [Op.SetField, Local, Identifier, Local] // y.i = x
 ;
 export type LimitInstruction =
@@ -50,12 +52,14 @@ function stringify(ins: Instruction | LimitInstruction): string {
 // lacking constructors, nothing to call there.
 // something to still figure out.
 
+export type Subroutine = [...Instruction[], LimitInstruction];
+
 export class Method {
   constructor(
     readonly size: number,
     readonly instructions: { //
-      start: [...Instruction[], LimitInstruction];
-      [_: Identifier]: [...Instruction[], LimitInstruction];
+      start: Subroutine;
+      [_: Identifier]: Subroutine;
     },
   ) {}
   _strings() {

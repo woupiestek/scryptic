@@ -1,5 +1,115 @@
 # Scryptic
 
+## 2024-02-18
+
+### to add for a fuller language
+
+- constructor
+- control flow: boolean logic
+- arithmetic
+- types
+- any side effects
+
+### fields
+
+So the idea is that everything goes back to simple structs, and field accesses
+and the like, but how do you actually access those fields if they are not
+public?
+
+On the flip side, how will encapsulation actually work? I am defaulting to more
+of the examples, of just declaring a list of fields with modifiers like `public`
+to create an interface.
+
+Oblidatorily private fields might be good as well. Though this raises new
+questions about dynamic dispatch.
+
+Note: the inlining of objects and the stack and in each other runs into the same
+issue: there is no option for assigning those fields and locals! The only thing
+that could work is copying field by field. It is also imposible to properly
+garbage collect an objects when memory overlaps like this.
+
+### the alternative
+
+Object literals. Maybe that is not the right word. Basically, a constructor
+merely is a method that returns literal objects. However, it would not have a
+return type (other than object). This may ba a solution: the class would have to
+be added to the return value here.
+
+Mixed solution? Let methods return and classes export.
+
+### too many issues?
+
+What was my aim here? My answer to a better Java is adding unions types, and
+perhaps runtime support for higher kinded types. The fat pointers gimmic has me
+distracted.
+
+But not just have classes with fields and constructors, etc.?
+
+Well, the traits thing seem to require that classes can be modified at the point
+of class loading, adding new methods to existing classes. So, a class is not
+merely a simple array of methods, it needs to adjust to the methods available at
+runtime for each class.
+
+All is just unions of classes, which members are implicitly tagged with their
+classes. But how does dispatch work? For simple unions, it could still be
+static: compare classes and select the appropriate method object depending on
+the match. For traits, the layout would have to be the same in the class object
+passed along.
+
+I am not getting around to building stuff, since I am still pondering end user
+requirements.
+
+Ideas:
+
+- every method an extension method
+- unions of classes
+- classes as images of methods
+- traits
+
+I think the first one clashes the most. An object of is a record of closures.
+The layout of the record is its trait. For efficieny and consistency under
+mutation, all of the fields of the object share the same space on the heap.
+
+Extension methods leave this behind: they are not actually members of the
+classes, they just pretend to be. So if every method is an extension method, and
+object can only really carry fields. Dynamic resolution cannot depend on those
+fields.
+
+It is fine to implement traits and use those implementations in fat pointers.
+The trait has a static layout, so method selection can be fairly quick.
+
+Just breaking up: instead of classes, declare structs. Allow setting, getting
+fields on simple structs. At some point though, the fields of the struct should
+be hidden.
+
+Module boundaries: the fields of the structs are visible in the module where
+they are declared, but not outside it.
+
+### for now
+
+Just work toward a simpler, more dynamic language.
+
+we are exploring:
+
+- fat pointers
+- register machines
+- proper control flow maybe that should be it for now. If we can do a simple
+  type checker, that would be fine.
+
+- class declarations
+-
+
+A reminder that types and encapsulation can be erased by the compiler.
+
+### language sketch
+
+Initial version, dynamic, kind of object oriented.
+
+Interpret any script as the main method on a simple object? Just be easy about
+it.
+
+No static void main. Just a runnable, or even simpler, a 'script'.
+
 ## 2024-02-17
 
 ### threaded code
