@@ -1,4 +1,4 @@
-import { Instruction, Method, Op, Subroutine } from "./class.ts";
+import { Instruction, Method, Op } from "./class.ts";
 import { Expression, Statement } from "./parser.ts";
 
 export class Compiler {
@@ -45,7 +45,8 @@ export class Compiler {
   compile(): Method {
     const instructions: Instruction[] = [];
     this.#statements(this.script, instructions);
-    const start: Subroutine = [...instructions, [Op.Return]];
-    return new Method(this.size, { start });
+    return new Method(this.size, {
+      start: { instructions, next: [Op.Return] },
+    });
   }
 }

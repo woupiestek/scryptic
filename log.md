@@ -110,6 +110,23 @@ it.
 
 No static void main. Just a runnable, or even simpler, a 'script'.
 
+### debugging
+
+Thinking about blocking and resuming the VM. Idea: instead for printing with
+console.log, use events to get the messages out, so a test can check them out.
+How would this work in the opposite direction? Well, the machine could block.
+Just stop running at the instruction, and resume when an answer comes in.
+
+The core loop is it it own private method.
+
+There is a decently typed version, but a simpler answer may be to have run act
+like an iterator, executing until some break point is reached. If user input is
+wanted, the result value can be used to store it.
+
+None of this is really necessary for print, and it would probabaly kill
+performance there. Might be interesting to compare how java, rust and zio deal
+with this.
+
 ## 2024-02-17
 
 ### threaded code

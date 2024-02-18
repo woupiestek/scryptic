@@ -52,21 +52,24 @@ function stringify(ins: Instruction | LimitInstruction): string {
 // lacking constructors, nothing to call there.
 // something to still figure out.
 
-export type Subroutine = [...Instruction[], LimitInstruction];
+export type Subroutine = {
+  instructions: Instruction[];
+  next: LimitInstruction;
+};
 
 export class Method {
   constructor(
     readonly size: number,
-    readonly instructions: { //
+    readonly body: { //
       start: Subroutine;
       [_: Identifier]: Subroutine;
     },
   ) {}
   _strings() {
     return Object.fromEntries(
-      Object.entries(this.instructions).map((
+      Object.entries(this.body).map((
         [k, v],
-      ) => [k, v.map(stringify)]),
+      ) => [k, v.instructions.map(stringify), stringify(v.next)]),
     );
   }
 }

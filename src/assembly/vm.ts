@@ -1,46 +1,63 @@
-import { Class, Instruction, LimitInstruction, Method, Op } from "./class.ts";
+import {
+  Class,
+  Identifier,
+  Instruction,
+  LimitInstruction,
+  Method,
+  Op,
+  Subroutine,
+} from "./class.ts";
 import { Struct, Value } from "./object.ts";
 
 class Frame {
-  label = "start";
-  ip = 0;
-  stackTop;
-  constructor(readonly method: Method, offset: number) {
-    this.stackTop = offset + method.size;
+  static #null = null as unknown;
+  static START = "start";
+  #method: Method = Frame.#null as Method;
+  #body: Subroutine = Frame.#null as Subroutine;
+  #ip = 0;
+  stackTop = 0;
+  goto(label: Identifier) {
+    this.#body = this.#method.body[label];
+    this.#ip = 0;
   }
   next(): Instruction | LimitInstruction {
-    return this.method.instructions[this.label][this.ip++];
+    return this.#ip < this.#body.instructions.length
+      ? this.#body.instructions[this.#ip++]
+      : this.#body.next;
   }
-  get(stack: Value[], i: number): Value {
-    return stack[this.stackTop - i];
-  }
-  set(stack: Value[], i: number, value: Value) {
-    stack[this.stackTop - i] = value;
+  load(method: Method, offset: number) {
+    this.stackTop = offset + method.size;
+    this.#method = method;
+    this.goto(Frame.START);
   }
 }
 
 export class VM {
+  static MAX_FRAMES = 64;
   frames: Frame[] = [];
   stack: Value[] = [{}];
-  frame: Frame;
-  constructor(run: Method) {
-    this.frame = new Frame(run, 0);
+  fp = 0;
+  // good old dependency injection...
+  constructor(readonly print = console.log) {
+    this.frames = Array.from({ length: VM.MAX_FRAMES }).map((_) => new Frame());
   }
   get(i: number): Value {
-    return this.frame.get(this.stack, i);
+    return this.stack[this.frames[this.fp].stackTop - i];
   }
   getNumber(i: number): number {
-    const x = this.frame.get(this.stack, i);
+    const x = this.get(i);
     if (typeof x !== "number") throw new Error("number expected");
     return x;
   }
   set(i: number, value: Value) {
-    this.frame.set(this.stack, i, value);
+    this.stack[this.frames[this.fp].stackTop - i] = value;
   }
-  run() {
-    let result: Value = null;
+  #result: Value = null;
+  run(method: Method) {
+    this.fp = 0;
+    this.frames[this.fp].load(method, 0);
     for (;;) {
-      const instruction = this.frame.next();
+      const instruction = this.frames[this.fp].next();
       switch (instruction[0]) {
         case Op.Constant:
           this.set(instruction[1], instruction[2]);
@@ -57,8 +74,8 @@ export class VM {
           this.set(instruction[1], this.get(instruction[2]));
           continue;
         case Op.MoveResult:
-          this.set(instruction[1], result);
-          result = null;
+          this.set(instruction[1], this.#result);
+          this.#result = null;
           continue;
         case Op.New:
           this.set(instruction[1], {});
@@ -69,51 +86,47 @@ export class VM {
             instruction[2],
           );
           continue;
-        case Op.InvokeVirtual: {
+        case Op.InvokeVirtual:
           this.invoke(
             (this.get(instruction[1]) as Class).methods[instruction[2]],
             instruction[3],
           );
           continue;
-        }
-        case Op.Jump: {
-          this.goto(instruction[1]);
+        case Op.Jump:
+          this.frames[this.fp].goto(instruction[1]);
           continue;
-        }
         case Op.JumpIfDifferent:
           if (this.get(instruction[1]) !== this.get(instruction[2])) {
-            this.goto(instruction[3]);
+            this.frames[this.fp].goto(instruction[3]);
           }
           continue;
         case Op.JumpIfEqual:
           if (this.get(instruction[1]) === this.get(instruction[2])) {
-            this.goto(instruction[3]);
+            this.frames[this.fp].goto(instruction[3]);
           }
           continue;
         case Op.JumpIfLess:
           if (this.getNumber(instruction[1]) < this.getNumber(instruction[2])) {
-            this.goto(instruction[3]);
+            this.frames[this.fp].goto(instruction[3]);
           }
           continue;
         case Op.JumpIfMore:
           if (this.getNumber(instruction[1]) > this.getNumber(instruction[2])) {
-            this.goto(instruction[3]);
+            this.frames[this.fp].goto(instruction[3]);
           }
           continue;
         case Op.Print:
-          console.log(this.get(instruction[1]));
+          this.print(this.get(instruction[1]));
           continue;
-        case Op.Return: {
+        case Op.Return:
           if (instruction[1] !== undefined) {
-            result = this.get(instruction[1]);
+            this.#result = this.get(instruction[1]);
           }
-          const caller = this.frames.pop();
-          if (caller) {
-            this.frame = caller;
+          if (this.fp === 0) return this.#result;
+          else {
+            this.fp--;
             continue;
           }
-          return result;
-        }
         case Op.SetField:
           (this.get(instruction[1]) as Struct)[instruction[2]] = this.get(
             instruction[1],
@@ -122,20 +135,16 @@ export class VM {
     }
   }
 
-  private goto(label: string) {
-    this.frame.label = label;
-    this.frame.ip = 0;
-  }
-
   private invoke(
     method: Method,
     locals: number[],
   ) {
-    const f2 = new Frame(method, this.frame.stackTop);
+    if (this.fp >= VM.MAX_FRAMES) throw new Error("stack overflow");
+    const f2 = this.frames[this.fp + 1];
+    f2.load(method, this.frames[this.fp].stackTop);
     for (let i = 0; i < locals.length; i++) {
-      f2.set(this.stack, i, this.get(locals[i]));
+      this.stack[f2.stackTop - i] = this.get(locals[i]);
     }
-    this.frames.push(this.frame);
-    this.frame = f2;
+    this.fp++;
   }
 }
