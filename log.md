@@ -1,5 +1,60 @@
 # Scryptic
 
+## 2024-02-19
+
+### grow the language
+
+Consider compiling to wasm?
+
+### packaging
+
+I guess each module needs to own its traits and other types, as in provide a
+runtime layout for the functions, so there can be no confusion about it. There
+is still trouble with linking and inlining, then, if another version of a
+dependency is used at runtime: one module may specify that a method occurs in
+one place, the next in another. In other words, the layout can only really be
+decided at runtime, by the run time. It is up to the run time to generate the
+necessary implementations.
+
+This about the process: the runtime knows where it put all the functions. It can
+generate implementations by putting function pointers in an array. Would it
+really work that way?
+
+It seems like a way to get missing method errors early: when loading a module,
+mismatches between traits defined in one place and implemnentations defined
+elsewhere would show up quickly.
+
+Alternative: dynamic dispatch could be lazy, in which case the missing method
+error happens when the method is first called.
+
+### trait
+
+A trait is a type, namely the type of arrays of functions pointers, in
+principle. In detail, a trait might simply specify a way to resolve such
+pointers based on a layout of methods names and a global hash table of methods.
+
+### more stuff
+
+- new objects, and objects with members
+- var declarations: are they needed? seems like a good safe guard
+- block structure: variables going out of scope
+
+New example:
+
+```
+x = "Hello, Tom!";
+{ x = "Hello, Harry!"; }
+print x;
+```
+
+Obviously, the result should be "Hello, Harry!" I don't think it is now...
+
+### use for blocking the machine
+
+think about the interaction between the machine and the command line blocking it
+to wait for command line input, and later adding the option to read data from
+the prompt that way...
+
 ## 2024-02-18
 
 ### to add for a fuller language

@@ -6,11 +6,27 @@ export class ParseError extends Error {
   }
 }
 
-export type Expression = ["string", string];
+export enum NodeType {
+  Assignment,
+  Block,
+  Expression,
+  Local,
+  Print,
+  String,
+}
+
+export type LeftExpression = [NodeType.Local, string];
+
+export type RightExpression =
+  | [NodeType.String, string]
+  | [NodeType.Assignment, LeftExpression, RightExpression]
+  | LeftExpression; // todo: not all expressiona can be assigned to!
+
 export type Statement =
-  | ["print", Expression]
-  | ["block", Statement[]]
-  | ["expression", Expression];
+  | [NodeType.Expression, RightExpression]
+  | [NodeType.Print, RightExpression];
+
+export type Statements = (Statement | [NodeType.Block, Statements])[];
 
 export class Parser {
   private current: Token;
@@ -53,27 +69,35 @@ export class Parser {
     return false;
   }
 
-  #expression(): Expression {
+  #lhs(): RightExpression {
     switch (this.current.type) {
       case TokenType.STRING: {
-        const q = this.#quote();
+        const q = JSON.parse(this.#quote());
         this.#advance();
-        return ["string", q];
+        return [NodeType.String, q];
+      }
+      case TokenType.IDENTIFIER: {
+        const key: LeftExpression = [NodeType.Local, this.#quote()];
+        this.#advance();
+        if (this.#match(TokenType.IS)) {
+          const value = this.#lhs();
+          return [NodeType.Assignment, key, value];
+        } else {
+          return key;
+        }
       }
       default:
         throw this.#error("the token is not allowed at start of an expression");
     }
   }
 
-  #block(): Statement {
-    const statements = [];
+  #block(): Statements {
+    const statements: Statements = [];
     while (!this.#match(TokenType.END)) {
       if (this.#match(TokenType.BRACE_RIGHT)) {
-        this.#advance();
-        return ["block", statements];
+        return statements;
       }
-      statements.push(this.#statement());
-      this.#consume(TokenType.SEMICOLON);
+      statements.push(this.#blockOrStatement());
     }
     throw this.#error("missing '}'");
   }
@@ -81,20 +105,28 @@ export class Parser {
   #statement(): Statement {
     switch (this.current.type) {
       case TokenType.BRACE_LEFT:
-        return this.#block();
+        throw this.#error("unexpected '{'");
       case TokenType.PRINT:
         this.#advance();
-        return ["print", this.#expression()];
+        return [NodeType.Print, this.#lhs()];
       default:
-        return ["expression", this.#expression()];
+        return [NodeType.Expression, this.#lhs()];
     }
   }
 
-  script(): Statement[] {
-    const script = [];
+  #blockOrStatement(): Statement | [NodeType.Block, Statements] {
+    if (this.#match(TokenType.BRACE_LEFT)) {
+      return [NodeType.Block, this.#block()];
+    }
+    const s = this.#statement();
+    this.#consume(TokenType.SEMICOLON);
+    return s;
+  }
+
+  script(): Statements {
+    const script: Statements = [];
     while (!this.#match(TokenType.END)) {
-      script.push(this.#statement());
-      this.#consume(TokenType.SEMICOLON);
+      script.push(this.#blockOrStatement());
     }
     return script;
   }
