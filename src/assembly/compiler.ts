@@ -1,15 +1,21 @@
 import { Instruction, Method, Op } from "./class.ts";
+import { Token } from "./lexer.ts";
 import {
-  LeftExpression,
-  NodeType,
+  Assignment,
+  Block,
+  LiteralString,
+  PrintStatement,
   RightExpression,
   Statements,
+  VarDeclaration,
+  Variable,
 } from "./parser.ts";
 
 type Local = {
-  name: string;
-  register: number;
+  variable: Variable;
+  register?: number;
 };
+
 export class Compiler {
   #size = 0;
   #locals: Local[] = [];
@@ -17,17 +23,45 @@ export class Compiler {
     readonly script: Statements,
   ) {}
 
+  #error(token: Token, msg: string) {
+    return new Error(
+      `Compile error at [${token.line},${token.column}]: ${msg}`,
+    );
+  }
+
   #freeRegister() {
     return this.#size++;
   }
 
   #local(name: string): Local | null {
     for (let i = this.#locals.length - 1; i >= 0; i--) {
-      if (this.#locals[i].name === name) {
+      if (this.#locals[i].variable.name === name) {
         return this.#locals[i];
       }
     }
     return null;
+  }
+
+  #resolve(variable: Variable): Local {
+    const local = this.#local(variable.name);
+    if (local === null) {
+      throw this.#error(
+        variable.token,
+        `Undeclared variable '${variable.name}'`,
+      );
+    }
+    return local;
+  }
+
+  #getRegister(variable: Variable): number {
+    const register = this.#resolve(variable).register;
+    if (register === undefined) {
+      throw this.#error(
+        variable.token,
+        `Unassigned variable '${variable.name}'`,
+      );
+    }
+    return register;
   }
 
   // is this how registers are going to be computed?
@@ -38,69 +72,55 @@ export class Compiler {
     instructions: Instruction[],
     target?: number,
   ) {
-    switch (expression[0]) {
-      case NodeType.String:
-        if (target !== undefined) {
-          instructions.push([Op.Constant, target, expression[1]]);
-        }
-        // just drop the constant otherwise.
-        break;
-      case NodeType.Assignment:
-        // interesting case...
-        {
-          const register = target ?? this.#freeRegister();
-          this.#right(expression[2], instructions, register);
-          this.#left(expression[1], instructions, register);
-        }
-        break;
-      case NodeType.Local:
-        // not the same thing...
-        if (target) {
-          const local = this.#local(expression[1]);
-          if (local != null) {
-            instructions.push([Op.Move, target, local.register]);
-          }
-        }
-    }
-  }
-
-  #left(
-    expression: LeftExpression,
-    instructions: Instruction[],
-    target: number,
-  ) {
-    switch (expression[0]) {
-      case NodeType.Local: {
-        const local = this.#local(expression[1]);
-        if (local) {
-          local.register = target;
-        } else {
-          this.#locals.push({ name: expression[1], register: target });
-        }
-      } // nothing emitted
+    if (expression instanceof LiteralString) {
+      if (target !== undefined) {
+        instructions.push([Op.Constant, target, expression.value]);
+      }
+    } else if (
+      expression instanceof Assignment
+    ) {
+      const local = this.#resolve(expression.left);
+      local.register ||= this.#freeRegister();
+      this.#right(expression.right, instructions, local.register);
+    } else if (
+      expression instanceof Variable
+    ) {
+      const register = this.#getRegister(expression);
+      if (target !== undefined) {
+        instructions.push([Op.Move, target, register]);
+      }
     }
   }
 
   #statements(statements: Statements, instructions: Instruction[]) {
     for (const statement of statements) {
-      switch (statement[0]) {
-        case NodeType.Block: {
-          const depth = this.#locals.length;
-          this.#statements(statement[1], instructions);
-          this.#locals.length = depth;
-          break;
+      if (statement instanceof Block) {
+        const depth = this.#locals.length;
+        this.#statements(statement.statements, instructions);
+        this.#locals.length = depth;
+      } else if (statement instanceof PrintStatement) {
+        // type checking might make sense for 'print'
+        const reg = this.#freeRegister();
+        this.#right(statement.value, instructions, reg);
+        instructions.push([Op.Print, reg]);
+      } else if (statement instanceof VarDeclaration) {
+        const resolve = this.#local(statement.key.name);
+        if (resolve !== null) {
+          throw this.#error(
+            statement.token,
+            `Variable '${statement.key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
+          );
         }
-        case NodeType.Expression:
-          // expression statements
-          // may not be hopeless...
-          this.#right(statement[1], instructions);
-          break;
-        case NodeType.Print: {
-          const reg = this.#freeRegister();
-          this.#right(statement[1], instructions, reg);
-          instructions.push([Op.Print, reg]);
-          break;
+        if (statement.value) {
+          const register = this.#freeRegister();
+          this.#right(statement.value, instructions, register);
+          this.#locals.push({ variable: statement.key, register });
+        } else {
+          this.#locals.push({ variable: statement.key });
         }
+      } else { // expression statements
+        // may not be hopeless...
+        this.#right(statement, instructions);
       }
     }
   }

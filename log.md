@@ -1,5 +1,51 @@
 # Scryptic
 
+## 2024-02-20
+
+### var declarations and objects
+
+Lox from Crafting has var declarations, as a way of introducing variables.
+
+Idea: don't allow assignments, and a lot of trouble is over. Every `x =` is a
+declaration of a new constant, and leave it at that. Or maybe that operation
+should simply not be allowed: pick a new name please!
+
+However, I wanted a language with optional mutability, so there must be a way to
+declare actual variables. Is it bad to have this combination:
+
+- `var x` introduces a new variable. `x = ...` is takes as assigning as long as
+  this is in scope.
+- `x = ...` introduces a constant.
+
+This is probably still confusing: you want to introduce a constant, but
+accidentally assign to a variable from context, especially after copying copy
+into a new context.
+
+A separate assignement operator `:=` could help.
+
+### the type system
+
+The main types are the traits, which are just records of functions. The classes
+are ranges within those traits, and unions of classes are therefore possible.
+This leads to a question though...
+
+One can define a union of classes that implement different traits. Extension
+methods could be defined or derived on such unions, especially if methods with
+matching names and signatures exist. Is that how it works?
+
+The unions of classes alos seem to require a fat pointer. This is not enough
+however: The classes must be forced into the shared trait somehow. To be
+precise: if classes are indeed arrays of pointers to methods, then the methods
+must appear in the same order for each implementation. Also, any extra methods
+must be left out of the united version of the classes.
+
+These unions of classes are the replacements for inheritance.
+
+Maybe that should be explicit: only classes of the same trait can be united.
+There is a down casting operation that enables this, which actually crates a new
+class to fit the new trait. The desired ordering of the methods, finally, is
+fixed by the runtime.
+
 ## 2024-02-19
 
 ### grow the language

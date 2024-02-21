@@ -6,27 +6,55 @@ export class ParseError extends Error {
   }
 }
 
-export enum NodeType {
-  Assignment,
-  Block,
-  Expression,
-  Local,
-  Print,
-  String,
+export interface Node {
+  readonly token: Token;
 }
 
-export type LeftExpression = [NodeType.Local, string];
+export class Variable implements Node {
+  constructor(readonly token: Token, readonly name: string) {}
+}
+export type LeftExpression = Variable;
 
+export class LiteralString implements Node {
+  constructor(readonly token: Token, readonly value: string) {}
+}
+export class Assignment implements Node {
+  constructor(
+    readonly token: Token,
+    readonly left: LeftExpression,
+    readonly right: RightExpression,
+  ) {}
+}
 export type RightExpression =
-  | [NodeType.String, string]
-  | [NodeType.Assignment, LeftExpression, RightExpression]
-  | LeftExpression; // todo: not all expressiona can be assigned to!
+  | LiteralString
+  | Assignment
+  | LeftExpression;
+
+export class PrintStatement implements Node {
+  constructor(
+    readonly token: Token,
+    readonly value: RightExpression,
+  ) {}
+}
+
+export class VarDeclaration implements Node {
+  constructor(
+    readonly token: Token,
+    readonly key: Variable,
+    readonly value?: RightExpression,
+  ) {}
+}
 
 export type Statement =
-  | [NodeType.Expression, RightExpression]
-  | [NodeType.Print, RightExpression];
+  | RightExpression
+  | PrintStatement
+  | VarDeclaration;
 
-export type Statements = (Statement | [NodeType.Block, Statements])[];
+export class Block implements Node {
+  constructor(readonly token: Token, readonly statements: Statements) {}
+}
+
+export type Statements = (Statement | Block)[];
 
 export class Parser {
   private current: Token;
@@ -69,19 +97,24 @@ export class Parser {
     return false;
   }
 
-  #lhs(): RightExpression {
+  #rightExpression(): RightExpression {
     switch (this.current.type) {
       case TokenType.STRING: {
-        const q = JSON.parse(this.#quote());
+        const literal = new LiteralString(
+          this.current,
+          JSON.parse(this.#quote()),
+        );
         this.#advance();
-        return [NodeType.String, q];
+        return literal;
       }
       case TokenType.IDENTIFIER: {
-        const key: LeftExpression = [NodeType.Local, this.#quote()];
-        this.#advance();
-        if (this.#match(TokenType.IS)) {
-          const value = this.#lhs();
-          return [NodeType.Assignment, key, value];
+        const key: LeftExpression = new Variable(this.current, this.#quote());
+        this.current = this.lexer.next();
+        if (this.current.type === TokenType.IS) {
+          const token = this.current;
+          this.current = this.lexer.next();
+          const value = this.#rightExpression();
+          return new Assignment(token, key, value);
         } else {
           return key;
         }
@@ -106,17 +139,32 @@ export class Parser {
     switch (this.current.type) {
       case TokenType.BRACE_LEFT:
         throw this.#error("unexpected '{'");
-      case TokenType.PRINT:
+      case TokenType.PRINT: {
+        const token = this.current;
         this.#advance();
-        return [NodeType.Print, this.#lhs()];
+        return new PrintStatement(token, this.#rightExpression());
+      }
+      case TokenType.VAR: {
+        const token = this.current;
+        this.#advance();
+        const key = new Variable(this.current, this.#quote());
+        this.#consume(TokenType.IDENTIFIER);
+        if (this.#match(TokenType.IS)) {
+          const value = this.#rightExpression();
+          return new VarDeclaration(token, key, value);
+        }
+        return new VarDeclaration(token, key);
+      }
       default:
-        return [NodeType.Expression, this.#lhs()];
+        return this.#rightExpression();
     }
   }
 
-  #blockOrStatement(): Statement | [NodeType.Block, Statements] {
-    if (this.#match(TokenType.BRACE_LEFT)) {
-      return [NodeType.Block, this.#block()];
+  #blockOrStatement(): Statement | Block {
+    if (this.current.type === TokenType.BRACE_LEFT) {
+      const token = this.current;
+      this.#advance();
+      return new Block(token, this.#block());
     }
     const s = this.#statement();
     this.#consume(TokenType.SEMICOLON);

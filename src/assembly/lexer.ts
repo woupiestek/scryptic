@@ -10,6 +10,7 @@ export enum TokenType {
   SEMICOLON,
   STRING,
   PRINT,
+  VAR,
 }
 
 export class Token {
@@ -80,6 +81,8 @@ export class Lexer {
     switch (this.input.substring(this.from, this.current)) {
       case "print":
         return this.#token(TokenType.PRINT);
+      case "var":
+        return this.#token(TokenType.VAR);
     }
     return this.#token(TokenType.IDENTIFIER);
   }
@@ -94,6 +97,11 @@ export class Lexer {
           return this.#token(TokenType.STRING);
         case 92:
           this.current++;
+          // take care of new lines here
+          if (this.input.charCodeAt(this.current) === 12) {
+            this.line++;
+            this.startLine = this.current;
+          }
           continue;
       }
     }

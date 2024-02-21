@@ -46,7 +46,7 @@ export type LimitInstruction =
 
 function stringify(ins: Instruction | LimitInstruction): string {
   const [h, ...t] = ins;
-  return [Op[h], t].join(" ");
+  return [Op[h], ...t].join(" ");
 }
 // possibly missing: constructor instructions
 // lacking constructors, nothing to call there.
@@ -72,6 +72,9 @@ export class Method {
       ) => [k, v.instructions.map(stringify), stringify(v.next)]),
     );
   }
+  toString() {
+    return JSON.stringify(this._strings(), null, 2);
+  }
 }
 
 export class Class {
@@ -84,6 +87,6 @@ export class Class {
     );
   }
   toString() {
-    return JSON.stringify(this._strings, null, 2);
+    return JSON.stringify(this._strings(), null, 2);
   }
 }
