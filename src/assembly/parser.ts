@@ -16,8 +16,8 @@ export class Variable implements Node {
 export class MemberAccess implements Node {
   constructor(
     readonly token: Token,
-    readonly target: RightExpression,
-    readonly name: string,
+    readonly target: LeftExpression,
+    readonly member: string,
   ) {}
 }
 export type LeftExpression = Variable | MemberAccess;
@@ -42,7 +42,8 @@ export type RightExpression =
   | LeftExpression
   | New;
 
-export class PrintStatement implements Node {
+// print x = 7; is now interpreted as print (x = 7) and allowed. It is an interpretation that makes sence...
+export class LogStatement implements Node {
   constructor(
     readonly token: Token,
     readonly value: RightExpression,
@@ -60,7 +61,7 @@ export class VarDeclaration implements Node {
 export type Statement =
   | Block
   | RightExpression
-  | PrintStatement
+  | LogStatement
   | VarDeclaration;
 
 export class Block implements Node {
@@ -122,7 +123,14 @@ export class Parser {
         return new New(token);
       }
       case TokenType.IDENTIFIER: {
-        const key: LeftExpression = new Variable(token, this.lexeme(token));
+        let key: LeftExpression = new Variable(token, this.lexeme(token));
+        // for new, allow no member access to literal strings or to new, as either are pointless
+        // this could change, though
+        while (this.next.type === TokenType.DOT) {
+          const dot = this.#pop();
+          const member = this.#consume(TokenType.IDENTIFIER);
+          key = new MemberAccess(dot, key, this.lexeme(member));
+        }
         if (this.next.type === TokenType.IS) {
           const is = this.#pop();
           const value = this.#expression(this.#pop());
@@ -159,8 +167,8 @@ export class Parser {
     switch (token.type) {
       case TokenType.BRACE_LEFT:
         return this.#block(token);
-      case TokenType.PRINT: {
-        statement = new PrintStatement(token, this.#expression(this.#pop()));
+      case TokenType.LOG: {
+        statement = new LogStatement(token, this.#expression(this.#pop()));
         break;
       }
       case TokenType.VAR: {

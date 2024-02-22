@@ -2,6 +2,46 @@
 
 ## 2024-02-20
 
+### handling objects with memebers
+
+The next struggle is setiing and getting object members
+
+- The are more notions of target now, As we may want to move a value from the
+  stack to the heap at the end of the day.
+- The other way around runs into issues with things not being of the right type,
+  seeming to ask for some type checking.
+- Register allocation also becomes a question: the system just moves over to the
+  next one available, maybe we should allow for some clean up.
+
+- I see more targets... we can at least try to add print as target, to further
+  limit the number of register allocations.
+
+Something is difficult here -> Assiging to a field ask a register to take dat
+from. The other instructions mostly ask where to put things. Hence, there is
+some temporary register needed there...
+
+Simple algorithm for register allocation and deallocation may be good enough, as
+long as we remember to deallocate all in the right place.
+
+For now, all values take up one slot. That may change.
+
+I can do things with objects now!
+
+### references vs incides
+
+Static memebory might function with a layer of indirection, where a function or
+class has an index in a global array of constants so their references on the
+stack can be less fat. IDK, it is an idea.
+
+### left todo
+
+- invoke and jump.
+
+Jump is mainly compiler complexity, though it also involves adding syntax for
+it. The only things to compare right now are strings and objects...
+
+## 2024-02-20
+
 ### var declarations and objects
 
 Lox from Crafting has var declarations, as a way of introducing variables.

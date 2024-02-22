@@ -38,16 +38,19 @@ export class VM {
   stack: Value[] = [{}];
   fp = 0;
   // good old dependency injection...
-  constructor(readonly print: (_: string) => void = console.log) {
+  constructor(readonly print: (_: Value) => void = console.log) {
     this.frames = Array.from({ length: VM.MAX_FRAMES }).map((_) => new Frame());
   }
   get(i: number): Value {
-    return this.stack[this.frames[this.fp].stackTop - i];
+    return this.stack[this.frames[this.fp].stackTop - i] || null;
   }
-  getNumber(i: number): number {
+  less(i: number, j: number): boolean {
     const x = this.get(i);
-    if (typeof x !== "number") throw new Error("number expected");
-    return x;
+    const y = this.get(j);
+    if (x === null || y === null) {
+      throw new Error("null pointer found");
+    }
+    return x < y;
   }
   set(i: number, value: Value) {
     this.stack[this.frames[this.fp].stackTop - i] = value;
@@ -63,6 +66,9 @@ export class VM {
           this.set(instruction[1], instruction[2]);
           continue;
         case Op.GetField:
+          // this.get(instruction[2]) may not actrually be struct
+          // this.get(instruction[2])[instruction[3]] may not be value
+          // that is what we need a type checker for
           this.set(
             instruction[1],
             (this.get(instruction[2]) as Struct)[
@@ -106,17 +112,17 @@ export class VM {
           }
           continue;
         case Op.JumpIfLess:
-          if (this.getNumber(instruction[1]) < this.getNumber(instruction[2])) {
+          if (this.less(instruction[1], instruction[2])) {
             this.frames[this.fp].goto(instruction[3]);
           }
           continue;
-        case Op.JumpIfMore:
-          if (this.getNumber(instruction[1]) > this.getNumber(instruction[2])) {
+        case Op.JumpIfNotMore:
+          if (!this.less(instruction[2], instruction[1])) {
             this.frames[this.fp].goto(instruction[3]);
           }
           continue;
-        case Op.Print:
-          this.print(this.get(instruction[1])?.toString() || "null");
+        case Op.Log:
+          this.print(this.get(instruction[1]));
           continue;
         case Op.Return:
           if (instruction[1] !== undefined) {
@@ -129,7 +135,7 @@ export class VM {
           }
         case Op.SetField:
           (this.get(instruction[1]) as Struct)[instruction[2]] = this.get(
-            instruction[1],
+            instruction[3],
           );
       }
     }

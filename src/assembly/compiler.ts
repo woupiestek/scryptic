@@ -4,8 +4,9 @@ import {
   Assignment,
   Block,
   LiteralString,
+  LogStatement,
+  MemberAccess,
   New,
-  PrintStatement,
   RightExpression,
   Statement,
   VarDeclaration,
@@ -19,6 +20,7 @@ type Local = {
 
 export class Compiler {
   #size = 0;
+  #secondHandRegisters: number[] = [];
   #locals: Local[] = [];
   constructor(
     readonly script: Statement[],
@@ -30,8 +32,15 @@ export class Compiler {
     );
   }
 
-  #freeRegister() {
+  #allocate(): number {
+    if (this.#secondHandRegisters.length > 0) {
+      return this.#secondHandRegisters.pop() as number;
+    }
     return this.#size++;
+  }
+
+  #deallocate(...register: number[]) {
+    this.#secondHandRegisters.push(...register);
   }
 
   #local(name: string): Local | null {
@@ -84,9 +93,34 @@ export class Compiler {
     } else if (
       expression instanceof Assignment
     ) {
-      const local = this.#resolve(expression.left);
-      local.register ||= this.#freeRegister();
-      this.#right(expression.right, instructions, local.register);
+      if (expression.left instanceof Variable) {
+        const local = this.#resolve(expression.left);
+        // local.register could already hav a value and target could be temporary, so...
+        // ownership shows up already!
+        local.register ||= this.#allocate();
+        this.#right(expression.right, instructions, local.register);
+        if (target !== undefined) {
+          instructions.push([Op.Move, target, local.register]);
+        }
+      } else if (expression.left instanceof MemberAccess) {
+        // calculate results, store in register 1
+        const register1 = this.#allocate();
+        this.#right(expression.left.target, instructions, register1);
+        // now calculate the right hand side and store in register 2
+        const register2 = this.#allocate();
+        this.#right(expression.right, instructions, register2);
+        // move the result to the heap
+        instructions.push([
+          Op.SetField,
+          register1,
+          expression.left.member,
+          register2,
+        ]);
+        this.#deallocate(register1, register2);
+        // neither register is needed anymore
+      } else {
+        this.#error(expression.token, `Not rules for ${expression}`);
+      }
     } else if (
       expression instanceof Variable
     ) {
@@ -94,6 +128,18 @@ export class Compiler {
       if (target !== undefined) {
         instructions.push([Op.Move, target, register]);
       }
+    } else if (expression instanceof MemberAccess) {
+      const register = this.#allocate();
+      this.#right(expression.target, instructions, register);
+      if (target !== undefined) {
+        instructions.push([
+          Op.GetField,
+          target,
+          register,
+          expression.member,
+        ]);
+      }
+      this.#deallocate(register);
     }
   }
 
@@ -102,12 +148,17 @@ export class Compiler {
       if (statement instanceof Block) {
         const depth = this.#locals.length;
         this.#statements(statement.statements, instructions);
-        this.#locals.length = depth;
-      } else if (statement instanceof PrintStatement) {
+        while (this.#locals.length > depth) {
+          const register = this.#locals.pop()?.register;
+          if (register !== undefined) this.#deallocate(register);
+        }
+      } else if (statement instanceof LogStatement) {
         // type checking might make sense for 'print'
-        const reg = this.#freeRegister();
-        this.#right(statement.value, instructions, reg);
-        instructions.push([Op.Print, reg]);
+        // need print now to inspect memory
+        const register = this.#allocate();
+        this.#right(statement.value, instructions, register);
+        instructions.push([Op.Log, register]);
+        this.#deallocate(register);
       } else if (statement instanceof VarDeclaration) {
         const resolve = this.#local(statement.key.name);
         if (resolve !== null) {
@@ -117,7 +168,7 @@ export class Compiler {
           );
         }
         if (statement.value) {
-          const register = this.#freeRegister();
+          const register = this.#allocate();
           this.#right(statement.value, instructions, register);
           this.#locals.push({ variable: statement.key, register });
         } else {

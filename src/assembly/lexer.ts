@@ -7,10 +7,10 @@ export enum TokenType {
   ERROR,
   IDENTIFIER,
   IS,
+  LOG,
+  NEW,
   SEMICOLON,
   STRING,
-  NEW,
-  PRINT,
   VAR,
 }
 
@@ -27,7 +27,7 @@ export class Token {
 const KEYWORDS: Record<string, TokenType> = {
   var: TokenType.VAR,
   new: TokenType.NEW,
-  print: TokenType.PRINT,
+  log: TokenType.LOG,
 };
 
 export class Lexer {

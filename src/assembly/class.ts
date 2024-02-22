@@ -7,41 +7,40 @@ export enum Op {
   InvokeStatic,
   InvokeVirtual,
   Jump,
-  JumpIfLess,
-  JumpIfMore,
-  JumpIfEqual,
   JumpIfDifferent,
-  Print,
+  JumpIfEqual,
+  JumpIfLess,
+  JumpIfNotMore,
+  Log,
   Return,
   SetField,
 }
 
-type Local = number;
+type Register = number;
 type Constant = string | number | Class | null;
 export type Identifier = string;
 export type Record<A> = { [_: Identifier]: A };
 
 export type Instruction =
-  | [Op.Constant, Local, Constant] // y = 1
-  | [Op.GetField, Local, Local, Identifier] // y = x.i
-  | [Op.InvokeStatic, Method, Local[]] // x[0].m(x[1],...,x[arity])
-  | [Op.InvokeVirtual, Local, Identifier, Local[]] // x[0].m(x[1],...,x[arity])...
+  | [Op.Constant, Register, Constant] // y = 1
+  | [Op.GetField, Register, Register, Identifier] // y = x.i
+  | [Op.InvokeStatic, Method, Register[]] // x[0].m(x[1],...,x[arity])
+  | [Op.InvokeVirtual, Register, Identifier, Register[]] // x[0].m(x[1],...,x[arity])...
   | [
-    Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfMore,
-    Local,
-    Local,
+    Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfNotMore,
+    Register,
+    Register,
     Identifier,
   ]
-  | [Op.JumpIfLess, Local, Local, Identifier]
-  | [Op.Move, Local, Local] // y = x
-  | [Op.MoveResult, Local] // y = (previous function call)
-  | [Op.New, Local] // y = new(); -- constructor methonds may be required, but we  don't need them here.
-  | [Op.Print, Local]
-  | [Op.SetField, Local, Identifier, Local] // y.i = x
+  | [Op.Move, Register, Register] // y = x
+  | [Op.MoveResult, Register] // y = (previous function call)
+  | [Op.New, Register] // y = new(); -- constructor methonds may be required, but we  don't need them here.
+  | [Op.Log, Register]
+  | [Op.SetField, Register, Identifier, Register] // y.i = x
 ;
 export type LimitInstruction =
   | [Op.Jump, Identifier] // goto [label]
-  | [Op.Return, Local?] // return; whatever is left on the bottom can be taken as return value
+  | [Op.Return, Register?] // return; whatever is left on the bottom can be taken as return value
 ;
 
 function stringify(ins: Instruction | LimitInstruction): string {
