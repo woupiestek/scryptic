@@ -13,7 +13,14 @@ export interface Node {
 export class Variable implements Node {
   constructor(readonly token: Token, readonly name: string) {}
 }
-export type LeftExpression = Variable;
+export class MemberAccess implements Node {
+  constructor(
+    readonly token: Token,
+    readonly target: RightExpression,
+    readonly name: string,
+  ) {}
+}
+export type LeftExpression = Variable | MemberAccess;
 
 export class LiteralString implements Node {
   constructor(readonly token: Token, readonly value: string) {}
@@ -25,10 +32,15 @@ export class Assignment implements Node {
     readonly right: RightExpression,
   ) {}
 }
+
+export class New implements Node {
+  constructor(readonly token: Token) {}
+}
 export type RightExpression =
-  | LiteralString
   | Assignment
-  | LeftExpression;
+  | LiteralString
+  | LeftExpression
+  | New;
 
 export class PrintStatement implements Node {
   constructor(
@@ -46,135 +58,134 @@ export class VarDeclaration implements Node {
 }
 
 export type Statement =
+  | Block
   | RightExpression
   | PrintStatement
   | VarDeclaration;
 
 export class Block implements Node {
-  constructor(readonly token: Token, readonly statements: Statements) {}
+  constructor(readonly token: Token, readonly statements: Statement[]) {}
 }
 
-export type Statements = (Statement | Block)[];
-
 export class Parser {
-  private current: Token;
+  private next: Token;
   private lexer: Lexer;
   constructor(private input: string) {
     this.lexer = new Lexer(input);
-    this.current = this.lexer.next();
+    this.next = this.lexer.next();
   }
 
-  #advance() {
-    this.current = this.lexer.next();
+  #pop() {
+    const token = this.next;
+    this.next = this.lexer.next();
+    return token;
   }
 
-  #quote() {
-    return this.input.substring(this.current.from, this.current.to);
+  lexeme(token: Token) {
+    return this.input.substring(token.from, token.to);
   }
 
-  #error(msg: string) {
+  #error(token: Token, msg: string) {
     return new ParseError(
-      this.current,
-      `Error at line ${this.current.line}, column ${this.current.column}, token ${
-        TokenType[this.current.type]
-      } "${this.#quote()}": ${msg}`,
+      token,
+      `Error at line ${token.line}, column ${token.column}, token ${
+        TokenType[token.type]
+      } "${this.lexeme(token)}": ${msg}`,
     );
   }
 
   #consume(type: TokenType) {
-    if (!this.#match(type)) {
-      throw this.#error(
-        `expected ${TokenType[type]}, found ${TokenType[this.current.type]}`,
-      );
+    const token = this.#pop();
+    if (token.type !== type) {
+      throw this.#error(token, `expected ${TokenType[type]}`);
     }
+    return token;
   }
 
   #match(type: TokenType) {
-    if (this.current.type === type) {
-      this.#advance();
+    if (this.next.type === type) {
+      this.next = this.lexer.next();
       return true;
     }
     return false;
   }
 
-  #rightExpression(): RightExpression {
-    switch (this.current.type) {
+  #expression(token: Token): RightExpression {
+    switch (token.type) {
       case TokenType.STRING: {
-        const literal = new LiteralString(
-          this.current,
-          JSON.parse(this.#quote()),
+        return new LiteralString(
+          token,
+          JSON.parse(this.lexeme(token)),
         );
-        this.#advance();
-        return literal;
+      }
+      case TokenType.NEW: {
+        return new New(token);
       }
       case TokenType.IDENTIFIER: {
-        const key: LeftExpression = new Variable(this.current, this.#quote());
-        this.current = this.lexer.next();
-        if (this.current.type === TokenType.IS) {
-          const token = this.current;
-          this.current = this.lexer.next();
-          const value = this.#rightExpression();
-          return new Assignment(token, key, value);
+        const key: LeftExpression = new Variable(token, this.lexeme(token));
+        if (this.next.type === TokenType.IS) {
+          const is = this.#pop();
+          const value = this.#expression(this.#pop());
+          return new Assignment(is, key, value);
         } else {
           return key;
         }
       }
       default:
-        throw this.#error("the token is not allowed at start of an expression");
+        throw this.#error(
+          token,
+          "the token is not allowed at start of an expression",
+        );
     }
   }
 
-  #block(): Statements {
-    const statements: Statements = [];
+  #block(braceLeft: Token): Block {
+    const statements: Statement[] = [];
     while (!this.#match(TokenType.END)) {
       if (this.#match(TokenType.BRACE_RIGHT)) {
-        return statements;
+        return new Block(braceLeft, statements);
       }
-      statements.push(this.#blockOrStatement());
+      statements.push(this.#statement());
     }
-    throw this.#error("missing '}'");
+    throw this.#error(
+      braceLeft,
+      `'{' at [${braceLeft.line}, ${braceLeft.column}] is missing a '}'`,
+    );
   }
 
   #statement(): Statement {
-    switch (this.current.type) {
+    const token = this.#pop();
+    let statement: Statement;
+    switch (token.type) {
       case TokenType.BRACE_LEFT:
-        throw this.#error("unexpected '{'");
+        return this.#block(token);
       case TokenType.PRINT: {
-        const token = this.current;
-        this.#advance();
-        return new PrintStatement(token, this.#rightExpression());
+        statement = new PrintStatement(token, this.#expression(this.#pop()));
+        break;
       }
       case TokenType.VAR: {
-        const token = this.current;
-        this.#advance();
-        const key = new Variable(this.current, this.#quote());
-        this.#consume(TokenType.IDENTIFIER);
+        const variable = this.#consume(TokenType.IDENTIFIER);
+        const key = new Variable(variable, this.lexeme(variable));
         if (this.#match(TokenType.IS)) {
-          const value = this.#rightExpression();
-          return new VarDeclaration(token, key, value);
+          const value = this.#expression(this.#pop());
+          statement = new VarDeclaration(token, key, value);
+          break;
         }
-        return new VarDeclaration(token, key);
+        statement = new VarDeclaration(token, key);
+        break;
       }
       default:
-        return this.#rightExpression();
+        statement = this.#expression(token);
+        break;
     }
-  }
-
-  #blockOrStatement(): Statement | Block {
-    if (this.current.type === TokenType.BRACE_LEFT) {
-      const token = this.current;
-      this.#advance();
-      return new Block(token, this.#block());
-    }
-    const s = this.#statement();
     this.#consume(TokenType.SEMICOLON);
-    return s;
+    return statement;
   }
 
-  script(): Statements {
-    const script: Statements = [];
+  script(): Statement[] {
+    const script: Statement[] = [];
     while (!this.#match(TokenType.END)) {
-      script.push(this.#blockOrStatement());
+      script.push(this.#statement());
     }
     return script;
   }

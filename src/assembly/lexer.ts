@@ -9,6 +9,7 @@ export enum TokenType {
   IS,
   SEMICOLON,
   STRING,
+  NEW,
   PRINT,
   VAR,
 }
@@ -23,11 +24,17 @@ export class Token {
   ) {}
 }
 
+const KEYWORDS: Record<string, TokenType> = {
+  var: TokenType.VAR,
+  new: TokenType.NEW,
+  print: TokenType.PRINT,
+};
+
 export class Lexer {
   private from = 0;
   private current = 0;
   private line = 1;
-  private startLine = 1;
+  private startLine = 0;
   constructor(private input: string) {}
 
   #space() {
@@ -78,13 +85,10 @@ export class Lexer {
       }
       break;
     }
-    switch (this.input.substring(this.from, this.current)) {
-      case "print":
-        return this.#token(TokenType.PRINT);
-      case "var":
-        return this.#token(TokenType.VAR);
-    }
-    return this.#token(TokenType.IDENTIFIER);
+    return this.#token(
+      KEYWORDS[this.input.substring(this.from, this.current)] ||
+        TokenType.IDENTIFIER,
+    );
   }
 
   #string() {

@@ -19,13 +19,11 @@ function run(input: string) {
 }
 
 Deno.test(function helloWorld() {
-  const text = run('print "Hello, World!";');
-  assertEquals(text, ["Hello, World!"]);
+  assertEquals(run('print "Hello, World!";'), ["Hello, World!"]);
 });
 
 Deno.test(function borrowJsonParse() {
-  const text = run('print "Hello, \u2260!";');
-  assertEquals(text, ["Hello, ≠!"]);
+  assertEquals(run('print "Hello, \u2260!";'), ["Hello, ≠!"]);
 });
 
 Deno.test(function variableDeclaration() {
@@ -37,21 +35,25 @@ Deno.test(function assignUndeclared() {
 });
 
 Deno.test(function assignment() {
-  const text = run(
-    'var x;\
+  assertEquals(
+    run(
+      'var x;\
     { x = "Hello, World!"; }\
     print x;',
+    ),
+    ["Hello, World!"],
   );
-  assertEquals(text, ["Hello, World!"]);
 });
 
 Deno.test(function reassignment() {
-  const text = run(
-    'var x = "Something else";\
+  assertEquals(
+    run(
+      'var x = "Something else";\
     { x = "Hello, World!"; }\
     print x;',
+    ),
+    ["Hello, World!"],
   );
-  assertEquals(text, ["Hello, World!"]);
 });
 
 Deno.test(function assignmentOutOfScope() {
@@ -68,4 +70,8 @@ Deno.test(function doubleAssignment() {
       'var x; { var x = "Hello, World!"; } print x;',
     )
   );
+});
+
+Deno.test(function construction() {
+  assertEquals(run("var x = new; print x;"), ["[object Object]"]);
 });

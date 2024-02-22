@@ -4,9 +4,10 @@ import {
   Assignment,
   Block,
   LiteralString,
+  New,
   PrintStatement,
   RightExpression,
-  Statements,
+  Statement,
   VarDeclaration,
   Variable,
 } from "./parser.ts";
@@ -20,7 +21,7 @@ export class Compiler {
   #size = 0;
   #locals: Local[] = [];
   constructor(
-    readonly script: Statements,
+    readonly script: Statement[],
   ) {}
 
   #error(token: Token, msg: string) {
@@ -76,6 +77,10 @@ export class Compiler {
       if (target !== undefined) {
         instructions.push([Op.Constant, target, expression.value]);
       }
+    } else if (expression instanceof New) {
+      if (target !== undefined) {
+        instructions.push([Op.New, target]);
+      } // ignore otherwise
     } else if (
       expression instanceof Assignment
     ) {
@@ -92,7 +97,7 @@ export class Compiler {
     }
   }
 
-  #statements(statements: Statements, instructions: Instruction[]) {
+  #statements(statements: Statement[], instructions: Instruction[]) {
     for (const statement of statements) {
       if (statement instanceof Block) {
         const depth = this.#locals.length;
