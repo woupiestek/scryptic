@@ -1,6 +1,20 @@
 # Scryptic
 
-## 2024-02-20
+## 2024-02-23
+
+### control structures
+
+Boolean expressions:
+
+- ==, !=, <, <=, >, >=
+- &&, ||, !
+- `if` ... `then` ... `else` ...
+- `loop`, `break`, `continue`, `while`, (`for` requires numbers)
+- labels
+- parentheses
+- if expressions?
+
+## 2024-02-22
 
 ### handling objects with memebers
 

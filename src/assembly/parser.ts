@@ -42,6 +42,15 @@ export type RightExpression =
   | LeftExpression
   | New;
 
+export class IfStatement implements Node {
+  constructor(
+    readonly token: Token,
+    readonly condition: RightExpression,
+    readonly onTrue: Statement,
+    readonly onFalse?: Statement,
+  ) {}
+}
+
 // print x = 7; is now interpreted as print (x = 7) and allowed. It is an interpretation that makes sence...
 export class LogStatement implements Node {
   constructor(
@@ -60,13 +69,61 @@ export class VarDeclaration implements Node {
 
 export type Statement =
   | Block
-  | RightExpression
+  | IfStatement
   | LogStatement
+  | RightExpression
   | VarDeclaration;
 
 export class Block implements Node {
   constructor(readonly token: Token, readonly statements: Statement[]) {}
 }
+
+export class Access implements Node {
+  constructor(
+    readonly token: Token,
+    readonly object: Expression,
+    readonly field: string,
+  ) {}
+}
+
+export class Binary implements Node {
+  constructor(
+    readonly token: Token,
+    readonly left: Expression,
+    readonly right: Expression,
+  ) {}
+}
+
+export class LiteralBoolean implements Node {
+  constructor(
+    readonly token: Token,
+    readonly value: boolean,
+  ) {}
+}
+
+export class Not implements Node {
+  constructor(
+    readonly token: Token,
+    readonly count: number,
+    readonly expression: Expression,
+  ) {}
+}
+
+export class Varb implements Node {
+  constructor(
+    readonly token: Token,
+    readonly name: string,
+  ) {}
+}
+
+export type Expression =
+  | Access
+  | Binary
+  | LiteralBoolean
+  | LiteralString
+  | New
+  | Not
+  | Varb;
 
 export class Parser {
   private next: Token;
@@ -111,6 +168,84 @@ export class Parser {
     return false;
   }
 
+  #unary(head: Token): Expression {
+    const head0 = head;
+    let count = 0;
+    while (head.type === TokenType.NOT) {
+      count++;
+      head = this.#pop();
+    }
+    let expression: Expression;
+    switch (head.type) {
+      case TokenType.PAREN_LEFT: {
+        const e = this.#binary(this.#pop(), 0);
+        this.#consume(TokenType.PAREN_RIGHT);
+        expression = count > 0 ? new Not(head, count, e) : e;
+        break;
+      }
+      case TokenType.IDENTIFIER: {
+        expression = new Varb(head, this.lexeme(head));
+        break;
+      }
+      case TokenType.FALSE: {
+        expression = new LiteralBoolean(head, false);
+        break;
+      }
+      case TokenType.TRUE: {
+        expression = new LiteralBoolean(head, true);
+        break;
+      }
+      case TokenType.STRING: {
+        expression = new LiteralString(
+          head,
+          JSON.parse(this.lexeme(head)),
+        );
+        break;
+      }
+      case TokenType.NEW: {
+        expression = new New(head);
+        break;
+      }
+      default:
+        throw this.#error(head, "Expected expression");
+    }
+    while (this.next.type === TokenType.DOT) {
+      const token = this.#pop();
+      const name = this.lexeme(this.#consume(TokenType.IDENTIFIER));
+      expression = new Access(token, expression, name);
+    }
+    return count > 0 ? new Not(head0, count, expression) : expression;
+  }
+
+  static TABLE = (() => {
+    const table = [];
+    table[TokenType.AND] = [2, 2];
+    table[TokenType.BE] = [0, 1];
+    table[TokenType.IS] = [3, 3];
+    table[TokenType.IS_NOT] = [3, 3];
+    table[TokenType.LESS] = [3, 3];
+    table[TokenType.MORE] = [3, 3];
+    table[TokenType.NOT_LESS] = [3, 3];
+    table[TokenType.NOT_MORE] = [3, 3];
+    table[TokenType.OR] = [2, 2];
+    return table;
+  })();
+
+  #binary(head: Token, precedence: number): Expression {
+    let left = this.#unary(head);
+    for (;;) {
+      const a = Parser.TABLE[this.next.type];
+      if (!a) return left;
+      const [b, c] = a;
+      if (b <= precedence) return left;
+      precedence = c;
+      const token = this.#pop();
+      left = new Binary(token, left, this.#unary(this.#pop()));
+    }
+  }
+
+  // three operators
+
   #expression(token: Token): RightExpression {
     switch (token.type) {
       case TokenType.STRING: {
@@ -131,7 +266,7 @@ export class Parser {
           const member = this.#consume(TokenType.IDENTIFIER);
           key = new MemberAccess(dot, key, this.lexeme(member));
         }
-        if (this.next.type === TokenType.IS) {
+        if (this.next.type === TokenType.BE) {
           const is = this.#pop();
           const value = this.#expression(this.#pop());
           return new Assignment(is, key, value);
@@ -171,12 +306,27 @@ export class Parser {
         statement = new LogStatement(token, this.#expression(this.#pop()));
         break;
       }
+      case TokenType.IF: {
+        const condition = this.#expression(this.#pop());
+        this.#consume(TokenType.THEN);
+        const ifTrue = this.#statement();
+        if (this.#match(TokenType.ELSE)) {
+          const ifFalse = this.#statement();
+          statement = new IfStatement(token, condition, ifTrue, ifFalse);
+          break;
+        }
+        statement = new IfStatement(token, condition, ifTrue);
+        break;
+      }
       case TokenType.VAR: {
         const variable = this.#consume(TokenType.IDENTIFIER);
         const key = new Variable(variable, this.lexeme(variable));
-        if (this.#match(TokenType.IS)) {
-          const value = this.#expression(this.#pop());
-          statement = new VarDeclaration(token, key, value);
+        if (this.#match(TokenType.BE)) {
+          statement = new VarDeclaration(
+            token,
+            key,
+            this.#expression(this.#pop()),
+          );
           break;
         }
         statement = new VarDeclaration(token, key);

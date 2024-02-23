@@ -1,17 +1,37 @@
 export enum TokenType {
+  AND,
+  BE,
   BRACE_LEFT,
   BRACE_RIGHT,
+  BREAK,
+  COLON,
   COMMA,
+  CONTINUE,
   DOT,
+  ELSE,
   END,
   ERROR,
+  FALSE,
   IDENTIFIER,
+  IF,
+  IS_NOT,
   IS,
+  LESS,
   LOG,
+  MORE,
   NEW,
+  NOT_LESS,
+  NOT_MORE,
+  NOT,
+  OR,
+  PAREN_LEFT,
+  PAREN_RIGHT,
   SEMICOLON,
   STRING,
+  THEN,
+  TRUE,
   VAR,
+  WHILE,
 }
 
 export class Token {
@@ -25,9 +45,17 @@ export class Token {
 }
 
 const KEYWORDS: Record<string, TokenType> = {
-  var: TokenType.VAR,
-  new: TokenType.NEW,
+  break: TokenType.BREAK,
+  continue: TokenType.CONTINUE,
+  else: TokenType.ELSE,
+  false: TokenType.FALSE,
+  if: TokenType.IF,
   log: TokenType.LOG,
+  new: TokenType.NEW,
+  then: TokenType.THEN,
+  true: TokenType.TRUE,
+  var: TokenType.VAR,
+  while: TokenType.WHILE,
 };
 
 export class Lexer {
@@ -102,7 +130,7 @@ export class Lexer {
         case 92:
           this.current++;
           // take care of new lines here
-          if (this.input.charCodeAt(this.current) === 12) {
+          if (this.#match(12)) {
             this.line++;
             this.startLine = this.current;
           }
@@ -110,6 +138,14 @@ export class Lexer {
       }
     }
     return this.#token(TokenType.ERROR);
+  }
+
+  #match(charCode: number) {
+    if (this.input.charCodeAt(this.current) === charCode) {
+      this.current++;
+      return true;
+    }
+    return false;
   }
 
   next(): Token {
@@ -121,25 +157,60 @@ export class Lexer {
       case 3:
         if (97 <= x && x <= 122) return this.#identifier();
         if (x === 123) return this.#token(TokenType.BRACE_LEFT);
+        if (x === 124) {
+          if (this.#match(124)) {
+            return this.#token(TokenType.OR);
+          }
+          return this.#token(TokenType.ERROR);
+        }
         if (x === 125) return this.#token(TokenType.BRACE_RIGHT);
         return this.#token(TokenType.ERROR);
       case 2:
-        if (x === 38 || (65 <= x && x <= 90) || x === 95) {
+        if ((65 <= x && x <= 90) || x === 95) {
           return this.#identifier();
         }
         return this.#token(TokenType.ERROR);
       case 1:
         switch (x) {
+          case 33:
+            if (this.#match(61)) {
+              return this.#token(TokenType.IS_NOT);
+            }
+            return this.#token(TokenType.NOT);
           case 34:
             return this.#string();
+          case 36:
+            return this.#identifier();
+          case 38:
+            if (this.#match(38)) {
+              return this.#token(TokenType.AND);
+            }
+            return this.#token(TokenType.ERROR);
+          case 40:
+            return this.#token(TokenType.PAREN_LEFT);
+          case 41:
+            return this.#token(TokenType.PAREN_RIGHT);
           case 44:
             return this.#token(TokenType.COMMA);
           case 46:
             return this.#token(TokenType.DOT);
           case 59:
             return this.#token(TokenType.SEMICOLON);
+          case 60:
+            if (this.#match(61)) {
+              return this.#token(TokenType.NOT_MORE);
+            }
+            return this.#token(TokenType.LESS);
           case 61:
-            return this.#token(TokenType.IS);
+            if (this.#match(61)) {
+              return this.#token(TokenType.IS);
+            }
+            return this.#token(TokenType.BE);
+          case 62:
+            if (this.#match(61)) {
+              return this.#token(TokenType.NOT_LESS);
+            }
+            return this.#token(TokenType.MORE);
           default:
             return this.#token(TokenType.ERROR);
         }
