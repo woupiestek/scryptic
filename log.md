@@ -93,6 +93,22 @@ jump will be needed. If there is a target, then we can assign true an false to
 is in different branches... i.e. `x = e` effectively becomes
 `if e then x = true else x = false`.
 
+### refining
+
+No jump from halfway in a subroutine, only allow them at the end. It could help
+with dead code elimination as well. It could drastically simplify the
+compilation of anything invloving booleans. I don't like how much code I needed
+to copy here. And I haven gotten round to tracking variables yet...
+
+It is weird to have that experience again, of getting everything right without
+testing.
+
+### if statement syntax
+
+We could just require blocks for the branches behind the statement, avoid
+sabiguous scoping that way. The block in turn could just use the `(,)`
+delimiters, if they are indeed expressions.
+
 ## 2024-02-24
 
 ### control structures

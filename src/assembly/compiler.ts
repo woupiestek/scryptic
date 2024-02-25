@@ -1,14 +1,16 @@
-import { Method, Op, Subroutine } from "./class.ts";
+import { Instruction, Method, Op, Subroutine } from "./class.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Binary,
   Block,
   Expression,
+  IfStatement,
   LiteralBoolean,
   LiteralString,
   LogStatement,
   MemberAccess,
   New,
+  Not,
   Statement,
   VarDeclaration,
   Variable,
@@ -24,10 +26,17 @@ export class Compiler {
   #secondHandRegisters: number[] = [];
   // add something to track available variables at every point
   #subroutines: Subroutine[] = [{ instructions: [], next: [Op.Return] }];
+  #currentSubroutine = 0;
   #locals: Local[] = [];
   constructor(
     readonly script: Statement[],
   ) {}
+
+  #emit(...instructions: Instruction[]) {
+    this.#subroutines[this.#currentSubroutine].instructions.push(
+      ...instructions,
+    );
+  }
 
   #error(token: Token, msg: string) {
     return new Error(
@@ -77,15 +86,216 @@ export class Compiler {
     return register;
   }
 
-  #assignment(assignment: Binary, subroutine: number, target?: number) {
+  #booleanBinary(
+    expression: Binary,
+    onFalse: number,
+    negate = false,
+  ) {
+    switch (expression.token.type) {
+      case TokenType.AND: {
+        if (!negate) {
+          this.#boolean(expression.left, onFalse, negate);
+          this.#boolean(expression.right, onFalse, negate);
+        } else {
+          const rightBranch = this.#subroutines.length;
+          const continuation = this.#subroutines.length + 1;
+          this.#subroutines[rightBranch] = {
+            instructions: [],
+            next: [Op.Jump, continuation],
+          };
+          this.#subroutines[continuation] = {
+            instructions: [],
+            next: this.#subroutines[this.#currentSubroutine].next,
+          };
+          this.#subroutines[this.#currentSubroutine].next = [
+            Op.Jump,
+            continuation,
+          ];
+          this.#boolean(expression.left, rightBranch, negate);
+          this.#currentSubroutine = rightBranch;
+          this.#boolean(expression.right, onFalse, negate);
+          this.#currentSubroutine = continuation;
+          return;
+        }
+        return;
+      }
+      case TokenType.IS_NOT: {
+        const reg1 = this.#allocate();
+        this.#expression(expression.left, reg1);
+        const reg2 = this.#allocate();
+        this.#expression(expression.right, reg2);
+        this.#emit([
+          negate ? Op.JumpIfDifferent : Op.JumpIfEqual,
+          reg1,
+          reg2,
+          onFalse,
+        ]);
+        this.#deallocate(reg1, reg2);
+        return;
+      }
+      case TokenType.IS: {
+        const reg1 = this.#allocate();
+        this.#expression(expression.left, reg1);
+        const reg2 = this.#allocate();
+        this.#expression(expression.right, reg2);
+        this.#emit([
+          negate ? Op.JumpIfEqual : Op.JumpIfDifferent,
+          reg1,
+          reg2,
+          onFalse,
+        ]);
+        this.#deallocate(reg1, reg2);
+        return;
+      }
+      case TokenType.LESS: {
+        const reg1 = this.#allocate();
+        this.#expression(expression.left, reg1);
+        const reg2 = this.#allocate();
+        this.#expression(expression.right, reg2);
+        this.#emit(
+          negate // note: changed register ordering!
+            ? [Op.JumpIfLess, reg1, reg2, onFalse]
+            : [Op.JumpIfNotMore, reg2, reg1, onFalse],
+        );
+        this.#deallocate(reg1, reg2);
+        return;
+      }
+      case TokenType.MORE: {
+        const reg1 = this.#allocate();
+        this.#expression(expression.left, reg1);
+        const reg2 = this.#allocate();
+        this.#expression(expression.right, reg2);
+        this.#emit(
+          negate // note: changed register ordering!
+            ? [Op.JumpIfLess, reg2, reg1, onFalse]
+            : [Op.JumpIfNotMore, reg1, reg2, onFalse],
+        );
+        this.#deallocate(reg1, reg2);
+        return;
+      }
+      case TokenType.NOT_LESS: {
+        const reg1 = this.#allocate();
+        this.#expression(expression.left, reg1);
+        const reg2 = this.#allocate();
+        this.#expression(expression.right, reg2);
+        this.#emit(
+          negate // note: changed register ordering!
+            ? [Op.JumpIfNotMore, reg2, reg1, onFalse]
+            : [Op.JumpIfLess, reg1, reg2, onFalse],
+        );
+        this.#deallocate(reg1, reg2);
+        return;
+      }
+      case TokenType.NOT_MORE: {
+        const reg1 = this.#allocate();
+        this.#expression(expression.left, reg1);
+        const reg2 = this.#allocate();
+        this.#expression(expression.right, reg2);
+        this.#emit(
+          negate // note: changed register ordering!
+            ? [Op.JumpIfNotMore, reg1, reg2, onFalse]
+            : [Op.JumpIfLess, reg2, reg1, onFalse],
+        );
+        this.#deallocate(reg1, reg2);
+        return;
+      }
+      case TokenType.OR:
+        {
+          if (negate) {
+            this.#boolean(expression.left, onFalse, negate);
+            this.#boolean(expression.right, onFalse, negate);
+          } else {
+            const rightBranch = this.#subroutines.length;
+            const continuation = this.#subroutines.length + 1;
+            this.#subroutines[rightBranch] = {
+              instructions: [],
+              next: [Op.Jump, continuation],
+            };
+            this.#subroutines[continuation] = {
+              instructions: [],
+              next: this.#subroutines[this.#currentSubroutine].next,
+            };
+            this.#subroutines[this.#currentSubroutine].next = [
+              Op.Jump,
+              continuation,
+            ];
+            this.#boolean(expression.left, rightBranch, negate);
+            this.#currentSubroutine = rightBranch;
+            this.#boolean(expression.right, onFalse, negate);
+            this.#currentSubroutine = continuation;
+            return;
+          }
+        }
+        return;
+      // later perhaps
+      // case TokenType.BE:
+      // case TokenType.SEMICOLON:
+      // case TokenType.VAR:
+      default:
+        throw this.#error(expression.token, "Malformed boolean expression");
+    }
+  }
+
+  // hope that onFalse is enough!
+  #boolean(
+    expression: Expression,
+    onFalse: number,
+    negate = false,
+  ) {
+    switch (expression.constructor) {
+      case MemberAccess: {
+        const reg = this.#allocate();
+        this.#expression(expression, reg);
+        this.#emit([
+          negate ? Op.JumpIfTrue : Op.JumpIfFalse,
+          reg,
+          onFalse,
+        ]);
+        this.#deallocate(reg);
+        return;
+      }
+      case Binary:
+        this.#booleanBinary(expression as Binary, onFalse, negate);
+        return;
+      case LiteralBoolean: {
+        if ((expression as LiteralBoolean).value !== negate) {
+          return;
+        }
+        // todo: somehow avoid adding anything to the subroutine beyond this unconditional jump
+        this.#emit([Op.Jump, onFalse]);
+        return;
+      }
+      case Not:
+        this.#boolean(
+          (expression as Not).expression,
+          onFalse,
+          ((expression as Not).count & 1) === 1 ? !negate : negate,
+        );
+        return;
+      case Variable: {
+        const reg = this.#getRegister(expression as Variable);
+        this.#emit([
+          negate ? Op.JumpIfTrue : Op.JumpIfFalse,
+          reg,
+          onFalse,
+        ]);
+        this.#deallocate(reg);
+        return;
+      }
+      default:
+        throw this.#error(expression.token, "Expected boolean");
+    }
+  }
+
+  #assignment(assignment: Binary, target?: number) {
     if (assignment.left instanceof Variable) {
       const local = this.#resolve(assignment.left);
       // local.register could already hav a value and target could be temporary, so...
       // ownership shows up already!
       local.register ||= this.#allocate();
-      this.#expression(assignment.right, subroutine, local.register);
+      this.#expression(assignment.right, local.register);
       if (target !== undefined) {
-        this.#subroutines[subroutine].instructions.push([
+        this.#emit([
           Op.Move,
           target,
           local.register,
@@ -97,12 +307,12 @@ export class Compiler {
     if (assignment.left instanceof MemberAccess) {
       // calculate results, store in register 1
       const register1 = this.#allocate();
-      this.#expression(assignment.left.object, subroutine, register1);
+      this.#expression(assignment.left.object, register1);
       // now calculate the right hand side and store in register 2
       const register2 = this.#allocate();
-      this.#expression(assignment.right, subroutine, register2);
+      this.#expression(assignment.right, register2);
       // move the result to the heap
-      this.#subroutines[subroutine].instructions.push([
+      this.#emit([
         Op.SetField,
         register1,
         assignment.left.field,
@@ -119,11 +329,40 @@ export class Compiler {
     );
   }
 
-  #binary(expression: Binary, subroutine: number, target?: number) {
+  #binary(expression: Binary, target?: number) {
     switch (expression.token.type) {
       case TokenType.BE:
-        this.#assignment(expression, subroutine, target);
+        this.#assignment(expression, target);
         return;
+      case TokenType.AND:
+      case TokenType.IS_NOT:
+      case TokenType.IS:
+      case TokenType.LESS:
+      case TokenType.MORE:
+      case TokenType.NOT_LESS:
+      case TokenType.NOT_MORE:
+      case TokenType.OR: {
+        const falseBranch = this.#subroutines.length;
+        const continuation = this.#subroutines.length + 1;
+        this.#subroutines[falseBranch] = {
+          instructions: [],
+          next: [Op.Jump, continuation],
+        };
+        this.#subroutines[continuation] = {
+          instructions: [],
+          next: this.#subroutines[this.#currentSubroutine].next,
+        };
+        this.#subroutines[this.#currentSubroutine].next = [
+          Op.Jump,
+          continuation,
+        ];
+        this.#booleanBinary(expression, falseBranch);
+        if (target) this.#emit([Op.Constant, target, true]);
+        this.#currentSubroutine = falseBranch;
+        if (target) this.#emit([Op.Constant, target, false]);
+        this.#currentSubroutine = continuation;
+        return;
+      }
       default:
         throw this.#error(
           expression.token,
@@ -137,13 +376,12 @@ export class Compiler {
   // perhaps we need other options.
   #expression(
     expression: Expression,
-    subroutine: number,
     target?: number,
   ) {
     switch (expression.constructor) {
       case LiteralBoolean:
         if (target !== undefined) {
-          this.#subroutines[subroutine].instructions.push([
+          this.#emit([
             Op.Constant,
             target,
             (expression as LiteralBoolean).value,
@@ -152,7 +390,7 @@ export class Compiler {
         return;
       case LiteralString:
         if (target !== undefined) {
-          this.#subroutines[subroutine].instructions.push([
+          this.#emit([
             Op.Constant,
             target,
             (expression as LiteralString).value,
@@ -161,18 +399,18 @@ export class Compiler {
         return;
       case New:
         if (target !== undefined) {
-          this.#subroutines[subroutine].instructions.push([Op.New, target]);
+          this.#emit([Op.New, target]);
         } // ignore otherwise
-        // todo: reconsider if this becomes consrtuctor with side effects
+        // todo: reconsider if this becomes constructor with side effects
         return;
       case Binary:
-        this.#binary(expression as Binary, subroutine, target);
+        this.#binary(expression as Binary, target);
         return;
       case Variable:
         {
           const register = this.#getRegister(expression as Variable);
           if (target !== undefined) {
-            this.#subroutines[subroutine].instructions.push([
+            this.#emit([
               Op.Move,
               target,
               register,
@@ -184,11 +422,10 @@ export class Compiler {
         const register = this.#allocate();
         this.#expression(
           (expression as MemberAccess).object,
-          subroutine,
           register,
         );
         if (target !== undefined) {
-          this.#subroutines[subroutine].instructions.push([
+          this.#emit([
             Op.GetField,
             target,
             register,
@@ -200,46 +437,88 @@ export class Compiler {
     }
   }
 
-  #statements(statements: Statement[], subroutine: number) {
+  #statements(statements: Statement[]) {
     for (const statement of statements) {
-      if (statement instanceof Block) {
-        const depth = this.#locals.length;
-        this.#statements(statement.statements, subroutine);
-        while (this.#locals.length > depth) {
-          const register = this.#locals.pop()?.register;
-          if (register !== undefined) this.#deallocate(register);
-        }
-      } else if (statement instanceof LogStatement) {
-        // type checking might make sense for 'print'
-        // need print now to inspect memory
-        const register = this.#allocate();
-        this.#expression(statement.value, subroutine, register);
-        this.#subroutines[subroutine].instructions.push([Op.Log, register]);
-        this.#deallocate(register);
-      } else if (statement instanceof VarDeclaration) {
-        const resolve = this.#local(statement.key.name);
-        if (resolve !== null) {
-          throw this.#error(
-            statement.token,
-            `Variable '${statement.key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
-          );
-        }
-        if (statement.value) {
-          const register = this.#allocate();
-          this.#expression(statement.value, subroutine, register);
-          this.#locals.push({ variable: statement.key, register });
-        } else {
-          this.#locals.push({ variable: statement.key });
-        }
-      } else { // expression statements
-        // may not be hopeless...
-        this.#expression(statement, subroutine);
+      this.#statement(statement);
+    }
+  }
+
+  // not good enough?
+  #statement(statement: Statement) {
+    if (statement instanceof Block) {
+      const depth = this.#locals.length;
+      this.#statements(statement.statements);
+      while (this.#locals.length > depth) {
+        const register = this.#locals.pop()?.register;
+        if (register !== undefined) this.#deallocate(register);
       }
+    } else if (statement instanceof IfStatement) {
+      if (statement.onFalse) {
+        const elseBranch = this.#subroutines.length;
+        const continuation = this.#subroutines.length + 1;
+        this.#subroutines[elseBranch] = {
+          instructions: [],
+          next: [Op.Jump, continuation],
+        };
+        this.#subroutines[continuation] = {
+          instructions: [],
+          next: this.#subroutines[this.#currentSubroutine].next,
+        };
+        this.#subroutines[this.#currentSubroutine].next = [
+          Op.Jump,
+          continuation,
+        ];
+        this.#boolean(statement.condition, elseBranch);
+        this.#statement(statement.onTrue);
+        this.#currentSubroutine = elseBranch;
+        this.#statement(statement.onFalse);
+        this.#currentSubroutine = continuation;
+        return;
+      }
+      const continuation = this.#subroutines.length;
+      this.#subroutines[continuation] = {
+        instructions: [],
+        next: this.#subroutines[this.#currentSubroutine].next,
+      };
+      this.#subroutines[this.#currentSubroutine].next = [
+        Op.Jump,
+        continuation,
+      ];
+      this.#boolean(statement.condition, continuation);
+      this.#statement(statement.onTrue);
+      this.#currentSubroutine = continuation;
+      // but this is only on false if there is no else branch...
+      // perhaps acknowlegde two options?
+    } else if (statement instanceof LogStatement) {
+      // type checking might make sense for 'print'
+      // need print now to inspect memory
+      const register = this.#allocate();
+      this.#expression(statement.value, register);
+      this.#emit([Op.Log, register]);
+      this.#deallocate(register);
+    } else if (statement instanceof VarDeclaration) {
+      const resolve = this.#local(statement.key.name);
+      if (resolve !== null) {
+        throw this.#error(
+          statement.token,
+          `Variable '${statement.key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
+        );
+      }
+      if (statement.value) {
+        const register = this.#allocate();
+        this.#expression(statement.value, register);
+        this.#locals.push({ variable: statement.key, register });
+      } else {
+        this.#locals.push({ variable: statement.key });
+      }
+    } else { // expression statements
+      // may not be hopeless...
+      this.#expression(statement);
     }
   }
 
   compile(): Method {
-    this.#statements(this.script, 0);
+    this.#statements(this.script);
     return new Method(this.#size, this.#subroutines);
   }
 }

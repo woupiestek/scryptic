@@ -13,13 +13,6 @@ export interface Node {
 export class LiteralString implements Node {
   constructor(readonly token: Token, readonly value: string) {}
 }
-// export class Assignment implements Node {
-//   constructor(
-//     readonly token: Token,
-//     readonly left: MemberAccess | Variable,
-//     readonly right: Expression,
-//   ) {}
-// }
 
 export class New implements Node {
   constructor(readonly token: Token) {}
@@ -161,9 +154,8 @@ export class Parser {
     let expression: Expression;
     switch (head.type) {
       case TokenType.PAREN_LEFT: {
-        const e = this.#binary(this.#pop(), 0);
+        expression = this.#expression(this.#pop());
         this.#consume(TokenType.PAREN_RIGHT);
-        expression = count > 0 ? new Not(head, count, e) : e;
         break;
       }
       case TokenType.IDENTIFIER: {
@@ -226,7 +218,7 @@ export class Parser {
       const a = Parser.TABLE[this.next.type];
       if (!a) return left;
       const [b, c] = a;
-      if (b > precedence) return left;
+      if (b < precedence) return left;
       left = new Binary(this.#pop(), left, this.#binary(this.#pop(), c));
     }
   }
@@ -261,15 +253,16 @@ export class Parser {
       }
       case TokenType.IF: {
         const condition = this.#expression(this.#pop());
-        this.#consume(TokenType.THEN);
-        const ifTrue = this.#statement();
+        const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
         if (this.#match(TokenType.ELSE)) {
-          const ifFalse = this.#statement();
-          statement = new IfStatement(token, condition, ifTrue, ifFalse);
-          break;
+          return new IfStatement(
+            token,
+            condition,
+            ifTrue,
+            this.#block(this.#consume(TokenType.BRACE_LEFT)),
+          );
         }
-        statement = new IfStatement(token, condition, ifTrue);
-        break;
+        return new IfStatement(token, condition, ifTrue);
       }
       case TokenType.VAR: {
         const variable = this.#consume(TokenType.IDENTIFIER);

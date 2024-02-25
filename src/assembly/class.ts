@@ -40,6 +40,7 @@ export type Instruction =
     Register,
     Label,
   ]
+  | [Op.Jump, Label] // goto [label]
   | [Op.Move, Register, Register] // y = x
   | [Op.MoveResult, Register] // y = (previous function call)
   | [Op.New, Register] // y = new(); -- constructor methonds may be required, but we  don't need them here.

@@ -86,3 +86,140 @@ Deno.test(function testFields() {
     "Hello, World!",
   ]);
 });
+
+Deno.test(function booleanTrue() {
+  // the ;; are not going to stay!
+  assertEquals(run('var x = "wrong!"; if true { x = "right!"; } log x;'), [
+    "right!",
+  ]);
+});
+
+Deno.test(function booleanFalse() {
+  assertEquals(
+    run(
+      'var x = "wrong!"; if false { x = "wrong!"; } else { x = "right!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanNot() {
+  assertEquals(
+    run(
+      'var x = "wrong!"; if !true { x = "wrong!"; } else { x = "right!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanEquals() {
+  assertEquals(
+    run('var x = "wrong!"; if x == "wrong!" { x = "right!"; } log x;'),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanDifferent() {
+  assertEquals(
+    run(
+      'var x = "test"; if x != "test" { x = "wrong!"; } else { x = "right!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanLess() {
+  assertEquals(
+    run(
+      'var x = "test"; if x < "zzz" { x = "right!"; } else { x = "wrong!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanLessOrEqual() {
+  assertEquals(
+    run(
+      'var x = "test"; if x <= "zzz" { x = "right!"; } else { x = "wrong!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanMore() {
+  assertEquals(
+    run(
+      'var x = "test"; if x > "zzz" { x = "wrong!"; } else { x = "right!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanMoreOrEqual() {
+  assertEquals(
+    run(
+      'var x = "test"; if x >= "zzz" { x = "wrong!"; } else { x = "right!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanNotLess() {
+  assertEquals(
+    run(
+      'var x = "test"; if !(x < "zzz") { x = "wrong!"; } else { x = "right!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanAnd() {
+  assertEquals(
+    run(
+      'var x = "test"; if x < "zzz" && true { x = "right!"; } else { x = "wrong!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanOr() {
+  assertEquals(
+    run(
+      'var x = "test"; if x > "zzz" || true { x = "right!"; } else { x = "wrong!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
+
+Deno.test(function booleanCompound() {
+  assertEquals(
+    run(
+      'var x = "test"; if !(x > "zzz" || true) { x = "wrong!"; } else { x = "right!"; } log x;',
+    ),
+    [
+      "right!",
+    ],
+  );
+});
