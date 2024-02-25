@@ -109,6 +109,13 @@ We could just require blocks for the branches behind the statement, avoid
 sabiguous scoping that way. The block in turn could just use the `(,)`
 delimiters, if they are indeed expressions.
 
+### keeping track of assignments
+
+It is a relation between subroutines and local variables, but this new option,
+where each subroutine keeps a collection, has as only downside that it keeps
+locals alive that are out of scope. Tracking on the locals is more complicated
+because of all the copying needed.
+
 ## 2024-02-24
 
 ### control structures

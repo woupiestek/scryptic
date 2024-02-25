@@ -19,6 +19,7 @@ import {
 type Local = {
   variable: Variable;
   register?: number;
+  //assigned: boolean;
 };
 
 export class Compiler {
@@ -26,6 +27,7 @@ export class Compiler {
   #secondHandRegisters: number[] = [];
   // add something to track available variables at every point
   #subroutines: Subroutine[] = [{ instructions: [], next: [Op.Return] }];
+  #written: Set<Local>[] = [new Set()];
   #currentSubroutine = 0;
   #locals: Local[] = [];
   constructor(
@@ -75,15 +77,19 @@ export class Compiler {
     return local;
   }
 
+  #hasAssigned(local: Local) {
+    return this.#written[this.#currentSubroutine].has(local);
+  }
+
   #getRegister(variable: Variable): number {
-    const register = this.#resolve(variable).register;
-    if (register === undefined) {
+    const local = this.#resolve(variable);
+    if (local.register === undefined || !this.#hasAssigned(local)) {
       throw this.#error(
         variable.token,
-        `Unassigned variable '${variable.name}'`,
+        `Variable '${variable.name}' read before written`,
       );
     }
-    return register;
+    return local.register;
   }
 
   #booleanBinary(
@@ -112,6 +118,12 @@ export class Compiler {
             continuation,
           ];
           this.#boolean(expression.left, rightBranch, negate);
+          this.#written[rightBranch] = new Set(
+            this.#written[this.#currentSubroutine],
+          );
+          this.#written[continuation] = new Set(
+            this.#written[this.#currentSubroutine],
+          );
           this.#currentSubroutine = rightBranch;
           this.#boolean(expression.right, onFalse, negate);
           this.#currentSubroutine = continuation;
@@ -220,6 +232,12 @@ export class Compiler {
               continuation,
             ];
             this.#boolean(expression.left, rightBranch, negate);
+            this.#written[rightBranch] = new Set(
+              this.#written[this.#currentSubroutine],
+            );
+            this.#written[continuation] = new Set(
+              this.#written[this.#currentSubroutine],
+            );
             this.#currentSubroutine = rightBranch;
             this.#boolean(expression.right, onFalse, negate);
             this.#currentSubroutine = continuation;
@@ -228,7 +246,14 @@ export class Compiler {
         }
         return;
       // later perhaps
-      // case TokenType.BE:
+      case TokenType.BE: //when everthing is an expression, but then we must take care of partial assignments everywhere as well
+      {
+        const reg = this.#allocate();
+        this.#assignment(expression, reg);
+        this.#emit([Op.JumpIfFalse, reg, onFalse]);
+        this.#deallocate(reg);
+        return;
+      }
       // case TokenType.SEMICOLON:
       // case TokenType.VAR:
       default:
@@ -236,7 +261,6 @@ export class Compiler {
     }
   }
 
-  // hope that onFalse is enough!
   #boolean(
     expression: Expression,
     onFalse: number,
@@ -293,6 +317,9 @@ export class Compiler {
       // local.register could already hav a value and target could be temporary, so...
       // ownership shows up already!
       local.register ||= this.#allocate();
+      this.#written[this.#currentSubroutine].add(
+        local,
+      );
       this.#expression(assignment.right, local.register);
       if (target !== undefined) {
         this.#emit([
@@ -309,7 +336,7 @@ export class Compiler {
       const register1 = this.#allocate();
       this.#expression(assignment.left.object, register1);
       // now calculate the right hand side and store in register 2
-      const register2 = this.#allocate();
+      const register2 = target ?? this.#allocate();
       this.#expression(assignment.right, register2);
       // move the result to the heap
       this.#emit([
@@ -318,8 +345,8 @@ export class Compiler {
         assignment.left.field,
         register2,
       ]);
-      this.#deallocate(register1, register2);
-      // neither register is needed anymore
+      this.#deallocate(register1);
+      if (target === undefined) this.#deallocate(register2);
       return;
     }
 
@@ -357,9 +384,9 @@ export class Compiler {
           continuation,
         ];
         this.#booleanBinary(expression, falseBranch);
-        if (target) this.#emit([Op.Constant, target, true]);
+        if (target !== undefined) this.#emit([Op.Constant, target, true]);
         this.#currentSubroutine = falseBranch;
-        if (target) this.#emit([Op.Constant, target, false]);
+        if (target !== undefined) this.#emit([Op.Constant, target, false]);
         this.#currentSubroutine = continuation;
         return;
       }
@@ -469,9 +496,24 @@ export class Compiler {
           continuation,
         ];
         this.#boolean(statement.condition, elseBranch);
+
+        // record assignments before for else branch
+        this.#written[elseBranch] = new Set(
+          this.#written[this.#currentSubroutine],
+        );
         this.#statement(statement.onTrue);
+        // record assignment after for continuation
+        const assignedOnTrue = [
+          ...this.#written[this.#currentSubroutine],
+        ];
         this.#currentSubroutine = elseBranch;
         this.#statement(statement.onFalse);
+        // combine
+        this.#written[continuation] = new Set(
+          [...this.#written[this.#currentSubroutine]].filter((it) =>
+            assignedOnTrue.includes(it)
+          ),
+        );
         this.#currentSubroutine = continuation;
         return;
       }
@@ -485,6 +527,10 @@ export class Compiler {
         continuation,
       ];
       this.#boolean(statement.condition, continuation);
+      // reset assignments
+      this.#written[continuation] = new Set(
+        this.#written[this.#currentSubroutine],
+      );
       this.#statement(statement.onTrue);
       this.#currentSubroutine = continuation;
       // but this is only on false if there is no else branch...
@@ -507,7 +553,12 @@ export class Compiler {
       if (statement.value) {
         const register = this.#allocate();
         this.#expression(statement.value, register);
-        this.#locals.push({ variable: statement.key, register });
+        const local = {
+          variable: statement.key,
+          register,
+        };
+        this.#locals.push(local);
+        this.#written[this.#currentSubroutine].add(local);
       } else {
         this.#locals.push({ variable: statement.key });
       }

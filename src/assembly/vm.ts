@@ -36,7 +36,7 @@ export class VM {
   stack: Value[] = [{}];
   fp = 0;
   // good old dependency injection...
-  constructor(readonly print: (_: Value) => void = console.log) {
+  constructor(readonly log: (_: Value) => void = console.log) {
     this.frames = Array.from({ length: VM.MAX_FRAMES }).map((_) => new Frame());
   }
   get(i: number): Value {
@@ -130,7 +130,7 @@ export class VM {
           }
           continue;
         case Op.Log:
-          this.print(this.get(instruction[1]));
+          this.log(this.get(instruction[1]));
           continue;
         case Op.Return:
           if (instruction[1] !== undefined) {

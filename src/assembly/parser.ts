@@ -201,7 +201,7 @@ export class Parser {
   static TABLE = (() => {
     const table = [];
     table[TokenType.AND] = [2, 2];
-    table[TokenType.BE] = [0, 1];
+    table[TokenType.BE] = [1, 0];
     table[TokenType.IS] = [3, 3];
     table[TokenType.IS_NOT] = [3, 3];
     table[TokenType.LESS] = [3, 3];

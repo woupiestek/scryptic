@@ -223,3 +223,23 @@ Deno.test(function booleanCompound() {
     ],
   );
 });
+
+Deno.test(function partialAssignment() {
+  // compile error now, because there are branches.
+  // a more intelligent compoiler mihght remove the problem branch, but it would need
+  // function arguments to work with.
+  assertThrows(() =>
+    compile(
+      'var x; if true { x = "wrong!"; } log x;',
+    )
+  );
+});
+
+Deno.test(function doubleAssignment() {
+  assertEquals(
+    run(
+      'var x; var y = new; x = y.m = "test"; if(x == "test") { log "right!"; } else { log "wrong!"; }',
+    ),
+    ["right!"],
+  );
+});
