@@ -1,15 +1,14 @@
 import { Method, Op, Subroutine } from "./class.ts";
-import { Token } from "./lexer.ts";
+import { Token, TokenType } from "./lexer.ts";
 import {
-  Assignment,
+  Binary,
   Block,
-  IfStatement,
+  Expression,
   LiteralBoolean,
   LiteralString,
   LogStatement,
   MemberAccess,
   New,
-  RightExpression,
   Statement,
   VarDeclaration,
   Variable,
@@ -20,11 +19,11 @@ type Local = {
   register?: number;
 };
 
-type JumpTarget = { label: number; setVariables: Set<string> };
-
 export class Compiler {
   #size = 0;
   #secondHandRegisters: number[] = [];
+  // add something to track available variables at every point
+  #subroutines: Subroutine[] = [{ instructions: [], next: [Op.Return] }];
   #locals: Local[] = [];
   constructor(
     readonly script: Statement[],
@@ -78,84 +77,132 @@ export class Compiler {
     return register;
   }
 
-  // is this how registers are going to be computed?
-  // note that we don't know if the result of the expression is needed for anything.
-  // perhaps we need other options.
-  #right(
-    expression: RightExpression,
-    subroutine: Subroutine,
-    target?: number,
-  ) {
-    if (expression instanceof LiteralBoolean) {
+  #assignment(assignment: Binary, subroutine: number, target?: number) {
+    if (assignment.left instanceof Variable) {
+      const local = this.#resolve(assignment.left);
+      // local.register could already hav a value and target could be temporary, so...
+      // ownership shows up already!
+      local.register ||= this.#allocate();
+      this.#expression(assignment.right, subroutine, local.register);
       if (target !== undefined) {
-        subroutine.instructions.push([Op.Constant, target, expression.value]);
-      }
-    } else if (expression instanceof LiteralString) {
-      if (target !== undefined) {
-        subroutine.instructions.push([Op.Constant, target, expression.value]);
-      }
-    } else if (expression instanceof New) {
-      if (target !== undefined) {
-        subroutine.instructions.push([Op.New, target]);
-      } // ignore otherwise
-    } else if (
-      expression instanceof Assignment
-    ) {
-      if (expression.left instanceof Variable) {
-        const local = this.#resolve(expression.left);
-        // local.register could already hav a value and target could be temporary, so...
-        // ownership shows up already!
-        local.register ||= this.#allocate();
-        this.#right(expression.right, subroutine, local.register);
-        if (target !== undefined) {
-          subroutine.instructions.push([Op.Move, target, local.register]);
-        }
-      } else if (expression.left instanceof MemberAccess) {
-        // calculate results, store in register 1
-        const register1 = this.#allocate();
-        this.#right(expression.left.target, subroutine, register1);
-        // now calculate the right hand side and store in register 2
-        const register2 = this.#allocate();
-        this.#right(expression.right, subroutine, register2);
-        // move the result to the heap
-        subroutine.instructions.push([
-          Op.SetField,
-          register1,
-          expression.left.member,
-          register2,
-        ]);
-        this.#deallocate(register1, register2);
-        // neither register is needed anymore
-      } else {
-        this.#error(expression.token, `Not rules for ${expression}`);
-      }
-    } else if (
-      expression instanceof Variable
-    ) {
-      const register = this.#getRegister(expression);
-      if (target !== undefined) {
-        subroutine.instructions.push([Op.Move, target, register]);
-      }
-    } else if (expression instanceof MemberAccess) {
-      const register = this.#allocate();
-      this.#right(expression.target, subroutine, register);
-      if (target !== undefined) {
-        subroutine.instructions.push([
-          Op.GetField,
+        this.#subroutines[subroutine].instructions.push([
+          Op.Move,
           target,
-          register,
-          expression.member,
+          local.register,
         ]);
       }
-      this.#deallocate(register);
+      return;
+    }
+
+    if (assignment.left instanceof MemberAccess) {
+      // calculate results, store in register 1
+      const register1 = this.#allocate();
+      this.#expression(assignment.left.object, subroutine, register1);
+      // now calculate the right hand side and store in register 2
+      const register2 = this.#allocate();
+      this.#expression(assignment.right, subroutine, register2);
+      // move the result to the heap
+      this.#subroutines[subroutine].instructions.push([
+        Op.SetField,
+        register1,
+        assignment.left.field,
+        register2,
+      ]);
+      this.#deallocate(register1, register2);
+      // neither register is needed anymore
+      return;
+    }
+
+    throw this.#error(
+      assignment.token,
+      "Unsupported assignment right hand side",
+    );
+  }
+
+  #binary(expression: Binary, subroutine: number, target?: number) {
+    switch (expression.token.type) {
+      case TokenType.BE:
+        this.#assignment(expression, subroutine, target);
+        return;
+      default:
+        throw this.#error(
+          expression.token,
+          "Unsupported operation",
+        );
     }
   }
 
-  // boole expression might require an 'on false' label
+  // is this how registers are going to be computed?
+  // note that we don't know if the result of the expression is needed for anything.
+  // perhaps we need other options.
+  #expression(
+    expression: Expression,
+    subroutine: number,
+    target?: number,
+  ) {
+    switch (expression.constructor) {
+      case LiteralBoolean:
+        if (target !== undefined) {
+          this.#subroutines[subroutine].instructions.push([
+            Op.Constant,
+            target,
+            (expression as LiteralBoolean).value,
+          ]);
+        }
+        return;
+      case LiteralString:
+        if (target !== undefined) {
+          this.#subroutines[subroutine].instructions.push([
+            Op.Constant,
+            target,
+            (expression as LiteralString).value,
+          ]);
+        }
+        return;
+      case New:
+        if (target !== undefined) {
+          this.#subroutines[subroutine].instructions.push([Op.New, target]);
+        } // ignore otherwise
+        // todo: reconsider if this becomes consrtuctor with side effects
+        return;
+      case Binary:
+        this.#binary(expression as Binary, subroutine, target);
+        return;
+      case Variable:
+        {
+          const register = this.#getRegister(expression as Variable);
+          if (target !== undefined) {
+            this.#subroutines[subroutine].instructions.push([
+              Op.Move,
+              target,
+              register,
+            ]);
+          }
+        }
+        return;
+      case MemberAccess: {
+        const register = this.#allocate();
+        this.#expression(
+          (expression as MemberAccess).object,
+          subroutine,
+          register,
+        );
+        if (target !== undefined) {
+          this.#subroutines[subroutine].instructions.push([
+            Op.GetField,
+            target,
+            register,
+            (expression as MemberAccess).field,
+          ]);
+        }
+        this.#deallocate(register);
+      }
+    }
+  }
 
-  #statements(statements: Statement[], subroutine: Subroutine) {
+  #statements(statements: Statement[], subroutine: number) {
     for (const statement of statements) {
- if (statement instanceof Block) {
+      if (statement instanceof Block) {
         const depth = this.#locals.length;
         this.#statements(statement.statements, subroutine);
         while (this.#locals.length > depth) {
@@ -166,8 +213,8 @@ export class Compiler {
         // type checking might make sense for 'print'
         // need print now to inspect memory
         const register = this.#allocate();
-        this.#right(statement.value, subroutine, register);
-        subroutine.instructions.push([Op.Log, register]);
+        this.#expression(statement.value, subroutine, register);
+        this.#subroutines[subroutine].instructions.push([Op.Log, register]);
         this.#deallocate(register);
       } else if (statement instanceof VarDeclaration) {
         const resolve = this.#local(statement.key.name);
@@ -179,21 +226,20 @@ export class Compiler {
         }
         if (statement.value) {
           const register = this.#allocate();
-          this.#right(statement.value, subroutine, register);
+          this.#expression(statement.value, subroutine, register);
           this.#locals.push({ variable: statement.key, register });
         } else {
           this.#locals.push({ variable: statement.key });
         }
       } else { // expression statements
         // may not be hopeless...
-        this.#right(statement, subroutine);
+        this.#expression(statement, subroutine);
       }
     }
   }
 
   compile(): Method {
-    const subroutine: Subroutine = { instructions: [], next: [Op.Return] };
-    this.#statements(this.script, subroutine);
-    return new Method(this.#size, [subroutine]);
+    this.#statements(this.script, 0);
+    return new Method(this.#size, this.#subroutines);
   }
 }

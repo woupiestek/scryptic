@@ -77,11 +77,21 @@ method may have a different place in each class. This is know at compile time,
 but branching on the class pointer could be cheaper than maintaining extra
 classes.
 
-### startegy against read before write
+### strategy against read before write
 
 Record at each jump which variables are written, but take intersections. The
 when the target is compiled, start with the intersection and read from there. A
 to register assignment, that can still function the same way.
+
+### compiling expression, boolean and general
+
+The trick with boolean expressions, is that the short cirquit, so instead of a
+value assigned to a register, they get a jump target, if their value is falsey.
+A general expression can be boolean, but has an optional target register. If
+there is no target, the boolean can still be evaluated for side effects, but no
+jump will be needed. If there is a target, then we can assign true an false to
+is in different branches... i.e. `x = e` effectively becomes
+`if e then x = true else x = false`.
 
 ## 2024-02-24
 

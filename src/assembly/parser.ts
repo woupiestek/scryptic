@@ -10,52 +10,35 @@ export interface Node {
   readonly token: Token;
 }
 
-export class Variable implements Node {
-  constructor(readonly token: Token, readonly name: string) {}
-}
-export class MemberAccess implements Node {
-  constructor(
-    readonly token: Token,
-    readonly target: LeftExpression,
-    readonly member: string,
-  ) {}
-}
-export type LeftExpression = Variable | MemberAccess;
-
 export class LiteralString implements Node {
   constructor(readonly token: Token, readonly value: string) {}
 }
-export class Assignment implements Node {
-  constructor(
-    readonly token: Token,
-    readonly left: LeftExpression,
-    readonly right: RightExpression,
-  ) {}
-}
+// export class Assignment implements Node {
+//   constructor(
+//     readonly token: Token,
+//     readonly left: MemberAccess | Variable,
+//     readonly right: Expression,
+//   ) {}
+// }
 
 export class New implements Node {
   constructor(readonly token: Token) {}
 }
-export type RightExpression =
-  | Assignment
-  | LiteralString
-  | LeftExpression
-  | New;
-
 export class IfStatement implements Node {
   constructor(
     readonly token: Token,
-    readonly condition: RightExpression,
+    readonly condition: Expression,
     readonly onTrue: Statement,
     readonly onFalse?: Statement,
   ) {}
 }
 
-// print x = 7; is now interpreted as print (x = 7) and allowed. It is an interpretation that makes sence...
+// log x = 7; is now interpreted as print (x = 7) and allowed. It is an interpretation that makes sence...
+// consider having log expressions instead...
 export class LogStatement implements Node {
   constructor(
     readonly token: Token,
-    readonly value: RightExpression,
+    readonly value: Expression,
   ) {}
 }
 
@@ -63,7 +46,7 @@ export class VarDeclaration implements Node {
   constructor(
     readonly token: Token,
     readonly key: Variable,
-    readonly value?: RightExpression,
+    readonly value?: Expression,
   ) {}
 }
 
@@ -71,17 +54,17 @@ export type Statement =
   | Block
   | IfStatement
   | LogStatement
-  | RightExpression
+  | Expression
   | VarDeclaration;
 
 export class Block implements Node {
   constructor(readonly token: Token, readonly statements: Statement[]) {}
 }
 
-export class Access implements Node {
+export class MemberAccess implements Node {
   constructor(
     readonly token: Token,
-    readonly object: Varb | Access,
+    readonly object: Variable | MemberAccess,
     readonly field: string,
   ) {}
 }
@@ -109,7 +92,7 @@ export class Not implements Node {
   ) {}
 }
 
-export class Varb implements Node {
+export class Variable implements Node {
   constructor(
     readonly token: Token,
     readonly name: string,
@@ -117,13 +100,13 @@ export class Varb implements Node {
 }
 
 export type Expression =
-  | Access
+  | MemberAccess
   | Binary
   | LiteralBoolean
   | LiteralString
   | New
   | Not
-  | Varb;
+  | Variable;
 
 export class Parser {
   private next: Token;
@@ -184,7 +167,7 @@ export class Parser {
         break;
       }
       case TokenType.IDENTIFIER: {
-        expression = new Varb(head, this.lexeme(head));
+        expression = new Variable(head, this.lexeme(head));
         break;
       }
       case TokenType.FALSE: {
@@ -210,10 +193,12 @@ export class Parser {
         throw this.#error(head, "Expected expression");
     }
     while (this.next.type === TokenType.DOT) {
-      if (expression instanceof Varb || expression instanceof Access) {
+      if (
+        expression instanceof Variable || expression instanceof MemberAccess
+      ) {
         const token = this.#pop();
         const name = this.lexeme(this.#consume(TokenType.IDENTIFIER));
-        expression = new Access(token, expression, name);
+        expression = new MemberAccess(token, expression, name);
       } else {
         throw this.#error(this.next, "Unexpected member access");
       }
@@ -241,47 +226,13 @@ export class Parser {
       const a = Parser.TABLE[this.next.type];
       if (!a) return left;
       const [b, c] = a;
-      if (b <= precedence) return left;
-      precedence = c;
-      const token = this.#pop();
-      left = new Binary(token, left, this.#unary(this.#pop()));
+      if (b > precedence) return left;
+      left = new Binary(this.#pop(), left, this.#binary(this.#pop(), c));
     }
   }
 
-  #expression(token: Token): RightExpression {
-    switch (token.type) {
-      case TokenType.STRING: {
-        return new LiteralString(
-          token,
-          JSON.parse(this.lexeme(token)),
-        );
-      }
-      case TokenType.NEW: {
-        return new New(token);
-      }
-      case TokenType.IDENTIFIER: {
-        let key: LeftExpression = new Variable(token, this.lexeme(token));
-        // for new, allow no member access to literal strings or to new, as either are pointless
-        // this could change, though
-        while (this.next.type === TokenType.DOT) {
-          const dot = this.#pop();
-          const member = this.#consume(TokenType.IDENTIFIER);
-          key = new MemberAccess(dot, key, this.lexeme(member));
-        }
-        if (this.next.type === TokenType.BE) {
-          const is = this.#pop();
-          const value = this.#expression(this.#pop());
-          return new Assignment(is, key, value);
-        } else {
-          return key;
-        }
-      }
-      default:
-        throw this.#error(
-          token,
-          "the token is not allowed at start of an expression",
-        );
-    }
+  #expression(token: Token): Expression {
+    return this.#binary(token, 0);
   }
 
   #block(braceLeft: Token): Block {
