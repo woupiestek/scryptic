@@ -81,7 +81,7 @@ export class Block implements Node {
 export class Access implements Node {
   constructor(
     readonly token: Token,
-    readonly object: Expression,
+    readonly object: Varb | Access,
     readonly field: string,
   ) {}
 }
@@ -210,9 +210,13 @@ export class Parser {
         throw this.#error(head, "Expected expression");
     }
     while (this.next.type === TokenType.DOT) {
-      const token = this.#pop();
-      const name = this.lexeme(this.#consume(TokenType.IDENTIFIER));
-      expression = new Access(token, expression, name);
+      if (expression instanceof Varb || expression instanceof Access) {
+        const token = this.#pop();
+        const name = this.lexeme(this.#consume(TokenType.IDENTIFIER));
+        expression = new Access(token, expression, name);
+      } else {
+        throw this.#error(this.next, "Unexpected member access");
+      }
     }
     return count > 0 ? new Not(head0, count, expression) : expression;
   }
@@ -243,8 +247,6 @@ export class Parser {
       left = new Binary(token, left, this.#unary(this.#pop()));
     }
   }
-
-  // three operators
 
   #expression(token: Token): RightExpression {
     switch (token.type) {

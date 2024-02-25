@@ -1,6 +1,89 @@
 # Scryptic
 
-## 2024-02-23
+## 2024-02-25
+
+### the read before write problem
+
+How to compile `if` statements or expressions? The required jumps are:
+
+- the conditional jump to the else instructions
+- the unconditional jump past the end Technicall no jump is needed from the
+  else, but its end is a jump target, so with the current data model, that
+  becomes a jump as well.
+
+So when compiling any part, it may be closed with a jump or return from its end.
+This jump target is a parameter to be passed. The nice thing about passing along
+the jump target, is that it can be overridden with `return`, `break` or
+`continue`.
+
+Now the next problem: read before write. The linear code uses register
+allocation to keep track of which variables are assigned. It is possible to
+assign variables on some branches, while leaving them unassigned on others
+however. Extreme (and potentially useless) example: `x = if ... then ...;` The
+lack of the `else` branch means that variable `x` cannot be read now... Perhaps
+this case should be outlawed somehow, this assignment is rather pointless, after
+all. This still requires detection, however.
+
+Against outlawing: `var x = if ... then ... else break;`; so: leave the
+loop/switch if `x` is not assigned. This is fine, isn't it?
+
+Each jump target has a set of variables that are going to be read. Any mismatch
+between demanded and supplied variables is a problem. How to detect this? Even a
+check at the end of an if statement to see that both branches assign the same
+variables is no good, as the conditional variable declarations shows.
+
+Of course, a type check, that we want anyway, could solve this issue. So while
+compiling and admitting instructions, The compiler tracks variable use accross
+jump targets:
+
+- for each jump statement, list the variables that are assigned at that point.
+  Record the token responsible for the jump.
+- for each target, collect the variables that get read.
+
+At the end, do the 'type check', in this case for two mismatches:
+
+1. read before write.
+2. write, never read -- but maybe this requires more thinking.
+
+The jump target may assign its own variables, or read variables from a shared
+context. The shared context is fine, we have a record of variables in scope, and
+which are assigned at each point. The self assignments should be omitted from
+the demanded variables, however.
+
+The part with the jump statement may read variables it writes. If we want to
+keep track of which variables are read, we need to account for this. But now we
+are leaning into SSA and stuff like that.
+
+Best startegy for now is to track those jump versus jump target stack frames,
+and raise an error after compilation of a method or script. This requires tokens
+to point to the right constructs.
+
+### offsets version positions
+
+Clox used offsets of current position for the jump, probabaly because most jumps
+are small, within the 65536 instructions and often within lower bounds. An
+offset from the start of the method might be too large, or perhaps takes up more
+space, as teh start of the method must be cached.
+
+### labels
+
+Only certain statements/expression are accepted as jump targets, so others need
+no labels.
+
+### unions of classes
+
+Why not do this: compile `x.m(...)` as `switch(classof x){ case A: ... }`... A
+method may have a different place in each class. This is know at compile time,
+but branching on the class pointer could be cheaper than maintaining extra
+classes.
+
+### startegy against read before write
+
+Record at each jump which variables are written, but take intersections. The
+when the target is compiled, start with the intersection and read from there. A
+to register assignment, that can still function the same way.
+
+## 2024-02-24
 
 ### control structures
 
@@ -13,6 +96,94 @@ Boolean expressions:
 - labels
 - parentheses
 - if expressions?
+
+Working in assignment and such, but struggling. It is nicer to have a simple
+rule for operator precedence Similarly, if the lexer did not label keywords with
+their own types, that would make the lexer simpler, and allow the use of
+kaywords as identifiers in unambiguous contexts. That would also shift work to
+the parser, though. Now that I think about it, could it be better for the lexer
+to just generate one token type for each precedence level?
+
+The peacemeal character of the lexer is nice. Could the parser do the same?
+
+Then look at Rust again: nearly everything is an expression.
+
+### statements vs expressions
+
+- Various declarations, for classes, methods, variables etc.
+- the `log` expression. Perhaps variants that can block the machine and given
+  input, seeing as how they are intended as debugging tools right now.
+
+One advantage the unions of classes idea brings is that an expression may have a
+union of concrete types. Can we elaborate?
+
+Fat pointers all the way: Have classes for everything, even void or null, values
+types an so on. Allow matching a class with a trait at runtime, binary search in
+a set of implementations of each trait, or just going through a list... the
+classes could be sorted, and binary searched to a resolution of say 16, after
+which a linear search is done, assuming banery becomes slower at a point.
+
+Functions in scope could be extention methods on void... that is, depending on
+how method declarations are going to work, this might be allowed:
+
+`def method(this: void, ...) {} void.method(...)`;
+
+Then add syntactic sugar:
+
+`def method(...) {} method(...)`;
+
+This union of classes must be allocated in sufficent space for the biggest
+members, the fact that some of the registers are not used because the expression
+has nothing to give back does not matter.
+
+The empty type is for expression that never returns, i.e. loops and runtime
+falures. The void type indicates that zero space is needed for the return value.
+Eventually the runtime can just put the void class in the target register, for
+the current dynamic version, there is `null` as placeholder.
+
+Which brings up a new control structure: the class switch. An expression whose
+value is an intersection of classes
+
+Interesting: if a trait can have `static` methods, then the void class doesn't
+get polluted...
+
+### dynamic dispatch
+
+The method table could similarly be an array of pairs. Each pair has a method
+key and method pointer. The array is sorted by method id, to make fast search
+possible. Sure, having a fixed index is even faster, but this gives some
+flexability. Would it be worse than having lots of small trait implementations
+lying around?
+
+Of course, and extra challege here is overloading and subclassing... no,
+actually, because the dispatch is static or the arguments the compiler should be
+able to tell which method key to use, should it not? It creates the dependency
+between specific versions of libraries. This is a choice, to have a cross module
+agreement on method identifiers, as part of the module interface. A choice that
+won't work for dynamic distributed systems...
+
+One thought is that the interpreter might fixs things somehow: callers use
+method signatures without checking what the imports provide, it just says: this
+method form this class form this package. The interpreter finds the best match
+once, then loads that into the method table. Now there is a trade off between
+lazy loading, which implies a lookup cost for every method call, and eager
+laoding, which implies longer start up times, as the interpreter load all
+classes and fills all tables ahead of time.
+
+### Grammar redesign
+
+Allow this: `x = if y then z;` but then have a way to check, like
+`if x undefined then ...;` Also, what does `x = true;` do?
+
+### control structure in expressions
+
+What to do about the case above? Were are in a situation where `x` either is
+assigned or not, depending on which branch is taken. It will be hard to tell
+whether variables are in fact set.
+
+Currently, there is an issue that a variable may get assigned on some branches
+and not on others, but the first allocation is used for register allocation. So
+how to tell that it is too soon to read a variable?
 
 ## 2024-02-22
 

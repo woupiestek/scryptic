@@ -1,8 +1,10 @@
-import { Instruction, Method, Op } from "./class.ts";
+import { Method, Op, Subroutine } from "./class.ts";
 import { Token } from "./lexer.ts";
 import {
   Assignment,
   Block,
+  IfStatement,
+  LiteralBoolean,
   LiteralString,
   LogStatement,
   MemberAccess,
@@ -17,6 +19,8 @@ type Local = {
   variable: Variable;
   register?: number;
 };
+
+type JumpTarget = { label: number; setVariables: Set<string> };
 
 export class Compiler {
   #size = 0;
@@ -79,16 +83,20 @@ export class Compiler {
   // perhaps we need other options.
   #right(
     expression: RightExpression,
-    instructions: Instruction[],
+    subroutine: Subroutine,
     target?: number,
   ) {
-    if (expression instanceof LiteralString) {
+    if (expression instanceof LiteralBoolean) {
       if (target !== undefined) {
-        instructions.push([Op.Constant, target, expression.value]);
+        subroutine.instructions.push([Op.Constant, target, expression.value]);
+      }
+    } else if (expression instanceof LiteralString) {
+      if (target !== undefined) {
+        subroutine.instructions.push([Op.Constant, target, expression.value]);
       }
     } else if (expression instanceof New) {
       if (target !== undefined) {
-        instructions.push([Op.New, target]);
+        subroutine.instructions.push([Op.New, target]);
       } // ignore otherwise
     } else if (
       expression instanceof Assignment
@@ -98,19 +106,19 @@ export class Compiler {
         // local.register could already hav a value and target could be temporary, so...
         // ownership shows up already!
         local.register ||= this.#allocate();
-        this.#right(expression.right, instructions, local.register);
+        this.#right(expression.right, subroutine, local.register);
         if (target !== undefined) {
-          instructions.push([Op.Move, target, local.register]);
+          subroutine.instructions.push([Op.Move, target, local.register]);
         }
       } else if (expression.left instanceof MemberAccess) {
         // calculate results, store in register 1
         const register1 = this.#allocate();
-        this.#right(expression.left.target, instructions, register1);
+        this.#right(expression.left.target, subroutine, register1);
         // now calculate the right hand side and store in register 2
         const register2 = this.#allocate();
-        this.#right(expression.right, instructions, register2);
+        this.#right(expression.right, subroutine, register2);
         // move the result to the heap
-        instructions.push([
+        subroutine.instructions.push([
           Op.SetField,
           register1,
           expression.left.member,
@@ -126,13 +134,13 @@ export class Compiler {
     ) {
       const register = this.#getRegister(expression);
       if (target !== undefined) {
-        instructions.push([Op.Move, target, register]);
+        subroutine.instructions.push([Op.Move, target, register]);
       }
     } else if (expression instanceof MemberAccess) {
       const register = this.#allocate();
-      this.#right(expression.target, instructions, register);
+      this.#right(expression.target, subroutine, register);
       if (target !== undefined) {
-        instructions.push([
+        subroutine.instructions.push([
           Op.GetField,
           target,
           register,
@@ -143,11 +151,13 @@ export class Compiler {
     }
   }
 
-  #statements(statements: Statement[], instructions: Instruction[]) {
+  // boole expression might require an 'on false' label
+
+  #statements(statements: Statement[], subroutine: Subroutine) {
     for (const statement of statements) {
-      if (statement instanceof Block) {
+ if (statement instanceof Block) {
         const depth = this.#locals.length;
-        this.#statements(statement.statements, instructions);
+        this.#statements(statement.statements, subroutine);
         while (this.#locals.length > depth) {
           const register = this.#locals.pop()?.register;
           if (register !== undefined) this.#deallocate(register);
@@ -156,8 +166,8 @@ export class Compiler {
         // type checking might make sense for 'print'
         // need print now to inspect memory
         const register = this.#allocate();
-        this.#right(statement.value, instructions, register);
-        instructions.push([Op.Log, register]);
+        this.#right(statement.value, subroutine, register);
+        subroutine.instructions.push([Op.Log, register]);
         this.#deallocate(register);
       } else if (statement instanceof VarDeclaration) {
         const resolve = this.#local(statement.key.name);
@@ -169,23 +179,21 @@ export class Compiler {
         }
         if (statement.value) {
           const register = this.#allocate();
-          this.#right(statement.value, instructions, register);
+          this.#right(statement.value, subroutine, register);
           this.#locals.push({ variable: statement.key, register });
         } else {
           this.#locals.push({ variable: statement.key });
         }
       } else { // expression statements
         // may not be hopeless...
-        this.#right(statement, instructions);
+        this.#right(statement, subroutine);
       }
     }
   }
 
   compile(): Method {
-    const instructions: Instruction[] = [];
-    this.#statements(this.script, instructions);
-    return new Method(this.#size, {
-      start: { instructions, next: [Op.Return] },
-    });
+    const subroutine: Subroutine = { instructions: [], next: [Op.Return] };
+    this.#statements(this.script, subroutine);
+    return new Method(this.#size, [subroutine]);
   }
 }

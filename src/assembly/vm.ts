@@ -1,6 +1,5 @@
 import {
   Class,
-  Identifier,
   Instruction,
   LimitInstruction,
   Method,
@@ -11,12 +10,11 @@ import { Struct, Value } from "./object.ts";
 
 class Frame {
   static #null = null as unknown;
-  static START = "start";
   #method: Method = Frame.#null as Method;
   #body: Subroutine = Frame.#null as Subroutine;
   #ip = 0;
   stackTop = 0;
-  goto(label: Identifier) {
+  goto(label: number) {
     this.#body = this.#method.body[label];
     this.#ip = 0;
   }
@@ -28,7 +26,7 @@ class Frame {
   load(method: Method, offset: number) {
     this.stackTop = offset + method.size;
     this.#method = method;
-    this.goto(Frame.START);
+    this.goto(0);
   }
 }
 
@@ -111,6 +109,11 @@ export class VM {
             this.frames[this.fp].goto(instruction[3]);
           }
           continue;
+        case Op.JumpIfFalse:
+          if (!this.get(instruction[1])) {
+            this.frames[this.fp].goto(instruction[2]);
+          }
+          continue;
         case Op.JumpIfLess:
           if (this.less(instruction[1], instruction[2])) {
             this.frames[this.fp].goto(instruction[3]);
@@ -119,6 +122,11 @@ export class VM {
         case Op.JumpIfNotMore:
           if (!this.less(instruction[2], instruction[1])) {
             this.frames[this.fp].goto(instruction[3]);
+          }
+          continue;
+        case Op.JumpIfTrue:
+          if (this.get(instruction[1])) {
+            this.frames[this.fp].goto(instruction[2]);
           }
           continue;
         case Op.Log:

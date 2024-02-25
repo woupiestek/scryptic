@@ -9,15 +9,18 @@ export enum Op {
   Jump,
   JumpIfDifferent,
   JumpIfEqual,
+  JumpIfFalse,
   JumpIfLess,
   JumpIfNotMore,
+  JumpIfTrue,
   Log,
   Return,
   SetField,
 }
 
 type Register = number;
-type Constant = string | number | Class | null;
+type Label = number;
+type Constant = string | number | Class | null | boolean;
 export type Identifier = string;
 export type Record<A> = { [_: Identifier]: A };
 
@@ -30,7 +33,12 @@ export type Instruction =
     Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfNotMore,
     Register,
     Register,
-    Identifier,
+    Label,
+  ]
+  | [
+    Op.JumpIfTrue | Op.JumpIfFalse,
+    Register,
+    Label,
   ]
   | [Op.Move, Register, Register] // y = x
   | [Op.MoveResult, Register] // y = (previous function call)
@@ -39,7 +47,7 @@ export type Instruction =
   | [Op.SetField, Register, Identifier, Register] // y.i = x
 ;
 export type LimitInstruction =
-  | [Op.Jump, Identifier] // goto [label]
+  | [Op.Jump, Label] // goto [label]
   | [Op.Return, Register?] // return; whatever is left on the bottom can be taken as return value
 ;
 
@@ -59,10 +67,7 @@ export type Subroutine = {
 export class Method {
   constructor(
     readonly size: number,
-    readonly body: { //
-      start: Subroutine;
-      [_: Identifier]: Subroutine;
-    },
+    readonly body: Subroutine[],
   ) {}
   _strings() {
     return Object.fromEntries(
