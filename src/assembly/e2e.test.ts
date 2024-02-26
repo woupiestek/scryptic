@@ -280,4 +280,8 @@ Deno.test(function labelsStatements() {
   );
 });
 
-//console.log(compile('var x = "wrong!"; a: while true { if x != "right!" { x = "right!"; continue a; } break a; } log x;').toString())
+console.log(
+  compile(
+    'var x = "wrong!"; a: while true { if x != "right!" { x = "right!"; continue a; } break a; } log x;',
+  ).toString(),
+);

@@ -1,4 +1,4 @@
-import { Instruction, Method, Op, Subroutine } from "./class.ts";
+import { Instruction, Label, Method, Op } from "./class.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Binary,
@@ -22,30 +22,35 @@ import {
 type Local = {
   variable: Variable;
   register?: number;
-  //assigned: boolean;
 };
 
-type Label = {
+type NamedLabel = {
   name?: string;
-  break: number;
-  continue: number;
+  break: Label;
+  continue: Label;
+};
+
+type TypedLabel = {
+  label: Label;
+  written: Set<Local>;
 };
 
 export class Compiler {
   #size = 0;
   #secondHandRegisters: number[] = [];
   // add something to track available variables at every point
-  #subroutines: Subroutine[] = [{ instructions: [], next: [Op.Return] }];
-  #written: Set<Local>[] = [new Set()];
-  #currentSubroutine = 0;
+  #current: TypedLabel = { label: new Label(), written: new Set() };
+  // #subroutines: Label[] = [{ instructions: [], next: [Op.Return] }];
+  // #written: [Label, Set<Local>][] = [[this.#label, new Set()]];
+  //#currentSubroutine = 0;
   #locals: Local[] = [];
-  #labels: Label[] = [];
+  #names: NamedLabel[] = [];
   constructor(
     readonly script: Statement[],
   ) {}
 
   #emit(...instructions: Instruction[]) {
-    this.#subroutines[this.#currentSubroutine].instructions.push(
+    this.#current.label.instructions.push(
       ...instructions,
     );
   }
@@ -88,7 +93,7 @@ export class Compiler {
   }
 
   #hasAssigned(local: Local) {
-    return this.#written[this.#currentSubroutine].has(local);
+    return this.#current.written.has(local);
   }
 
   #getRegister(variable: Variable): number {
@@ -104,7 +109,7 @@ export class Compiler {
 
   #booleanBinary(
     expression: Binary,
-    onFalse: number,
+    onFalse: Label,
     negate = false,
   ) {
     switch (expression.token.type) {
@@ -113,30 +118,26 @@ export class Compiler {
           this.#boolean(expression.left, onFalse, negate);
           this.#boolean(expression.right, onFalse, negate);
         } else {
-          const rightBranch = this.#subroutines.length;
-          const continuation = this.#subroutines.length + 1;
-          this.#subroutines[rightBranch] = {
-            instructions: [],
-            next: [Op.Jump, continuation],
-          };
-          this.#subroutines[continuation] = {
-            instructions: [],
-            next: this.#subroutines[this.#currentSubroutine].next,
-          };
-          this.#subroutines[this.#currentSubroutine].next = [
+          const rightBranch = new Label();
+          const continuation = new Label();
+          rightBranch.next = [Op.Jump, continuation];
+          continuation.next = this.#current.label.next;
+          this.#current.label.next = [
             Op.Jump,
             continuation,
           ];
           this.#boolean(expression.left, rightBranch, negate);
-          this.#written[rightBranch] = new Set(
-            this.#written[this.#currentSubroutine],
+          const writtenRight = new Set(
+            this.#current.written,
           );
-          this.#written[continuation] = new Set(
-            this.#written[this.#currentSubroutine],
+
+          const writtenCont = new Set(
+            this.#current.written,
           );
-          this.#currentSubroutine = rightBranch;
+
+          this.#current = { label: rightBranch, written: writtenRight };
           this.#boolean(expression.right, onFalse, negate);
-          this.#currentSubroutine = continuation;
+          this.#current = { label: continuation, written: writtenCont };
           return;
         }
         return;
@@ -227,30 +228,25 @@ export class Compiler {
             this.#boolean(expression.left, onFalse, negate);
             this.#boolean(expression.right, onFalse, negate);
           } else {
-            const rightBranch = this.#subroutines.length;
-            const continuation = this.#subroutines.length + 1;
-            this.#subroutines[rightBranch] = {
-              instructions: [],
-              next: [Op.Jump, continuation],
-            };
-            this.#subroutines[continuation] = {
-              instructions: [],
-              next: this.#subroutines[this.#currentSubroutine].next,
-            };
-            this.#subroutines[this.#currentSubroutine].next = [
+            const rightBranch = new Label();
+            const continuation = new Label();
+            rightBranch
+              .next = [Op.Jump, continuation];
+            continuation.next = this.#current.label.next;
+            this.#current.label.next = [
               Op.Jump,
               continuation,
             ];
             this.#boolean(expression.left, rightBranch, negate);
-            this.#written[rightBranch] = new Set(
-              this.#written[this.#currentSubroutine],
+            const wr = new Set(
+              this.#current.written,
             );
-            this.#written[continuation] = new Set(
-              this.#written[this.#currentSubroutine],
+            const wc = new Set(
+              this.#current.written,
             );
-            this.#currentSubroutine = rightBranch;
+            this.#current = { label: rightBranch, written: wr };
             this.#boolean(expression.right, onFalse, negate);
-            this.#currentSubroutine = continuation;
+            this.#current = { label: continuation, written: wc };
             return;
           }
         }
@@ -273,7 +269,7 @@ export class Compiler {
 
   #boolean(
     expression: Expression,
-    onFalse: number,
+    onFalse: Label,
     negate = false,
   ) {
     switch (expression.constructor) {
@@ -327,7 +323,7 @@ export class Compiler {
       // local.register could already hav a value and target could be temporary, so...
       // ownership shows up already!
       local.register ??= this.#allocate();
-      this.#written[this.#currentSubroutine].add(
+      this.#current.written?.add(
         local,
       );
       this.#expression(assignment.right, local.register);
@@ -379,25 +375,22 @@ export class Compiler {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR: {
-        const falseBranch = this.#subroutines.length;
-        const continuation = this.#subroutines.length + 1;
-        this.#subroutines[falseBranch] = {
-          instructions: [],
-          next: [Op.Jump, continuation],
-        };
-        this.#subroutines[continuation] = {
-          instructions: [],
-          next: this.#subroutines[this.#currentSubroutine].next,
-        };
-        this.#subroutines[this.#currentSubroutine].next = [
-          Op.Jump,
-          continuation,
-        ];
+        const falseBranch = new Label();
+        const continuation = new Label();
+        falseBranch
+          .next = [Op.Jump, continuation];
+        continuation
+          .next = this.#current.label.next,
+          this.#current.label.next = [
+            Op.Jump,
+            continuation,
+          ];
         this.#booleanBinary(expression, falseBranch);
         if (target !== undefined) this.#emit([Op.Constant, target, true]);
-        this.#currentSubroutine = falseBranch;
+        const written = new Set(this.#current.written);
+        this.#current = { label: falseBranch, written };
         if (target !== undefined) this.#emit([Op.Constant, target, false]);
-        this.#currentSubroutine = continuation;
+        this.#current = { label: continuation, written };
         return;
       }
       default:
@@ -493,17 +486,17 @@ export class Compiler {
   #statement(statement: Statement) {
     switch (statement.constructor) {
       case Break: {
-        if (this.#labels.length === 0) {
+        if (this.#names.length === 0) {
           throw this.#error(statement.token, "Cannot break here");
         }
         const name = (statement as Break).label;
         let target;
         if (name === undefined) {
-          target = this.#labels[this.#labels.length - 1].break;
+          target = this.#names[this.#names.length - 1].break;
         } else {
-          for (let i = this.#labels.length - 1; i >= 0; i--) {
-            if (this.#labels[i].name === name) {
-              target = this.#labels[i].break;
+          for (let i = this.#names.length - 1; i >= 0; i--) {
+            if (this.#names[i].name === name) {
+              target = this.#names[i].break;
             }
           }
           if (!target) {
@@ -517,17 +510,17 @@ export class Compiler {
         this.#block(statement as Block);
         return;
       case Continue: {
-        if (this.#labels.length === 0) {
+        if (this.#names.length === 0) {
           throw this.#error(statement.token, "Cannot break here");
         }
         const name = (statement as Continue).label;
         let target;
         if (name === undefined) {
-          target = this.#labels[this.#labels.length - 1].continue;
+          target = this.#names[this.#names.length - 1].continue;
         } else {
-          for (let i = this.#labels.length - 1; i >= 0; i--) {
-            if (this.#labels[i].name === name) {
-              target = this.#labels[i].continue;
+          for (let i = this.#names.length - 1; i >= 0; i--) {
+            if (this.#names[i].name === name) {
+              target = this.#names[i].continue;
             }
           }
           if (!target) {
@@ -540,58 +533,53 @@ export class Compiler {
       case IfStatement: {
         const { condition, onFalse, onTrue } = statement as IfStatement;
         if (onFalse) {
-          const elseBranch = this.#subroutines.length;
-          const continuation = this.#subroutines.length + 1;
-          this.#subroutines[elseBranch] = {
-            instructions: [],
-            next: [Op.Jump, continuation],
-          };
-          this.#subroutines[continuation] = {
-            instructions: [],
-            next: this.#subroutines[this.#currentSubroutine].next,
-          };
-          this.#subroutines[this.#currentSubroutine].next = [
+          const elseBranch = new Label();
+          const continuation = new Label();
+          elseBranch.next = [Op.Jump, continuation];
+          continuation
+            .next = this.#current.label.next;
+          this.#current.label.next = [
             Op.Jump,
             continuation,
           ];
           this.#boolean(condition, elseBranch);
 
           // record assignments before for else branch
-          this.#written[elseBranch] = new Set(
-            this.#written[this.#currentSubroutine],
+          const we = new Set(
+            this.#current.written,
           );
           this.#block(onTrue);
           // record assignment after for continuation
           const assignedOnTrue = [
-            ...this.#written[this.#currentSubroutine],
+            ...this.#current.written,
           ];
-          this.#currentSubroutine = elseBranch;
+          this.#current = { label: elseBranch, written: we };
           this.#block(onFalse);
           // combine
-          this.#written[continuation] = new Set(
-            [...this.#written[this.#currentSubroutine]].filter((it) =>
-              assignedOnTrue.includes(it)
+          this.#current = {
+            label: continuation,
+            written: new Set(
+              [...this.#current.written].filter((it) =>
+                assignedOnTrue.includes(it)
+              ),
             ),
-          );
-          this.#currentSubroutine = continuation;
+          };
           return;
         }
-        const continuation = this.#subroutines.length;
-        this.#subroutines[continuation] = {
-          instructions: [],
-          next: this.#subroutines[this.#currentSubroutine].next,
-        };
-        this.#subroutines[this.#currentSubroutine].next = [
+        const continuation = new Label();
+        continuation
+          .next = this.#current.label.next;
+        this.#current.label.next = [
           Op.Jump,
           continuation,
         ];
         this.#boolean(condition, continuation);
         // reset assignments
-        this.#written[continuation] = new Set(
-          this.#written[this.#currentSubroutine],
+        const wc = new Set(
+          this.#current.written,
         );
         this.#statement(onTrue);
-        this.#currentSubroutine = continuation;
+        this.#current = { label: continuation, written: wc };
         // but this is only on false if there is no else branch...
         // perhaps acknowlegde two options?
         return;
@@ -622,7 +610,7 @@ export class Compiler {
             register,
           };
           this.#locals.push(local);
-          this.#written[this.#currentSubroutine].add(local);
+          this.#current.written?.add(local);
         } else {
           this.#locals.push({ variable: key });
         }
@@ -630,36 +618,33 @@ export class Compiler {
       }
       case WhileStatement: {
         const { condition, onTrue, label } = statement as WhileStatement;
-        const loop = this.#subroutines.length;
-        const continuation = this.#subroutines.length + 1;
-        this.#labels.push({
+        const loop = new Label();
+        const continuation = new Label();
+        this.#names.push({
           name: label,
           break: continuation,
           continue: loop,
         });
-        this.#subroutines[loop] = {
-          instructions: [],
-          next: [Op.Jump, loop],
-        };
-        this.#subroutines[continuation] = {
-          instructions: [],
-          next: this.#subroutines[this.#currentSubroutine].next,
-        };
-        this.#subroutines[this.#currentSubroutine].next = [
+        loop
+          .next = [Op.Jump, loop];
+        continuation
+          .next = this.#current.label.next;
+        this.#current.label.next = [
           Op.Jump,
           loop,
         ];
 
-        this.#written[loop] = new Set(this.#written[this.#currentSubroutine]);
-        this.#currentSubroutine = loop;
-
+        this.#current = {
+          label: loop,
+          written: new Set(this.#current.written),
+        };
         this.#boolean(condition, continuation);
-        this.#written[continuation] = new Set(
-          this.#written[this.#currentSubroutine],
+        const w = new Set(
+          this.#current.written,
         );
         this.#block(onTrue);
-        this.#labels.pop();
-        this.#currentSubroutine = continuation;
+        this.#names.pop();
+        this.#current = { label: continuation, written: w };
         return;
       }
       default:
@@ -669,7 +654,8 @@ export class Compiler {
   }
 
   compile(): Method {
+    const start = this.#current.label;
     this.#statements(this.script);
-    return new Method(this.#size, this.#subroutines);
+    return new Method(this.#size, start);
   }
 }

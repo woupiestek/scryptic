@@ -1,21 +1,21 @@
 import {
   Class,
   Instruction,
+  Label,
   LimitInstruction,
   Method,
   Op,
-  Subroutine,
 } from "./class.ts";
 import { Struct, Value } from "./object.ts";
 
 class Frame {
   static #null = null as unknown;
   #method: Method = Frame.#null as Method;
-  #body: Subroutine = Frame.#null as Subroutine;
+  #body: Label = Frame.#null as Label;
   #ip = 0;
   stackTop = 0;
-  goto(label: number) {
-    this.#body = this.#method.body[label];
+  goto(label: Label) {
+    this.#body = label;
     this.#ip = 0;
   }
   next(): Instruction | LimitInstruction {
@@ -26,7 +26,7 @@ class Frame {
   load(method: Method, offset: number) {
     this.stackTop = offset + method.size;
     this.#method = method;
-    this.goto(0);
+    this.goto(method.start);
   }
 }
 

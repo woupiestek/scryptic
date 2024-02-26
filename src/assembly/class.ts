@@ -19,7 +19,6 @@ export enum Op {
 }
 
 type Register = number;
-type Label = number;
 type Constant = string | number | Class | null | boolean;
 export type Identifier = string;
 export type Record<A> = { [_: Identifier]: A };
@@ -52,28 +51,37 @@ export type LimitInstruction =
   | [Op.Return, Register?] // return; whatever is left on the bottom can be taken as return value
 ;
 
-function stringify(ins: Instruction | LimitInstruction): string {
-  const [h, ...t] = ins;
-  return [Op[h], ...t].join(" ");
+export class Label {
+  readonly instructions: Instruction[] = [];
+  next: LimitInstruction = [Op.Return];
 }
-// possibly missing: constructor instructions
-// lacking constructors, nothing to call there.
-// something to still figure out.
-
-export type Subroutine = {
-  instructions: Instruction[];
-  next: LimitInstruction;
-};
 
 export class Method {
   constructor(
     readonly size: number,
-    readonly body: Subroutine[],
+    readonly start: Label,
   ) {}
   _strings() {
-    return this.body.map(
-      (v) => [...v.instructions.map(stringify), stringify(v.next)],
-    );
+    const labels = [this.start];
+    const results = [];
+    function _labelId(x: Label) {
+      const i = labels.indexOf(x);
+      if (i === -1) {
+        const j = labels.length;
+        labels[j] = x;
+        return j;
+      }
+      return i.toString();
+    }
+    for (let i = 0; i < labels.length; i++) {
+      results[i] = [...labels[i].instructions, labels[i].next].map(
+        ([h, ...t]) => {
+          return [Op[h], ...t.map((i) => i instanceof Label ? _labelId(i) : i)]
+            .join(" ");
+        },
+      );
+    }
+    return results;
   }
   toString() {
     return JSON.stringify(this._strings(), null, 2);
