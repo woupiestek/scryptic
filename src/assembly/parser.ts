@@ -10,6 +10,14 @@ export interface Node {
   readonly token: Token;
 }
 
+export class Break {
+  constructor(readonly token: Token, readonly label?: string) {}
+}
+
+export class Continue {
+  constructor(readonly token: Token, readonly label?: string) {}
+}
+
 export class LiteralString implements Node {
   constructor(readonly token: Token, readonly value: string) {}
 }
@@ -21,8 +29,17 @@ export class IfStatement implements Node {
   constructor(
     readonly token: Token,
     readonly condition: Expression,
-    readonly onTrue: Statement,
-    readonly onFalse?: Statement,
+    readonly onTrue: Block,
+    readonly onFalse?: Block,
+  ) {}
+}
+
+export class WhileStatement implements Node {
+  constructor(
+    readonly token: Token,
+    readonly condition: Expression,
+    readonly onTrue: Block,
+    readonly label?: string,
   ) {}
 }
 
@@ -45,10 +62,11 @@ export class VarDeclaration implements Node {
 
 export type Statement =
   | Block
+  | Expression
   | IfStatement
   | LogStatement
-  | Expression
-  | VarDeclaration;
+  | VarDeclaration
+  | WhileStatement;
 
 export class Block implements Node {
   constructor(readonly token: Token, readonly statements: Statement[]) {}
@@ -247,6 +265,16 @@ export class Parser {
     switch (token.type) {
       case TokenType.BRACE_LEFT:
         return this.#block(token);
+      case TokenType.BREAK:
+        statement = this.next.type === TokenType.IDENTIFIER
+          ? new Break(token, this.lexeme(this.#pop()))
+          : new Break(token);
+        break;
+      case TokenType.CONTINUE:
+        statement = this.next.type === TokenType.IDENTIFIER
+          ? new Continue(token, this.lexeme(this.#pop()))
+          : new Continue(token);
+        break;
       case TokenType.LOG: {
         statement = new LogStatement(token, this.#expression(this.#pop()));
         break;
@@ -264,6 +292,12 @@ export class Parser {
         }
         return new IfStatement(token, condition, ifTrue);
       }
+      case TokenType.WHILE:
+        return new WhileStatement(
+          token,
+          this.#expression(this.#pop()),
+          this.#block(this.#consume(TokenType.BRACE_LEFT)),
+        );
       case TokenType.VAR: {
         const variable = this.#consume(TokenType.IDENTIFIER);
         const key = new Variable(variable, this.lexeme(variable));
@@ -278,6 +312,17 @@ export class Parser {
         statement = new VarDeclaration(token, key);
         break;
       }
+      case TokenType.IDENTIFIER:
+        if (this.#match(TokenType.COLON)) {
+          return new WhileStatement(
+            this.#consume(TokenType.WHILE),
+            this.#expression(this.#pop()),
+            this.#block(this.#consume(TokenType.BRACE_LEFT)),
+            this.lexeme(token),
+          );
+        }
+        statement = this.#expression(token);
+        break;
       default:
         statement = this.#expression(token);
         break;

@@ -71,10 +71,8 @@ export class Method {
     readonly body: Subroutine[],
   ) {}
   _strings() {
-    return Object.fromEntries(
-      Object.entries(this.body).map((
-        [k, v],
-      ) => [k, v.instructions.map(stringify), stringify(v.next)]),
+    return this.body.map(
+      (v) => [...v.instructions.map(stringify), stringify(v.next)],
     );
   }
   toString() {

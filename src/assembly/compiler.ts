@@ -3,6 +3,8 @@ import { Token, TokenType } from "./lexer.ts";
 import {
   Binary,
   Block,
+  Break,
+  Continue,
   Expression,
   IfStatement,
   LiteralBoolean,
@@ -14,12 +16,19 @@ import {
   Statement,
   VarDeclaration,
   Variable,
+  WhileStatement,
 } from "./parser.ts";
 
 type Local = {
   variable: Variable;
   register?: number;
   //assigned: boolean;
+};
+
+type Label = {
+  name?: string;
+  break: number;
+  continue: number;
 };
 
 export class Compiler {
@@ -30,6 +39,7 @@ export class Compiler {
   #written: Set<Local>[] = [new Set()];
   #currentSubroutine = 0;
   #locals: Local[] = [];
+  #labels: Label[] = [];
   constructor(
     readonly script: Statement[],
   ) {}
@@ -316,7 +326,7 @@ export class Compiler {
       const local = this.#resolve(assignment.left);
       // local.register could already hav a value and target could be temporary, so...
       // ownership shows up already!
-      local.register ||= this.#allocate();
+      local.register ??= this.#allocate();
       this.#written[this.#currentSubroutine].add(
         local,
       );
@@ -470,23 +480,103 @@ export class Compiler {
     }
   }
 
+  #block(block: Block) {
+    const depth = this.#locals.length;
+    this.#statements(block.statements);
+    while (this.#locals.length > depth) {
+      const register = this.#locals.pop()?.register;
+      if (register !== undefined) this.#deallocate(register);
+    }
+  }
+
   // not good enough?
   #statement(statement: Statement) {
-    if (statement instanceof Block) {
-      const depth = this.#locals.length;
-      this.#statements(statement.statements);
-      while (this.#locals.length > depth) {
-        const register = this.#locals.pop()?.register;
-        if (register !== undefined) this.#deallocate(register);
+    switch (statement.constructor) {
+      case Break: {
+        if (this.#labels.length === 0) {
+          throw this.#error(statement.token, "Cannot break here");
+        }
+        const name = (statement as Break).label;
+        let target;
+        if (name === undefined) {
+          target = this.#labels[this.#labels.length - 1].break;
+        } else {
+          for (let i = this.#labels.length - 1; i >= 0; i--) {
+            if (this.#labels[i].name === name) {
+              target = this.#labels[i].break;
+            }
+          }
+          if (!target) {
+            throw this.#error(statement.token, `Label ${name} not found`);
+          }
+        }
+        this.#emit([Op.Jump, target]);
+        return;
       }
-    } else if (statement instanceof IfStatement) {
-      if (statement.onFalse) {
-        const elseBranch = this.#subroutines.length;
-        const continuation = this.#subroutines.length + 1;
-        this.#subroutines[elseBranch] = {
-          instructions: [],
-          next: [Op.Jump, continuation],
-        };
+      case Block:
+        this.#block(statement as Block);
+        return;
+      case Continue: {
+        if (this.#labels.length === 0) {
+          throw this.#error(statement.token, "Cannot break here");
+        }
+        const name = (statement as Continue).label;
+        let target;
+        if (name === undefined) {
+          target = this.#labels[this.#labels.length - 1].continue;
+        } else {
+          for (let i = this.#labels.length - 1; i >= 0; i--) {
+            if (this.#labels[i].name === name) {
+              target = this.#labels[i].continue;
+            }
+          }
+          if (!target) {
+            throw this.#error(statement.token, `Label ${name} not found`);
+          }
+        }
+        this.#emit([Op.Jump, target]);
+        return;
+      }
+      case IfStatement: {
+        const { condition, onFalse, onTrue } = statement as IfStatement;
+        if (onFalse) {
+          const elseBranch = this.#subroutines.length;
+          const continuation = this.#subroutines.length + 1;
+          this.#subroutines[elseBranch] = {
+            instructions: [],
+            next: [Op.Jump, continuation],
+          };
+          this.#subroutines[continuation] = {
+            instructions: [],
+            next: this.#subroutines[this.#currentSubroutine].next,
+          };
+          this.#subroutines[this.#currentSubroutine].next = [
+            Op.Jump,
+            continuation,
+          ];
+          this.#boolean(condition, elseBranch);
+
+          // record assignments before for else branch
+          this.#written[elseBranch] = new Set(
+            this.#written[this.#currentSubroutine],
+          );
+          this.#block(onTrue);
+          // record assignment after for continuation
+          const assignedOnTrue = [
+            ...this.#written[this.#currentSubroutine],
+          ];
+          this.#currentSubroutine = elseBranch;
+          this.#block(onFalse);
+          // combine
+          this.#written[continuation] = new Set(
+            [...this.#written[this.#currentSubroutine]].filter((it) =>
+              assignedOnTrue.includes(it)
+            ),
+          );
+          this.#currentSubroutine = continuation;
+          return;
+        }
+        const continuation = this.#subroutines.length;
         this.#subroutines[continuation] = {
           instructions: [],
           next: this.#subroutines[this.#currentSubroutine].next,
@@ -495,76 +585,86 @@ export class Compiler {
           Op.Jump,
           continuation,
         ];
-        this.#boolean(statement.condition, elseBranch);
-
-        // record assignments before for else branch
-        this.#written[elseBranch] = new Set(
+        this.#boolean(condition, continuation);
+        // reset assignments
+        this.#written[continuation] = new Set(
           this.#written[this.#currentSubroutine],
         );
-        this.#statement(statement.onTrue);
-        // record assignment after for continuation
-        const assignedOnTrue = [
-          ...this.#written[this.#currentSubroutine],
+        this.#statement(onTrue);
+        this.#currentSubroutine = continuation;
+        // but this is only on false if there is no else branch...
+        // perhaps acknowlegde two options?
+        return;
+      }
+      case LogStatement: {
+        // type checking might make sense for 'print'
+        // need print now to inspect memory
+        const register = this.#allocate();
+        this.#expression((statement as LogStatement).value, register);
+        this.#emit([Op.Log, register]);
+        this.#deallocate(register);
+        return;
+      }
+      case VarDeclaration: {
+        const { key, value } = statement as VarDeclaration;
+        const resolve = this.#local(key.name);
+        if (resolve !== null) {
+          throw this.#error(
+            statement.token,
+            `Variable '${key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
+          );
+        }
+        if (value) {
+          const register = this.#allocate();
+          this.#expression(value, register);
+          const local = {
+            variable: key,
+            register,
+          };
+          this.#locals.push(local);
+          this.#written[this.#currentSubroutine].add(local);
+        } else {
+          this.#locals.push({ variable: key });
+        }
+        return;
+      }
+      case WhileStatement: {
+        const { condition, onTrue, label } = statement as WhileStatement;
+        const loop = this.#subroutines.length;
+        const continuation = this.#subroutines.length + 1;
+        this.#labels.push({
+          name: label,
+          break: continuation,
+          continue: loop,
+        });
+        this.#subroutines[loop] = {
+          instructions: [],
+          next: [Op.Jump, loop],
+        };
+        this.#subroutines[continuation] = {
+          instructions: [],
+          next: this.#subroutines[this.#currentSubroutine].next,
+        };
+        this.#subroutines[this.#currentSubroutine].next = [
+          Op.Jump,
+          loop,
         ];
-        this.#currentSubroutine = elseBranch;
-        this.#statement(statement.onFalse);
-        // combine
+
+        this.#written[loop] = new Set(this.#written[this.#currentSubroutine]);
+        this.#currentSubroutine = loop;
+
+        this.#boolean(condition, continuation);
         this.#written[continuation] = new Set(
-          [...this.#written[this.#currentSubroutine]].filter((it) =>
-            assignedOnTrue.includes(it)
-          ),
+          this.#written[this.#currentSubroutine],
         );
+        this.#block(onTrue);
+        this.#labels.pop();
         this.#currentSubroutine = continuation;
         return;
       }
-      const continuation = this.#subroutines.length;
-      this.#subroutines[continuation] = {
-        instructions: [],
-        next: this.#subroutines[this.#currentSubroutine].next,
-      };
-      this.#subroutines[this.#currentSubroutine].next = [
-        Op.Jump,
-        continuation,
-      ];
-      this.#boolean(statement.condition, continuation);
-      // reset assignments
-      this.#written[continuation] = new Set(
-        this.#written[this.#currentSubroutine],
-      );
-      this.#statement(statement.onTrue);
-      this.#currentSubroutine = continuation;
-      // but this is only on false if there is no else branch...
-      // perhaps acknowlegde two options?
-    } else if (statement instanceof LogStatement) {
-      // type checking might make sense for 'print'
-      // need print now to inspect memory
-      const register = this.#allocate();
-      this.#expression(statement.value, register);
-      this.#emit([Op.Log, register]);
-      this.#deallocate(register);
-    } else if (statement instanceof VarDeclaration) {
-      const resolve = this.#local(statement.key.name);
-      if (resolve !== null) {
-        throw this.#error(
-          statement.token,
-          `Variable '${statement.key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
-        );
-      }
-      if (statement.value) {
-        const register = this.#allocate();
-        this.#expression(statement.value, register);
-        const local = {
-          variable: statement.key,
-          register,
-        };
-        this.#locals.push(local);
-        this.#written[this.#currentSubroutine].add(local);
-      } else {
-        this.#locals.push({ variable: statement.key });
-      }
-    } else { // expression statements
-      // may not be hopeless...
-      this.#expression(statement);
+      default:
+        this.#expression(statement);
+        return;
     }
   }
 

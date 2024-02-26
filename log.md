@@ -1,5 +1,16 @@
 # Scryptic
 
+## 2024-02-26
+
+### todos
+
+- more expressions
+- type checker
+- class, methods, calls
+- ~~loops~~
+- numbers?
+- optimisations
+
 ## 2024-02-25
 
 ### the read before write problem

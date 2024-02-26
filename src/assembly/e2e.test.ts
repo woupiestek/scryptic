@@ -238,8 +238,46 @@ Deno.test(function partialAssignment() {
 Deno.test(function doubleAssignment() {
   assertEquals(
     run(
-      'var x; var y = new; x = y.m = "test"; if(x == "test") { log "right!"; } else { log "wrong!"; }',
+      'var x; var y = new; x = y.m = "test"; if x == "test" { log "right!"; } else { log "wrong!"; }',
     ),
     ["right!"],
   );
 });
+
+Deno.test(function whileStatements() {
+  assertEquals(
+    run(
+      'var x = "wrong!"; while x != "right!" { x = "right!"; } log x;',
+    ),
+    ["right!"],
+  );
+});
+
+Deno.test(function breakStatements() {
+  assertEquals(
+    run(
+      'var x = "wrong!"; while true { x = "right!"; break; } log x;',
+    ),
+    ["right!"],
+  );
+});
+
+Deno.test(function continueStatements() {
+  assertEquals(
+    run(
+      'var x = "wrong!"; while !false { if x == "right!" { break; } else { x = "right!"; continue; } } log x;',
+    ),
+    ["right!"],
+  );
+});
+
+Deno.test(function labelsStatements() {
+  assertEquals(
+    run(
+      'var x = "wrong!"; a: while true { if x != "right!" { x = "right!"; continue a; } break a; } log x;',
+    ),
+    ["right!"],
+  );
+});
+
+//console.log(compile('var x = "wrong!"; a: while true { if x != "right!" { x = "right!"; continue a; } break a; } log x;').toString())

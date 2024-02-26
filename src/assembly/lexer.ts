@@ -192,6 +192,8 @@ export class Lexer {
             return this.#token(TokenType.COMMA);
           case 46:
             return this.#token(TokenType.DOT);
+          case 58:
+            return this.#token(TokenType.COLON);
           case 59:
             return this.#token(TokenType.SEMICOLON);
           case 60:
