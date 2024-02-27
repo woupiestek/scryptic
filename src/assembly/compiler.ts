@@ -38,11 +38,7 @@ type TypedLabel = {
 export class Compiler {
   #size = 0;
   #secondHandRegisters: number[] = [];
-  // add something to track available variables at every point
   #current: TypedLabel = { label: new Label(), written: new Set() };
-  // #subroutines: Label[] = [{ instructions: [], next: [Op.Return] }];
-  // #written: [Label, Set<Local>][] = [[this.#label, new Set()]];
-  //#currentSubroutine = 0;
   #locals: Local[] = [];
   #names: NamedLabel[] = [];
   constructor(
@@ -143,10 +139,8 @@ export class Compiler {
         return;
       }
       case TokenType.IS_NOT: {
-        const reg1 = this.#allocate();
-        this.#expression(expression.left, reg1);
-        const reg2 = this.#allocate();
-        this.#expression(expression.right, reg2);
+        const reg1 = this.#expression(expression.left);
+        const reg2 = this.#expression(expression.right);
         this.#emit([
           negate ? Op.JumpIfDifferent : Op.JumpIfEqual,
           reg1,
@@ -157,10 +151,8 @@ export class Compiler {
         return;
       }
       case TokenType.IS: {
-        const reg1 = this.#allocate();
-        this.#expression(expression.left, reg1);
-        const reg2 = this.#allocate();
-        this.#expression(expression.right, reg2);
+        const reg1 = this.#expression(expression.left);
+        const reg2 = this.#expression(expression.right);
         this.#emit([
           negate ? Op.JumpIfEqual : Op.JumpIfDifferent,
           reg1,
@@ -171,10 +163,8 @@ export class Compiler {
         return;
       }
       case TokenType.LESS: {
-        const reg1 = this.#allocate();
-        this.#expression(expression.left, reg1);
-        const reg2 = this.#allocate();
-        this.#expression(expression.right, reg2);
+        const reg1 = this.#expression(expression.left);
+        const reg2 = this.#expression(expression.right);
         this.#emit(
           negate // note: changed register ordering!
             ? [Op.JumpIfLess, reg1, reg2, onFalse]
@@ -184,10 +174,8 @@ export class Compiler {
         return;
       }
       case TokenType.MORE: {
-        const reg1 = this.#allocate();
-        this.#expression(expression.left, reg1);
-        const reg2 = this.#allocate();
-        this.#expression(expression.right, reg2);
+        const reg1 = this.#expression(expression.left);
+        const reg2 = this.#expression(expression.right);
         this.#emit(
           negate // note: changed register ordering!
             ? [Op.JumpIfLess, reg2, reg1, onFalse]
@@ -197,10 +185,8 @@ export class Compiler {
         return;
       }
       case TokenType.NOT_LESS: {
-        const reg1 = this.#allocate();
-        this.#expression(expression.left, reg1);
-        const reg2 = this.#allocate();
-        this.#expression(expression.right, reg2);
+        const reg1 = this.#expression(expression.left);
+        const reg2 = this.#expression(expression.right);
         this.#emit(
           negate // note: changed register ordering!
             ? [Op.JumpIfNotMore, reg2, reg1, onFalse]
@@ -210,10 +196,8 @@ export class Compiler {
         return;
       }
       case TokenType.NOT_MORE: {
-        const reg1 = this.#allocate();
-        this.#expression(expression.left, reg1);
-        const reg2 = this.#allocate();
-        this.#expression(expression.right, reg2);
+        const reg1 = this.#expression(expression.left);
+        const reg2 = this.#expression(expression.right);
         this.#emit(
           negate // note: changed register ordering!
             ? [Op.JumpIfNotMore, reg1, reg2, onFalse]
@@ -254,8 +238,7 @@ export class Compiler {
       // later perhaps
       case TokenType.BE: //when everthing is an expression, but then we must take care of partial assignments everywhere as well
       {
-        const reg = this.#allocate();
-        this.#assignment(expression, reg);
+        const reg = this.#assignment(expression);
         this.#emit([Op.JumpIfFalse, reg, onFalse]);
         this.#deallocate(reg);
         return;
@@ -274,8 +257,7 @@ export class Compiler {
   ) {
     switch (expression.constructor) {
       case MemberAccess: {
-        const reg = this.#allocate();
-        this.#expression(expression, reg);
+        const reg = this.#expression(expression);
         this.#emit([
           negate ? Op.JumpIfTrue : Op.JumpIfFalse,
           reg,
@@ -317,7 +299,7 @@ export class Compiler {
     }
   }
 
-  #assignment(assignment: Binary, target?: number) {
+  #assignment(assignment: Binary): number {
     if (assignment.left instanceof Variable) {
       const local = this.#resolve(assignment.left);
       // local.register could already hav a value and target could be temporary, so...
@@ -326,24 +308,20 @@ export class Compiler {
       this.#current.written?.add(
         local,
       );
-      this.#expression(assignment.right, local.register);
-      if (target !== undefined) {
-        this.#emit([
-          Op.Move,
-          target,
-          local.register,
-        ]);
-      }
-      return;
+      const r1 = this.#expression(assignment.right);
+      this.#emit([
+        Op.Move,
+        local.register,
+        r1,
+      ]);
+      return r1;
     }
 
     if (assignment.left instanceof MemberAccess) {
       // calculate results, store in register 1
-      const register1 = this.#allocate();
-      this.#expression(assignment.left.object, register1);
+      const register1 = this.#expression(assignment.left.object);
       // now calculate the right hand side and store in register 2
-      const register2 = target ?? this.#allocate();
-      this.#expression(assignment.right, register2);
+      const register2 = this.#expression(assignment.right);
       // move the result to the heap
       this.#emit([
         Op.SetField,
@@ -352,8 +330,7 @@ export class Compiler {
         register2,
       ]);
       this.#deallocate(register1);
-      if (target === undefined) this.#deallocate(register2);
-      return;
+      return register2;
     }
 
     throw this.#error(
@@ -362,11 +339,10 @@ export class Compiler {
     );
   }
 
-  #binary(expression: Binary, target?: number) {
+  #binary(expression: Binary): number {
     switch (expression.token.type) {
       case TokenType.BE:
-        this.#assignment(expression, target);
-        return;
+        return this.#assignment(expression);
       case TokenType.AND:
       case TokenType.IS_NOT:
       case TokenType.IS:
@@ -386,12 +362,13 @@ export class Compiler {
             continuation,
           ];
         this.#booleanBinary(expression, falseBranch);
-        if (target !== undefined) this.#emit([Op.Constant, target, true]);
+        const target = this.#allocate();
+        this.#emit([Op.Constant, target, true]);
         const written = new Set(this.#current.written);
         this.#current = { label: falseBranch, written };
-        if (target !== undefined) this.#emit([Op.Constant, target, false]);
+        this.#emit([Op.Constant, target, false]);
         this.#current = { label: continuation, written };
-        return;
+        return target;
       }
       default:
         throw this.#error(
@@ -406,64 +383,86 @@ export class Compiler {
   // perhaps we need other options.
   #expression(
     expression: Expression,
-    target?: number,
+  ): number {
+    // const target = this.#allocate();
+    switch (expression.constructor) {
+      case LiteralBoolean: {
+        const target = this.#allocate();
+        this.#emit([
+          Op.Constant,
+          target,
+          (expression as LiteralBoolean).value,
+        ]);
+        return target;
+      }
+      case LiteralString: {
+        const target = this.#allocate();
+        this.#emit([
+          Op.Constant,
+          target,
+          (expression as LiteralString).value,
+        ]);
+        return target;
+      }
+      case New: {
+        const target = this.#allocate();
+        this.#emit([Op.New, target]);
+        return target;
+      }
+      case Binary:
+        return this.#binary(expression as Binary);
+      case Variable: {
+        const target = this.#allocate();
+        this.#emit([
+          Op.Move,
+          target,
+          this.#getRegister(expression as Variable),
+        ]);
+        return target;
+      }
+      case MemberAccess: {
+        const register = this.#expression(
+          (expression as MemberAccess).object,
+        );
+        const target = this.#allocate();
+        this.#emit([
+          Op.GetField,
+          target,
+          register,
+          (expression as MemberAccess).field,
+        ]);
+        this.#deallocate(register);
+        return target;
+      }
+      default:
+        throw this.#error(expression.token, "Unexpected expression type");
+    }
+  }
+
+  // is this how registers are going to be computed?
+  // note that we don't know if the result of the expression is needed for anything.
+  // perhaps we need other options.
+  #expressionStatement(
+    expression: Expression,
   ) {
     switch (expression.constructor) {
       case LiteralBoolean:
-        if (target !== undefined) {
-          this.#emit([
-            Op.Constant,
-            target,
-            (expression as LiteralBoolean).value,
-          ]);
-        }
-        return;
       case LiteralString:
-        if (target !== undefined) {
-          this.#emit([
-            Op.Constant,
-            target,
-            (expression as LiteralString).value,
-          ]);
-        }
-        return;
       case New:
-        if (target !== undefined) {
-          this.#emit([Op.New, target]);
-        } // ignore otherwise
-        // todo: reconsider if this becomes constructor with side effects
         return;
       case Binary:
-        this.#binary(expression as Binary, target);
+        this.#binary(expression as Binary);
         return;
       case Variable:
-        {
-          const register = this.#getRegister(expression as Variable);
-          if (target !== undefined) {
-            this.#emit([
-              Op.Move,
-              target,
-              register,
-            ]);
-          }
-        }
+        this.#getRegister(expression as Variable);
         return;
-      case MemberAccess: {
-        const register = this.#allocate();
-        this.#expression(
+      case MemberAccess:
+        this.#deallocate(this.#expression(
           (expression as MemberAccess).object,
-          register,
-        );
-        if (target !== undefined) {
-          this.#emit([
-            Op.GetField,
-            target,
-            register,
-            (expression as MemberAccess).field,
-          ]);
-        }
-        this.#deallocate(register);
-      }
+        ));
+        return;
+      default:
+        throw this.#error(expression.token, "Unexpected expression type");
     }
   }
 
@@ -587,8 +586,7 @@ export class Compiler {
       case LogStatement: {
         // type checking might make sense for 'print'
         // need print now to inspect memory
-        const register = this.#allocate();
-        this.#expression((statement as LogStatement).value, register);
+        const register = this.#expression((statement as LogStatement).value);
         this.#emit([Op.Log, register]);
         this.#deallocate(register);
         return;
@@ -603,8 +601,7 @@ export class Compiler {
           );
         }
         if (value) {
-          const register = this.#allocate();
-          this.#expression(value, register);
+          const register = this.#expression(value);
           const local = {
             variable: key,
             register,
@@ -648,7 +645,7 @@ export class Compiler {
         return;
       }
       default:
-        this.#expression(statement);
+        this.#expressionStatement(statement);
         return;
     }
   }
