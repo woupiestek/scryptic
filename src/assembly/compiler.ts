@@ -37,8 +37,8 @@ type TypedLabel = {
 
 export class Compiler {
   #size = 0;
-  #secondHandRegisters: number[] = [];
-  #current: TypedLabel = { label: new Label(), written: new Set() };
+  #freeRegisters: number[] = [];
+  #current: TypedLabel = { label: new Label([Op.Return]), written: new Set() };
   #locals: Local[] = [];
   #names: NamedLabel[] = [];
   constructor(
@@ -58,14 +58,15 @@ export class Compiler {
   }
 
   #allocate(): number {
-    if (this.#secondHandRegisters.length > 0) {
-      return this.#secondHandRegisters.pop() as number;
-    }
-    return this.#size++;
+    return this.#freeRegisters.pop() ?? this.#size++;
   }
 
-  #deallocate(...register: number[]) {
-    this.#secondHandRegisters.push(...register);
+  // add a litle intelligence,
+  // to generate fewer move instructions.
+  #free(...registers: number[]) {
+    this.#freeRegisters.push(
+      ...registers.filter((r) => !this.#locals.some((l) => l.register === r)),
+    );
   }
 
   #local(name: string): Local | null {
@@ -103,146 +104,99 @@ export class Compiler {
     return local.register;
   }
 
+  #next() {
+    return this.#current.label.next;
+  }
+
+  #goto(label: Label) {
+    const written = new Set(this.#current.written);
+    this.#current = {
+      label,
+      written,
+    };
+  }
+
   #booleanBinary(
     expression: Binary,
     onFalse: Label,
-    negate = false,
   ) {
     switch (expression.token.type) {
       case TokenType.AND: {
-        if (!negate) {
-          this.#boolean(expression.left, onFalse, negate);
-          this.#boolean(expression.right, onFalse, negate);
-        } else {
-          const rightBranch = new Label();
-          const continuation = new Label();
-          rightBranch.next = [Op.Jump, continuation];
-          continuation.next = this.#current.label.next;
-          this.#current.label.next = [
-            Op.Jump,
-            continuation,
-          ];
-          this.#boolean(expression.left, rightBranch, negate);
-          const writtenRight = new Set(
-            this.#current.written,
-          );
-
-          const writtenCont = new Set(
-            this.#current.written,
-          );
-
-          this.#current = { label: rightBranch, written: writtenRight };
-          this.#boolean(expression.right, onFalse, negate);
-          this.#current = { label: continuation, written: writtenCont };
-          return;
-        }
+        this.#boolean(expression.left, onFalse);
+        const b = new Label(this.#next());
+        this.#current.label.next = [Op.Jump, b];
+        this.#goto(b);
+        this.#boolean(expression.right, onFalse);
         return;
       }
       case TokenType.IS_NOT: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
-        this.#emit([
-          negate ? Op.JumpIfDifferent : Op.JumpIfEqual,
-          reg1,
-          reg2,
-          onFalse,
-        ]);
-        this.#deallocate(reg1, reg2);
+        this.#emit([Op.JumpIfEqual, reg1, reg2, onFalse]);
+        this.#free(reg1, reg2);
         return;
       }
       case TokenType.IS: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
         this.#emit([
-          negate ? Op.JumpIfEqual : Op.JumpIfDifferent,
+          Op.JumpIfDifferent,
           reg1,
           reg2,
           onFalse,
         ]);
-        this.#deallocate(reg1, reg2);
+        this.#free(reg1, reg2);
         return;
       }
       case TokenType.LESS: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
         this.#emit(
-          negate // note: changed register ordering!
-            ? [Op.JumpIfLess, reg1, reg2, onFalse]
-            : [Op.JumpIfNotMore, reg2, reg1, onFalse],
+          // note: changed register ordering!
+          [Op.JumpIfNotMore, reg2, reg1, onFalse],
         );
-        this.#deallocate(reg1, reg2);
+        this.#free(reg1, reg2);
         return;
       }
       case TokenType.MORE: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
-        this.#emit(
-          negate // note: changed register ordering!
-            ? [Op.JumpIfLess, reg2, reg1, onFalse]
-            : [Op.JumpIfNotMore, reg1, reg2, onFalse],
-        );
-        this.#deallocate(reg1, reg2);
+        this.#emit([Op.JumpIfNotMore, reg1, reg2, onFalse]);
+        this.#free(reg1, reg2);
         return;
       }
       case TokenType.NOT_LESS: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
-        this.#emit(
-          negate // note: changed register ordering!
-            ? [Op.JumpIfNotMore, reg2, reg1, onFalse]
-            : [Op.JumpIfLess, reg1, reg2, onFalse],
-        );
-        this.#deallocate(reg1, reg2);
+        this.#emit([Op.JumpIfLess, reg1, reg2, onFalse]);
+        this.#free(reg1, reg2);
         return;
       }
       case TokenType.NOT_MORE: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
         this.#emit(
-          negate // note: changed register ordering!
-            ? [Op.JumpIfNotMore, reg1, reg2, onFalse]
-            : [Op.JumpIfLess, reg2, reg1, onFalse],
+          // note: changed register ordering!
+          [Op.JumpIfLess, reg2, reg1, onFalse],
         );
-        this.#deallocate(reg1, reg2);
+        this.#free(reg1, reg2);
         return;
       }
-      case TokenType.OR:
-        {
-          if (negate) {
-            this.#boolean(expression.left, onFalse, negate);
-            this.#boolean(expression.right, onFalse, negate);
-          } else {
-            const rightBranch = new Label();
-            const continuation = new Label();
-            rightBranch
-              .next = [Op.Jump, continuation];
-            continuation.next = this.#current.label.next;
-            this.#current.label.next = [
-              Op.Jump,
-              continuation,
-            ];
-            this.#boolean(expression.left, rightBranch, negate);
-            const wr = new Set(
-              this.#current.written,
-            );
-            const wc = new Set(
-              this.#current.written,
-            );
-            this.#current = { label: rightBranch, written: wr };
-            this.#boolean(expression.right, onFalse, negate);
-            this.#current = { label: continuation, written: wc };
-            return;
-          }
-        }
+      case TokenType.OR: {
+        const b = new Label(this.#next());
+        this.#boolean(expression.left, b);
+        this.#goto(b);
+        this.#boolean(expression.right, onFalse);
         return;
-      // later perhaps
+      }
       case TokenType.BE: //when everthing is an expression, but then we must take care of partial assignments everywhere as well
       {
         const reg = this.#assignment(expression);
         this.#emit([Op.JumpIfFalse, reg, onFalse]);
-        this.#deallocate(reg);
+        this.#free(reg);
         return;
       }
+      // later perhaps
       // case TokenType.SEMICOLON:
       // case TokenType.VAR:
       default:
@@ -253,45 +207,53 @@ export class Compiler {
   #boolean(
     expression: Expression,
     onFalse: Label,
-    negate = false,
   ) {
     switch (expression.constructor) {
       case MemberAccess: {
         const reg = this.#expression(expression);
         this.#emit([
-          negate ? Op.JumpIfTrue : Op.JumpIfFalse,
+          Op.JumpIfFalse,
           reg,
           onFalse,
         ]);
-        this.#deallocate(reg);
+        this.#free(reg);
         return;
       }
       case Binary:
-        this.#booleanBinary(expression as Binary, onFalse, negate);
+        this.#booleanBinary(expression as Binary, onFalse);
         return;
       case LiteralBoolean: {
-        if ((expression as LiteralBoolean).value !== negate) {
+        if ((expression as LiteralBoolean).value) {
           return;
         }
-        // todo: somehow avoid adding anything to the subroutine beyond this unconditional jump
-        this.#emit([Op.Jump, onFalse]);
+        this.#current.label.next = [Op.Jump, onFalse];
         return;
       }
-      case Not:
+      case Not: {
+        const { count, expression: inner } = expression as Not;
+        if ((count & 1) === 0) {
+          this.#boolean(
+            inner,
+            onFalse,
+          );
+          return;
+        }
+        const next = this.#current.label.next;
+        this.#current.label.next = [Op.Jump, onFalse];
         this.#boolean(
-          (expression as Not).expression,
-          onFalse,
-          ((expression as Not).count & 1) === 1 ? !negate : negate,
+          inner,
+          next[0] === Op.Jump ? next[1] : new Label(next),
         );
         return;
+      }
       case Variable: {
         const reg = this.#getRegister(expression as Variable);
         this.#emit([
-          negate ? Op.JumpIfTrue : Op.JumpIfFalse,
+          Op.JumpIfFalse,
           reg,
           onFalse,
         ]);
-        this.#deallocate(reg);
+        this.#free(reg);
         return;
       }
       default:
@@ -329,7 +291,7 @@ export class Compiler {
         assignment.left.field,
         register2,
       ]);
-      this.#deallocate(register1);
+      this.#free(register1);
       return register2;
     }
 
@@ -351,23 +313,15 @@ export class Compiler {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR: {
-        const falseBranch = new Label();
-        const continuation = new Label();
-        falseBranch
-          .next = [Op.Jump, continuation];
-        continuation
-          .next = this.#current.label.next,
-          this.#current.label.next = [
-            Op.Jump,
-            continuation,
-          ];
-        this.#booleanBinary(expression, falseBranch);
+        const continuation = new Label(this.#next());
+        const falseBranch = new Label([Op.Jump, continuation]);
+        this.#current.label.next = [Op.Jump, continuation];
         const target = this.#allocate();
         this.#emit([Op.Constant, target, true]);
-        const written = new Set(this.#current.written);
-        this.#current = { label: falseBranch, written };
+        this.#booleanBinary(expression, falseBranch);
+        this.#goto(falseBranch);
         this.#emit([Op.Constant, target, false]);
-        this.#current = { label: continuation, written };
+        this.#goto(continuation);
         return target;
       }
       default:
@@ -431,7 +385,7 @@ export class Compiler {
           register,
           (expression as MemberAccess).field,
         ]);
-        this.#deallocate(register);
+        this.#free(register);
         return target;
       }
       default:
@@ -457,7 +411,7 @@ export class Compiler {
         this.#getRegister(expression as Variable);
         return;
       case MemberAccess:
-        this.#deallocate(this.#expression(
+        this.#free(this.#expression(
           (expression as MemberAccess).object,
         ));
         return;
@@ -477,7 +431,7 @@ export class Compiler {
     this.#statements(block.statements);
     while (this.#locals.length > depth) {
       const register = this.#locals.pop()?.register;
-      if (register !== undefined) this.#deallocate(register);
+      if (register !== undefined) this.#free(register);
     }
   }
 
@@ -502,7 +456,7 @@ export class Compiler {
             throw this.#error(statement.token, `Label ${name} not found`);
           }
         }
-        this.#emit([Op.Jump, target]);
+        this.#current.label.next = [Op.Jump, target];
         return;
       }
       case Block:
@@ -526,27 +480,25 @@ export class Compiler {
             throw this.#error(statement.token, `Label ${name} not found`);
           }
         }
-        this.#emit([Op.Jump, target]);
+        this.#current.label.next = [Op.Jump, target];
         return;
       }
       case IfStatement: {
         const { condition, onFalse, onTrue } = statement as IfStatement;
         if (onFalse) {
-          const elseBranch = new Label();
-          const continuation = new Label();
-          elseBranch.next = [Op.Jump, continuation];
-          continuation
-            .next = this.#current.label.next;
+          const continuation = new Label(this.#next());
+          const thenBranch = new Label([Op.Jump, continuation]);
+          const elseBranch = new Label([Op.Jump, continuation]);
           this.#current.label.next = [
             Op.Jump,
-            continuation,
+            thenBranch,
           ];
           this.#boolean(condition, elseBranch);
-
-          // record assignments before for else branch
+          // record assignments for the else branch
           const we = new Set(
             this.#current.written,
           );
+          this.#goto(thenBranch);
           this.#block(onTrue);
           // record assignment after for continuation
           const assignedOnTrue = [
@@ -565,9 +517,7 @@ export class Compiler {
           };
           return;
         }
-        const continuation = new Label();
-        continuation
-          .next = this.#current.label.next;
+        const continuation = new Label(this.#next());
         this.#current.label.next = [
           Op.Jump,
           continuation,
@@ -579,8 +529,6 @@ export class Compiler {
         );
         this.#statement(onTrue);
         this.#current = { label: continuation, written: wc };
-        // but this is only on false if there is no else branch...
-        // perhaps acknowlegde two options?
         return;
       }
       case LogStatement: {
@@ -588,7 +536,7 @@ export class Compiler {
         // need print now to inspect memory
         const register = this.#expression((statement as LogStatement).value);
         this.#emit([Op.Log, register]);
-        this.#deallocate(register);
+        this.#free(register);
         return;
       }
       case VarDeclaration: {
@@ -615,33 +563,27 @@ export class Compiler {
       }
       case WhileStatement: {
         const { condition, onTrue, label } = statement as WhileStatement;
-        const loop = new Label();
-        const continuation = new Label();
+        const continuation = new Label(this.#next());
+        const loopA = new Label(this.#next());
+        const loopB = new Label([Op.Jump, loopA]);
+        this.#current.label.next = [Op.Jump, loopA];
+        loopA.next = [Op.Jump, loopB];
+
+        this.#goto(loopA);
+        this.#boolean(condition, continuation);
+        const written = new Set(
+          this.#current.written,
+        );
+
+        this.#goto(loopB);
         this.#names.push({
           name: label,
           break: continuation,
-          continue: loop,
+          continue: loopA,
         });
-        loop
-          .next = [Op.Jump, loop];
-        continuation
-          .next = this.#current.label.next;
-        this.#current.label.next = [
-          Op.Jump,
-          loop,
-        ];
-
-        this.#current = {
-          label: loop,
-          written: new Set(this.#current.written),
-        };
-        this.#boolean(condition, continuation);
-        const w = new Set(
-          this.#current.written,
-        );
         this.#block(onTrue);
         this.#names.pop();
-        this.#current = { label: continuation, written: w };
+        this.#current = { label: continuation, written };
         return;
       }
       default:
@@ -653,6 +595,47 @@ export class Compiler {
   compile(): Method {
     const start = this.#current.label;
     this.#statements(this.script);
+    Compiler.mergeLabels(start);
     return new Method(this.#size, start);
+  }
+
+  static mergeLabels(start: Label) {
+    // collect all labels.
+    const labels = [start];
+    const jumps = [];
+    for (let i = 0; i < labels.length; i++) {
+      for (const ins of [...labels[i].instructions, labels[i].next]) {
+        let labelIndex = 0;
+        let other = start;
+        switch (ins[0]) {
+          case Op.Jump:
+            labelIndex = 1;
+            other = ins[1];
+            break;
+          case Op.JumpIfDifferent:
+          case Op.JumpIfLess:
+          case Op.JumpIfEqual:
+          case Op.JumpIfNotMore:
+            labelIndex = 3;
+            other = ins[3];
+            break;
+          case Op.JumpIfFalse:
+          case Op.JumpIfTrue:
+            labelIndex = 2;
+            other = ins[2];
+            break;
+          default:
+            continue;
+        }
+        // eliminate the empty labels
+        while (other.instructions.length === 0) {
+          if (other.next[0] === Op.Return) break;
+          other = other.next[1];
+        }
+        ins[labelIndex] = other;
+        jumps.push(i);
+        if (other && !labels.includes(other)) labels.push(other);
+      }
+    }
   }
 }

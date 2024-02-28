@@ -1,5 +1,47 @@
 # Scryptic
 
+## 2024-02-28
+
+### example output
+
+```json
+[
+  ["Constant 0 wrong!", "Jump 1"],
+  ["Jump 2"],
+  [
+    "Move 1 0",
+    "Constant 2 right!",
+    "JumpIfEqual 1 2 3",
+    "Constant 2 right!",
+    "Move 0 2",
+    "Jump 1"
+  ],
+  ["Jump 4"],
+  ["Move 1 0", "Log 1", "Return"]
+]
+```
+
+So the idea of an abstract assembler has morphed into executable flow charts of
+sorts. Good to keep in mind. So thing that the compiler should be better?
+
+- don't generate as many jumps.
+- don't generate as many moves.
+- don't loads the same constant twice, especially to the same register
+
+Extra labels are generated on purpose, to simplify the code for boolean
+expressions, so I added a method to remove those after the fact. At this stage,
+further inlining may be possible, but that is probabaly more inbtereste once
+actual bytecode get generated.
+
+Register is aless easy. Some extra registers are allocated for the evaluation of
+each expression, including constrants that are loaded already, and variables,
+because there is a deallocate instruction to make register available again.
+
+Use the opposite rule? A register holds a variable, constant or is a temporary
+for the evaluation of expressions. when allocating a register, first a check if
+it is amongst these sets. Note: there is a trade off between loading a constant
+more often and using more space to run the methods.
+
 ## 2024-02-26
 
 ### todos
