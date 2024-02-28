@@ -10,7 +10,6 @@ import { Struct, Value } from "./object.ts";
 
 class Frame {
   static #null = null as unknown;
-  #method: Method = Frame.#null as Method;
   #body: Label = Frame.#null as Label;
   #ip = 0;
   stackTop = 0;
@@ -25,7 +24,6 @@ class Frame {
   }
   load(method: Method, offset: number) {
     this.stackTop = offset + method.size;
-    this.#method = method;
     this.goto(method.start);
   }
 }
@@ -100,33 +98,33 @@ export class VM {
           this.frames[this.fp].goto(instruction[1]);
           continue;
         case Op.JumpIfDifferent:
-          if (this.get(instruction[1]) !== this.get(instruction[2])) {
-            this.frames[this.fp].goto(instruction[3]);
+          if (this.get(instruction[2]) !== this.get(instruction[3])) {
+            this.frames[this.fp].goto(instruction[1]);
           }
           continue;
         case Op.JumpIfEqual:
-          if (this.get(instruction[1]) === this.get(instruction[2])) {
-            this.frames[this.fp].goto(instruction[3]);
+          if (this.get(instruction[2]) === this.get(instruction[3])) {
+            this.frames[this.fp].goto(instruction[1]);
           }
           continue;
         case Op.JumpIfFalse:
-          if (!this.get(instruction[1])) {
-            this.frames[this.fp].goto(instruction[2]);
+          if (!this.get(instruction[2])) {
+            this.frames[this.fp].goto(instruction[1]);
           }
           continue;
         case Op.JumpIfLess:
-          if (this.less(instruction[1], instruction[2])) {
-            this.frames[this.fp].goto(instruction[3]);
+          if (this.less(instruction[2], instruction[3])) {
+            this.frames[this.fp].goto(instruction[1]);
           }
           continue;
         case Op.JumpIfNotMore:
-          if (!this.less(instruction[2], instruction[1])) {
-            this.frames[this.fp].goto(instruction[3]);
+          if (!this.less(instruction[3], instruction[2])) {
+            this.frames[this.fp].goto(instruction[1]);
           }
           continue;
         case Op.JumpIfTrue:
-          if (this.get(instruction[1])) {
-            this.frames[this.fp].goto(instruction[2]);
+          if (this.get(instruction[2])) {
+            this.frames[this.fp].goto(instruction[1]);
           }
           continue;
         case Op.Log:

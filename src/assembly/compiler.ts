@@ -35,6 +35,11 @@ type TypedLabel = {
   written: Set<Local>;
 };
 
+type Register = {
+  index: number;
+  owned?: boolean;
+};
+
 export class Compiler {
   #size = 0;
   #freeRegisters: number[] = [];
@@ -61,12 +66,10 @@ export class Compiler {
     return this.#freeRegisters.pop() ?? this.#size++;
   }
 
-  // add a litle intelligence,
-  // to generate fewer move instructions.
-  #free(...registers: number[]) {
-    this.#freeRegisters.push(
-      ...registers.filter((r) => !this.#locals.some((l) => l.register === r)),
-    );
+  #repay(...registers: Register[]) {
+    for (const register of registers) {
+      if (!register.owned) this.#freeRegisters.push(register.index);
+    }
   }
 
   #local(name: string): Local | null {
@@ -93,7 +96,7 @@ export class Compiler {
     return this.#current.written.has(local);
   }
 
-  #getRegister(variable: Variable): number {
+  #getRegister(variable: Variable): Register {
     const local = this.#resolve(variable);
     if (local.register === undefined || !this.#hasAssigned(local)) {
       throw this.#error(
@@ -101,7 +104,7 @@ export class Compiler {
         `Variable '${variable.name}' read before written`,
       );
     }
-    return local.register;
+    return { index: local.register, owned: true };
   }
 
   #next() {
@@ -132,8 +135,8 @@ export class Compiler {
       case TokenType.IS_NOT: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
-        this.#emit([Op.JumpIfEqual, reg1, reg2, onFalse]);
-        this.#free(reg1, reg2);
+        this.#emit([Op.JumpIfEqual, onFalse, reg1.index, reg2.index]);
+        this.#repay(reg1, reg2);
         return;
       }
       case TokenType.IS: {
@@ -141,11 +144,11 @@ export class Compiler {
         const reg2 = this.#expression(expression.right);
         this.#emit([
           Op.JumpIfDifferent,
-          reg1,
-          reg2,
           onFalse,
+          reg1.index,
+          reg2.index,
         ]);
-        this.#free(reg1, reg2);
+        this.#repay(reg1, reg2);
         return;
       }
       case TokenType.LESS: {
@@ -153,23 +156,23 @@ export class Compiler {
         const reg2 = this.#expression(expression.right);
         this.#emit(
           // note: changed register ordering!
-          [Op.JumpIfNotMore, reg2, reg1, onFalse],
+          [Op.JumpIfNotMore, onFalse, reg2.index, reg1.index],
         );
-        this.#free(reg1, reg2);
+        this.#repay(reg1, reg2);
         return;
       }
       case TokenType.MORE: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
-        this.#emit([Op.JumpIfNotMore, reg1, reg2, onFalse]);
-        this.#free(reg1, reg2);
+        this.#emit([Op.JumpIfNotMore, onFalse, reg1.index, reg2.index]);
+        this.#repay(reg1, reg2);
         return;
       }
       case TokenType.NOT_LESS: {
         const reg1 = this.#expression(expression.left);
         const reg2 = this.#expression(expression.right);
-        this.#emit([Op.JumpIfLess, reg1, reg2, onFalse]);
-        this.#free(reg1, reg2);
+        this.#emit([Op.JumpIfLess, onFalse, reg1.index, reg2.index]);
+        this.#repay(reg1, reg2);
         return;
       }
       case TokenType.NOT_MORE: {
@@ -177,9 +180,9 @@ export class Compiler {
         const reg2 = this.#expression(expression.right);
         this.#emit(
           // note: changed register ordering!
-          [Op.JumpIfLess, reg2, reg1, onFalse],
+          [Op.JumpIfLess, onFalse, reg2.index, reg1.index],
         );
-        this.#free(reg1, reg2);
+        this.#repay(reg1, reg2);
         return;
       }
       case TokenType.OR: {
@@ -192,8 +195,8 @@ export class Compiler {
       case TokenType.BE: //when everthing is an expression, but then we must take care of partial assignments everywhere as well
       {
         const reg = this.#assignment(expression);
-        this.#emit([Op.JumpIfFalse, reg, onFalse]);
-        this.#free(reg);
+        this.#emit([Op.JumpIfFalse, onFalse, reg.index]);
+        this.#repay(reg);
         return;
       }
       // later perhaps
@@ -213,10 +216,10 @@ export class Compiler {
         const reg = this.#expression(expression);
         this.#emit([
           Op.JumpIfFalse,
-          reg,
           onFalse,
+          reg.index,
         ]);
-        this.#free(reg);
+        this.#repay(reg);
         return;
       }
       case Binary:
@@ -250,10 +253,9 @@ export class Compiler {
         const reg = this.#getRegister(expression as Variable);
         this.#emit([
           Op.JumpIfFalse,
-          reg,
           onFalse,
+          reg.index,
         ]);
-        this.#free(reg);
         return;
       }
       default:
@@ -261,7 +263,7 @@ export class Compiler {
     }
   }
 
-  #assignment(assignment: Binary): number {
+  #assignment(assignment: Binary): Register {
     if (assignment.left instanceof Variable) {
       const local = this.#resolve(assignment.left);
       // local.register could already hav a value and target could be temporary, so...
@@ -274,7 +276,7 @@ export class Compiler {
       this.#emit([
         Op.Move,
         local.register,
-        r1,
+        r1.index,
       ]);
       return r1;
     }
@@ -287,11 +289,11 @@ export class Compiler {
       // move the result to the heap
       this.#emit([
         Op.SetField,
-        register1,
+        register1.index,
         assignment.left.field,
-        register2,
+        register2.index,
       ]);
-      this.#free(register1);
+      this.#repay(register1);
       return register2;
     }
 
@@ -301,7 +303,7 @@ export class Compiler {
     );
   }
 
-  #binary(expression: Binary): number {
+  #binary(expression: Binary): Register {
     switch (expression.token.type) {
       case TokenType.BE:
         return this.#assignment(expression);
@@ -316,13 +318,13 @@ export class Compiler {
         const continuation = new Label(this.#next());
         const falseBranch = new Label([Op.Jump, continuation]);
         this.#current.label.next = [Op.Jump, continuation];
-        const target = this.#allocate();
-        this.#emit([Op.Constant, target, true]);
+        const index = this.#allocate();
+        this.#emit([Op.Constant, index, true]);
         this.#booleanBinary(expression, falseBranch);
         this.#goto(falseBranch);
-        this.#emit([Op.Constant, target, false]);
+        this.#emit([Op.Constant, index, false]);
         this.#goto(continuation);
-        return target;
+        return { index };
       }
       default:
         throw this.#error(
@@ -337,56 +339,49 @@ export class Compiler {
   // perhaps we need other options.
   #expression(
     expression: Expression,
-  ): number {
+  ): Register {
     // const target = this.#allocate();
     switch (expression.constructor) {
       case LiteralBoolean: {
-        const target = this.#allocate();
+        const index = this.#allocate();
         this.#emit([
           Op.Constant,
-          target,
+          index,
           (expression as LiteralBoolean).value,
         ]);
-        return target;
+        return { index };
       }
       case LiteralString: {
-        const target = this.#allocate();
+        const index = this.#allocate();
         this.#emit([
           Op.Constant,
-          target,
+          index,
           (expression as LiteralString).value,
         ]);
-        return target;
+        return { index };
       }
       case New: {
-        const target = this.#allocate();
-        this.#emit([Op.New, target]);
-        return target;
+        const index = this.#allocate();
+        this.#emit([Op.New, index]);
+        return { index };
       }
       case Binary:
         return this.#binary(expression as Binary);
-      case Variable: {
-        const target = this.#allocate();
-        this.#emit([
-          Op.Move,
-          target,
-          this.#getRegister(expression as Variable),
-        ]);
-        return target;
-      }
+      case Variable:
+        return this.#getRegister(expression as Variable);
       case MemberAccess: {
         const register = this.#expression(
           (expression as MemberAccess).object,
         );
-        const target = this.#allocate();
+        const index = this.#allocate();
         this.#emit([
           Op.GetField,
-          target,
-          register,
+          index,
+          register.index,
           (expression as MemberAccess).field,
         ]);
-        this.#free(register);
-        return target;
+        this.#repay(register);
+        return { index };
       }
       default:
         throw this.#error(expression.token, "Unexpected expression type");
@@ -411,7 +406,7 @@ export class Compiler {
         this.#getRegister(expression as Variable);
         return;
       case MemberAccess:
-        this.#free(this.#expression(
+        this.#repay(this.#expression(
           (expression as MemberAccess).object,
         ));
         return;
@@ -431,7 +426,7 @@ export class Compiler {
     this.#statements(block.statements);
     while (this.#locals.length > depth) {
       const register = this.#locals.pop()?.register;
-      if (register !== undefined) this.#free(register);
+      if (register !== undefined) this.#freeRegisters.push(register);
     }
   }
 
@@ -535,8 +530,8 @@ export class Compiler {
         // type checking might make sense for 'print'
         // need print now to inspect memory
         const register = this.#expression((statement as LogStatement).value);
-        this.#emit([Op.Log, register]);
-        this.#free(register);
+        this.#emit([Op.Log, register.index]);
+        this.#repay(register);
         return;
       }
       case VarDeclaration: {
@@ -552,7 +547,7 @@ export class Compiler {
           const register = this.#expression(value);
           const local = {
             variable: key,
-            register,
+            register: register.index,
           };
           this.#locals.push(local);
           this.#current.written?.add(local);
@@ -602,39 +597,26 @@ export class Compiler {
   static mergeLabels(start: Label) {
     // collect all labels.
     const labels = [start];
-    const jumps = [];
     for (let i = 0; i < labels.length; i++) {
       for (const ins of [...labels[i].instructions, labels[i].next]) {
-        let labelIndex = 0;
-        let other = start;
         switch (ins[0]) {
           case Op.Jump:
-            labelIndex = 1;
-            other = ins[1];
-            break;
           case Op.JumpIfDifferent:
           case Op.JumpIfLess:
           case Op.JumpIfEqual:
           case Op.JumpIfNotMore:
-            labelIndex = 3;
-            other = ins[3];
-            break;
           case Op.JumpIfFalse:
           case Op.JumpIfTrue:
-            labelIndex = 2;
-            other = ins[2];
             break;
           default:
             continue;
         }
         // eliminate the empty labels
-        while (other.instructions.length === 0) {
-          if (other.next[0] === Op.Return) break;
-          other = other.next[1];
+        while (ins[1].instructions.length === 0) {
+          if (ins[1].next[0] === Op.Return) break;
+          ins[1] = ins[1].next[1];
         }
-        ins[labelIndex] = other;
-        jumps.push(i);
-        if (other && !labels.includes(other)) labels.push(other);
+        if (ins[1] && !labels.includes(ins[1])) labels.push(ins[1]);
       }
     }
   }

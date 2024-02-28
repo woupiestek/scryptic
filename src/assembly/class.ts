@@ -30,14 +30,14 @@ export type Instruction =
   | [Op.InvokeVirtual, Register, Identifier, Register[]] // x[0].m(x[1],...,x[arity])...
   | [
     Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfNotMore,
-    Register,
-    Register,
     Label,
+    Register,
+    Register,
   ]
   | [
     Op.JumpIfTrue | Op.JumpIfFalse,
-    Register,
     Label,
+    Register,
   ]
   //| [Op.Jump, Label] // goto [label]
   | [Op.Move, Register, Register] // y = x

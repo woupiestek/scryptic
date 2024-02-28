@@ -42,11 +42,117 @@ for the evaluation of expressions. when allocating a register, first a check if
 it is amongst these sets. Note: there is a trade off between loading a constant
 more often and using more space to run the methods.
 
-## 2024-02-26
+### a few optimisation fruther
+
+```json
+[
+  ["Constant 0 wrong!", "Jump 1"],
+  [
+    "Constant 1 right!",
+    "JumpIfEqual 0 1 2",
+    "Constant 1 right!",
+    "Move 0 1",
+    "Jump 1"
+  ],
+  ["Log 0", "Return"]
+]
+```
+
+There is little left now, just the annoying constant thing, but it may be better
+to optimise that before generating these assemblies. That is, an optimizer
+working on the AST might create a local variable for the constant, becauae of
+similar subexpressiosns etc.
+
+### classes methods and calls
+
+So there are two directions: a more dynamic variant, which is more abotu this
+particular VM and implemntations, and the ideas about the ultimate language,
+that would run on a more serious machine.
+
+For now, we follow the Loxian principle that field are free game.
+
+So the first dilemma comes up quite fast:
+
+```
+class Car(brand, model,...) {
+  var price = ...
+
+  def drive(where) {
+
+  }
+}
+```
+
+This has to deal with variable capture, which is something I wanted to avoid. So
+a style with a special constructor method is a better choice for now.
+
+This is the crux, right:
+
+```js
+function ctor(u, v, w) {
+  var x;
+  var y;
+  var z;
+
+  function a() {}
+  function b() {}
+  function c() {}
+
+  return { a, b, c };
+}
+```
+
+Behind the screens, with lambda lifting etc. a class and a single constructor
+are generated for all the variables that are captured by the nested functions,
+so the result can be a proper object, a record with functions, operating on a
+set of data in the background.
+
+The one idea missing here is that specifically function that do this can have
+image or range types. All classes implicit? Then a class cannot be declared
+without constructing it. That does not seem right.
+
+This is a weakness of the lambda lifting solution.
+
+Let's stick with declaring classes roughly as the data model says they look like
+in memory: records of methods.
+
+```
+class A {
+  new(...) {
+
+  }
+  methodA(...) {
+    this.methodB
+  }
+  methodB(...) {
+
+  }
+}
+```
+
+Other constructs: `new A(...)`, `x.m(...)`. And don't forget about the `this`.
+
+### content dependent token
+
+Essentially have two token types, where one suggests a special case of the
+former. E.g. all comparison operaor have main type 'COMPARISON', and subtypes
+for each option.
+
+Actually, the compiler can work with token sets to the same effect. Depening on
+the context a keyword can be an identifier, that just means there is a token
+type set of variable names. This also always true for context dependent
+exceptions, like members of objects cannot be called `new` or `class`, because
+those is have special meaning, but having a method called `log` is fine.
+
+### one more thing
+
+Allow for a mix of declarations and expressions in these `scripts`, but not
+inside methods, or in modules.
 
 ### todos
 
-- more expressions
+- more expressions, as in: make everything that can occur inside a method an
+  expression. `;` as a binary operator.
 - type checker
 - class, methods, calls
 - ~~loops~~

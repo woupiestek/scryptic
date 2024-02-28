@@ -22,6 +22,11 @@ export class LiteralString implements Node {
   constructor(readonly token: Token, readonly value: string) {}
 }
 
+// this
+export class This implements Node {
+  constructor(readonly token: Token) {}
+}
+
 export class New implements Node {
   constructor(readonly token: Token) {}
 }
@@ -110,14 +115,43 @@ export class Variable implements Node {
   ) {}
 }
 
+// M.n(...)
+export class Call implements Node {
+  constructor(
+    readonly token: Token,
+    readonly operator: MemberAccess,
+    readonly operands: Expression[],
+  ) {}
+}
+
 export type Expression =
-  | MemberAccess
   | Binary
+  | Call
   | LiteralBoolean
   | LiteralString
+  | MemberAccess
   | New
   | Not
   | Variable;
+
+// method(...) {...}
+export class MethodDeclaration implements Node {
+  constructor(
+    readonly token: Token,
+    readonly name: Variable,
+    readonly args: Variable[],
+    readonly body: Block,
+  ) {}
+}
+
+// class name { ... }
+export class ClassDeclaration implements Node {
+  constructor(
+    readonly token: Token,
+    readonly name: Variable,
+    readonly methods: MethodDeclaration[],
+  ) {}
+}
 
 export class Parser {
   private next: Token;
