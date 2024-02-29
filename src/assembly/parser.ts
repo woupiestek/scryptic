@@ -103,7 +103,6 @@ export class LiteralBoolean implements Node {
 export class Not implements Node {
   constructor(
     readonly token: Token,
-    readonly count: number,
     readonly expression: Expression,
   ) {}
 }
@@ -156,6 +155,7 @@ export class ClassDeclaration implements Node {
 export class Parser {
   private next: Token;
   private lexer: Lexer;
+
   constructor(private input: string) {
     this.lexer = new Lexer(input);
     this.next = this.lexer.next();
@@ -196,82 +196,82 @@ export class Parser {
     return false;
   }
 
-  #unary(head: Token): Expression {
-    const head0 = head;
-    let count = 0;
-    while (head.type === TokenType.NOT) {
-      count++;
-      head = this.#pop();
-    }
-    let expression: Expression;
-    switch (head.type) {
-      case TokenType.PAREN_LEFT: {
-        expression = this.#expression(this.#pop());
-        this.#consume(TokenType.PAREN_RIGHT);
-        break;
-      }
-      case TokenType.IDENTIFIER: {
-        expression = new Variable(head, this.lexeme(head));
-        break;
-      }
-      case TokenType.FALSE: {
-        expression = new LiteralBoolean(head, false);
-        break;
-      }
-      case TokenType.TRUE: {
-        expression = new LiteralBoolean(head, true);
-        break;
-      }
-      case TokenType.STRING: {
-        expression = new LiteralString(
-          head,
-          JSON.parse(this.lexeme(head)),
-        );
-        break;
-      }
-      case TokenType.NEW: {
-        expression = new New(head);
-        break;
-      }
-      default:
-        throw this.#error(head, "Expected expression");
-    }
-    while (this.next.type === TokenType.DOT) {
-      if (
-        expression instanceof Variable || expression instanceof MemberAccess
-      ) {
-        const token = this.#pop();
-        const name = this.lexeme(this.#consume(TokenType.IDENTIFIER));
-        expression = new MemberAccess(token, expression, name);
-      } else {
-        throw this.#error(this.next, "Unexpected member access");
-      }
-    }
-    return count > 0 ? new Not(head0, count, expression) : expression;
+  static #PREFIX: ((p: Parser, t: Token) => Expression)[] = [];
+  static {
+    Parser.#PREFIX[TokenType.NOT] = (p, t) => new Not(t, p.#unary(p.#pop()));
+    Parser.#PREFIX[TokenType.PAREN_LEFT] = (p, _) => {
+      const e = p.#expression(p.#pop());
+      p.#consume(TokenType.PAREN_RIGHT);
+      return e;
+    };
+    Parser.#PREFIX[TokenType.IDENTIFIER] = (p, t) =>
+      new Variable(t, p.lexeme(t));
+    Parser.#PREFIX[TokenType.FALSE] = (_, t) => new LiteralBoolean(t, false);
+    Parser.#PREFIX[TokenType.TRUE] = (_, t) => new LiteralBoolean(t, true);
+    Parser.#PREFIX[TokenType.STRING] = (p, t) =>
+      new LiteralString(t, JSON.parse(p.lexeme(t)));
+    Parser.#PREFIX[TokenType.NEW] = (_, t) => new New(t);
   }
 
-  static TABLE = (() => {
-    const table = [];
-    table[TokenType.AND] = [2, 2];
-    table[TokenType.BE] = [1, 0];
-    table[TokenType.IS] = [3, 3];
-    table[TokenType.IS_NOT] = [3, 3];
-    table[TokenType.LESS] = [3, 3];
-    table[TokenType.MORE] = [3, 3];
-    table[TokenType.NOT_LESS] = [3, 3];
-    table[TokenType.NOT_MORE] = [3, 3];
-    table[TokenType.OR] = [2, 2];
-    return table;
-  })();
+  #unary(head: Token): Expression {
+    const prefix = Parser.#PREFIX[head.type];
+    if (!prefix) {
+      throw this.#error(head, "Expected expression");
+    }
+    return prefix(this, head);
+  }
+
+  static #__binary(precedence: number) {
+    return (self: Parser, left: Expression) =>
+      new Binary(self.#pop(), left, self.#binary(self.#pop(), precedence));
+  }
+
+  static #__call(that: Parser, operator: Expression) {
+    if (!(operator instanceof MemberAccess)) {
+      throw that.#error(that.next, "Only methods supported as of now");
+    }
+    const head = that.#pop();
+    const operands: Expression[] = [];
+    for (;;) {
+      that.#expression(that.#pop());
+      if (!that.#match(TokenType.COMMA)) break;
+    }
+    that.#consume(TokenType.PAREN_RIGHT);
+    return new Call(head, operator, operands);
+  }
+
+  static #__access(that: Parser, expression: Expression) {
+    if (expression instanceof MemberAccess || expression instanceof Variable) {
+      const token = that.#pop();
+      const name = that.lexeme(that.#consume(TokenType.IDENTIFIER));
+      return new MemberAccess(token, expression, name);
+    }
+    throw that.#error(that.next, "Access not supported here");
+  }
+
+  static #INFIX: [number, (p: Parser, e: Expression) => Expression][] = [];
+  static {
+    Parser.#INFIX[TokenType.AND] = [2, Parser.#__binary(2)];
+    Parser.#INFIX[TokenType.BE] = [1, Parser.#__binary(0)];
+    Parser.#INFIX[TokenType.DOT] = [4, Parser.#__access];
+    Parser.#INFIX[TokenType.IS_NOT] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.IS] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.LESS] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.MORE] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.NOT_LESS] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.NOT_MORE] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.OR] = [2, Parser.#__binary(2)];
+    Parser.#INFIX[TokenType.PAREN_LEFT] = [4, Parser.#__call];
+  }
 
   #binary(head: Token, precedence: number): Expression {
     let left = this.#unary(head);
     for (;;) {
-      const a = Parser.TABLE[this.next.type];
+      const a = Parser.#INFIX[this.next.type];
       if (!a) return left;
       const [b, c] = a;
       if (b < precedence) return left;
-      left = new Binary(this.#pop(), left, this.#binary(this.#pop(), c));
+      left = c(this, left);
     }
   }
 

@@ -1,5 +1,21 @@
 # Scryptic
 
+## 2024-02-29
+
+### todos
+
+- more expressions, as in: make everything that can occur inside a method an
+  expression. `;` as a binary operator.
+- type checker
+- class, methods, calls
+- ~~loops~~
+- numbers?
+- optimisations
+
+### more expressions
+
+Moving toward a Pratt parser for most stuff.
+
 ## 2024-02-28
 
 ### example output

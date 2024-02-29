@@ -233,18 +233,10 @@ export class Compiler {
         return;
       }
       case Not: {
-        const { count, expression: inner } = expression as Not;
-        if ((count & 1) === 0) {
-          this.#boolean(
-            inner,
-            onFalse,
-          );
-          return;
-        }
         const next = this.#current.label.next;
         this.#current.label.next = [Op.Jump, onFalse];
         this.#boolean(
-          inner,
+          (expression as Not).expression,
           next[0] === Op.Jump ? next[1] : new Label(next),
         );
         return;
