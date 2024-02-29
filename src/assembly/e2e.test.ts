@@ -77,12 +77,12 @@ Deno.test(function construction() {
   assertEquals(run("var x = new; log x;"), [{}]);
 });
 
-Deno.test(function shouldThisBeAllowedQ() {
-  assertEquals(run('var x; log x = "Hello, World!";'), ["Hello, World!"]);
+Deno.test(function newLogOperator() {
+  assertEquals(run('var x; log (x = "Hello, World!");'), ["Hello, World!"]);
 });
 
 Deno.test(function testFields() {
-  assertEquals(run('var x = new; x.y = "Hello, World!"; log x.y;'), [
+  assertEquals(run('var x = new; x.y = "Hello, World!"; log(x.y);'), [
     "Hello, World!",
   ]);
 });
@@ -275,6 +275,15 @@ Deno.test(function labelsStatements() {
   assertEquals(
     run(
       'var x = "wrong!"; a: while true { if x != "right!" { x = "right!"; continue a; } break a; } log x;',
+    ),
+    ["right!"],
+  );
+});
+
+Deno.test(function nestedVarDeclaration() {
+  assertEquals(
+    run(
+      '(var x = new).y = "right!"; log(x.y);',
     ),
     ["right!"],
   );

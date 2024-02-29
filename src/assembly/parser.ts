@@ -48,9 +48,7 @@ export class WhileStatement implements Node {
   ) {}
 }
 
-// log x = 7; is now interpreted as print (x = 7) and allowed. It is an interpretation that makes sence...
-// consider having log expressions instead...
-export class LogStatement implements Node {
+export class Log implements Node {
   constructor(
     readonly token: Token,
     readonly value: Expression,
@@ -61,7 +59,6 @@ export class VarDeclaration implements Node {
   constructor(
     readonly token: Token,
     readonly key: Variable,
-    readonly value?: Expression,
   ) {}
 }
 
@@ -69,18 +66,17 @@ export type Statement =
   | Block
   | Expression
   | IfStatement
-  | LogStatement
-  | VarDeclaration
+  | Log
   | WhileStatement;
 
 export class Block implements Node {
   constructor(readonly token: Token, readonly statements: Statement[]) {}
 }
 
-export class MemberAccess implements Node {
+export class Access implements Node {
   constructor(
     readonly token: Token,
-    readonly object: Variable | MemberAccess,
+    readonly object: Expression,
     readonly field: string,
   ) {}
 }
@@ -118,19 +114,23 @@ export class Variable implements Node {
 export class Call implements Node {
   constructor(
     readonly token: Token,
-    readonly operator: MemberAccess,
+    readonly operator: Expression,
     readonly operands: Expression[],
   ) {}
 }
 
 export type Expression =
+  | Access
   | Binary
+  | Break
   | Call
+  | Continue
   | LiteralBoolean
   | LiteralString
-  | MemberAccess
+  | Log
   | New
   | Not
+  | VarDeclaration
   | Variable;
 
 // method(...) {...}
@@ -198,19 +198,35 @@ export class Parser {
 
   static #PREFIX: ((p: Parser, t: Token) => Expression)[] = [];
   static {
+    Parser.#PREFIX[TokenType.BREAK] = (p, t) => {
+      return p.next.type === TokenType.IDENTIFIER
+        ? new Break(t, p.lexeme(p.#pop()))
+        : new Break(t);
+    };
+    Parser.#PREFIX[TokenType.CONTINUE] = (p, t) => {
+      return p.next.type === TokenType.IDENTIFIER
+        ? new Continue(t, p.lexeme(p.#pop()))
+        : new Continue(t);
+    };
+    Parser.#PREFIX[TokenType.FALSE] = (_, t) => new LiteralBoolean(t, false);
+    Parser.#PREFIX[TokenType.IDENTIFIER] = (p, t) =>
+      new Variable(t, p.lexeme(t));
+    Parser.#PREFIX[TokenType.LOG] = (p, t) => new Log(t, p.#unary(p.#pop()));
+    Parser.#PREFIX[TokenType.NEW] = (_, t) => new New(t);
     Parser.#PREFIX[TokenType.NOT] = (p, t) => new Not(t, p.#unary(p.#pop()));
     Parser.#PREFIX[TokenType.PAREN_LEFT] = (p, _) => {
       const e = p.#expression(p.#pop());
       p.#consume(TokenType.PAREN_RIGHT);
       return e;
     };
-    Parser.#PREFIX[TokenType.IDENTIFIER] = (p, t) =>
-      new Variable(t, p.lexeme(t));
-    Parser.#PREFIX[TokenType.FALSE] = (_, t) => new LiteralBoolean(t, false);
-    Parser.#PREFIX[TokenType.TRUE] = (_, t) => new LiteralBoolean(t, true);
     Parser.#PREFIX[TokenType.STRING] = (p, t) =>
       new LiteralString(t, JSON.parse(p.lexeme(t)));
-    Parser.#PREFIX[TokenType.NEW] = (_, t) => new New(t);
+    Parser.#PREFIX[TokenType.THIS] = (_, t) => new This(t);
+    Parser.#PREFIX[TokenType.TRUE] = (_, t) => new LiteralBoolean(t, true);
+    Parser.#PREFIX[TokenType.VAR] = (p, t) => {
+      const v = p.#consume(TokenType.IDENTIFIER);
+      return new VarDeclaration(t, new Variable(v, p.lexeme(v)));
+    };
   }
 
   #unary(head: Token): Expression {
@@ -227,9 +243,6 @@ export class Parser {
   }
 
   static #__call(that: Parser, operator: Expression) {
-    if (!(operator instanceof MemberAccess)) {
-      throw that.#error(that.next, "Only methods supported as of now");
-    }
     const head = that.#pop();
     const operands: Expression[] = [];
     for (;;) {
@@ -241,12 +254,9 @@ export class Parser {
   }
 
   static #__access(that: Parser, expression: Expression) {
-    if (expression instanceof MemberAccess || expression instanceof Variable) {
-      const token = that.#pop();
-      const name = that.lexeme(that.#consume(TokenType.IDENTIFIER));
-      return new MemberAccess(token, expression, name);
-    }
-    throw that.#error(that.next, "Access not supported here");
+    const token = that.#pop();
+    const name = that.lexeme(that.#consume(TokenType.IDENTIFIER));
+    return new Access(token, expression, name);
   }
 
   static #INFIX: [number, (p: Parser, e: Expression) => Expression][] = [];
@@ -293,76 +303,56 @@ export class Parser {
     );
   }
 
-  #statement(): Statement {
-    const token = this.#pop();
-    let statement: Statement;
-    switch (token.type) {
-      case TokenType.BRACE_LEFT:
-        return this.#block(token);
-      case TokenType.BREAK:
-        statement = this.next.type === TokenType.IDENTIFIER
-          ? new Break(token, this.lexeme(this.#pop()))
-          : new Break(token);
-        break;
-      case TokenType.CONTINUE:
-        statement = this.next.type === TokenType.IDENTIFIER
-          ? new Continue(token, this.lexeme(this.#pop()))
-          : new Continue(token);
-        break;
-      case TokenType.LOG: {
-        statement = new LogStatement(token, this.#expression(this.#pop()));
-        break;
-      }
-      case TokenType.IF: {
-        const condition = this.#expression(this.#pop());
-        const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
-        if (this.#match(TokenType.ELSE)) {
-          return new IfStatement(
-            token,
-            condition,
-            ifTrue,
-            this.#block(this.#consume(TokenType.BRACE_LEFT)),
-          );
-        }
-        return new IfStatement(token, condition, ifTrue);
-      }
-      case TokenType.WHILE:
-        return new WhileStatement(
-          token,
-          this.#expression(this.#pop()),
-          this.#block(this.#consume(TokenType.BRACE_LEFT)),
+  static #PREFIX2: ((p: Parser) => Expression)[] = [];
+  static {
+    Parser.#PREFIX2[TokenType.BRACE_LEFT] = (p) => p.#block(p.#pop());
+    Parser.#PREFIX2[TokenType.IF] = (p) => {
+      const t = p.#pop();
+      const condition = p.#expression(p.#pop());
+      const ifTrue = p.#block(p.#consume(TokenType.BRACE_LEFT));
+      if (p.#match(TokenType.ELSE)) {
+        return new IfStatement(
+          t,
+          condition,
+          ifTrue,
+          p.#block(p.#consume(TokenType.BRACE_LEFT)),
         );
-      case TokenType.VAR: {
-        const variable = this.#consume(TokenType.IDENTIFIER);
-        const key = new Variable(variable, this.lexeme(variable));
-        if (this.#match(TokenType.BE)) {
-          statement = new VarDeclaration(
-            token,
-            key,
-            this.#expression(this.#pop()),
-          );
-          break;
-        }
-        statement = new VarDeclaration(token, key);
-        break;
       }
-      case TokenType.IDENTIFIER:
-        if (this.#match(TokenType.COLON)) {
-          return new WhileStatement(
-            this.#consume(TokenType.WHILE),
-            this.#expression(this.#pop()),
-            this.#block(this.#consume(TokenType.BRACE_LEFT)),
-            this.lexeme(token),
-          );
-        }
-        statement = this.#expression(token);
-        break;
-      default:
-        statement = this.#expression(token);
-        break;
-    }
+      return new IfStatement(t, condition, ifTrue);
+    };
+    Parser.#PREFIX2[TokenType.WHILE] = (p) =>
+      new WhileStatement(
+        p.#pop(),
+        p.#expression(p.#pop()),
+        p.#block(p.#consume(TokenType.BRACE_LEFT)),
+      );
+    Parser.#PREFIX2[TokenType.IDENTIFIER] = (p) => {
+      const token = p.#pop();
+      if (p.#match(TokenType.COLON)) {
+        const label = p.lexeme(token);
+        return new WhileStatement(
+          p.#consume(TokenType.WHILE),
+          p.#expression(p.#pop()),
+          p.#block(p.#consume(TokenType.BRACE_LEFT)),
+          label,
+        );
+      }
+      return p.#expressionStatement(token);
+    };
+  }
+
+  #expressionStatement(token: Token): Statement {
+    const statement = this.#expression(token);
     this.#consume(TokenType.SEMICOLON);
     return statement;
+  }
+
+  #statement(): Statement {
+    const prefix = Parser.#PREFIX2[this.next.type];
+    if (prefix) {
+      return prefix(this);
+    }
+    return this.#expressionStatement(this.#pop());
   }
 
   script(): Statement[] {

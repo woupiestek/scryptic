@@ -1,6 +1,7 @@
 import { Instruction, Label, Method, Op } from "./class.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
+  Access,
   Binary,
   Block,
   Break,
@@ -9,8 +10,7 @@ import {
   IfStatement,
   LiteralBoolean,
   LiteralString,
-  LogStatement,
-  MemberAccess,
+  Log,
   New,
   Not,
   Statement,
@@ -212,7 +212,7 @@ export class Compiler {
     onFalse: Label,
   ) {
     switch (expression.constructor) {
-      case MemberAccess: {
+      case Access: {
         const reg = this.#expression(expression);
         this.#emit([
           Op.JumpIfFalse,
@@ -261,19 +261,41 @@ export class Compiler {
       // local.register could already hav a value and target could be temporary, so...
       // ownership shows up already!
       local.register ??= this.#allocate();
-      this.#current.written?.add(
-        local,
-      );
       const r1 = this.#expression(assignment.right);
       this.#emit([
         Op.Move,
         local.register,
         r1.index,
       ]);
+      this.#current.written?.add(
+        local,
+      );
       return r1;
     }
 
-    if (assignment.left instanceof MemberAccess) {
+    if (assignment.left instanceof VarDeclaration) {
+      const r1 = this.#expression(assignment.right);
+      let index: number;
+      if (r1.owned) {
+        index = this.#allocate();
+        this.#emit([
+          Op.Move,
+          index,
+          r1.index,
+        ]);
+      } else {
+        index = r1.index;
+      }
+      const local = {
+        variable: this.#declare(assignment.left),
+        register: index,
+      };
+      this.#locals.push(local);
+      this.#current.written?.add(local);
+      return { index, owned: true };
+    }
+
+    if (assignment.left instanceof Access) {
       // calculate results, store in register 1
       const register1 = this.#expression(assignment.left.object);
       // now calculate the right hand side and store in register 2
@@ -352,6 +374,13 @@ export class Compiler {
         ]);
         return { index };
       }
+      case Log: {
+        // type checking might make sense for 'print'
+        // need print now to inspect memory
+        const register = this.#expression((expression as Log).value);
+        this.#emit([Op.Log, register.index]);
+        return register;
+      }
       case New: {
         const index = this.#allocate();
         this.#emit([Op.New, index]);
@@ -361,23 +390,40 @@ export class Compiler {
         return this.#binary(expression as Binary);
       case Variable:
         return this.#getRegister(expression as Variable);
-      case MemberAccess: {
+      case Access: {
         const register = this.#expression(
-          (expression as MemberAccess).object,
+          (expression as Access).object,
         );
         const index = this.#allocate();
         this.#emit([
           Op.GetField,
           index,
           register.index,
-          (expression as MemberAccess).field,
+          (expression as Access).field,
         ]);
         this.#repay(register);
         return { index };
       }
+      case VarDeclaration: {
+        const key = this.#declare(expression as VarDeclaration);
+        const index = this.#allocate();
+        this.#locals.push({ variable: key, register: index });
+        return { index, owned: true };
+      }
       default:
         throw this.#error(expression.token, "Unexpected expression type");
     }
+  }
+
+  #declare(expression: VarDeclaration): Variable {
+    const resolve = this.#local(expression.key.name);
+    if (resolve !== null) {
+      throw this.#error(
+        expression.token,
+        `Variable '${expression.key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
+      );
+    }
+    return expression.key;
   }
 
   // is this how registers are going to be computed?
@@ -392,16 +438,30 @@ export class Compiler {
       case New:
         return;
       case Binary:
-        this.#binary(expression as Binary);
+        this.#repay(this.#binary(expression as Binary));
         return;
       case Variable:
         this.#getRegister(expression as Variable);
         return;
-      case MemberAccess:
+      case Access:
         this.#repay(this.#expression(
-          (expression as MemberAccess).object,
+          (expression as Access).object,
         ));
         return;
+      case VarDeclaration: {
+        this.#locals.push({
+          variable: this.#declare(expression as VarDeclaration),
+        });
+        return;
+      }
+      case Log: {
+        // type checking might make sense for 'print'
+        // need print now to inspect memory
+        const register = this.#expression((expression as Log).value);
+        this.#emit([Op.Log, register.index]);
+        this.#repay(register);
+        return;
+      }
       default:
         throw this.#error(expression.token, "Unexpected expression type");
     }
@@ -516,36 +576,6 @@ export class Compiler {
         );
         this.#statement(onTrue);
         this.#current = { label: continuation, written: wc };
-        return;
-      }
-      case LogStatement: {
-        // type checking might make sense for 'print'
-        // need print now to inspect memory
-        const register = this.#expression((statement as LogStatement).value);
-        this.#emit([Op.Log, register.index]);
-        this.#repay(register);
-        return;
-      }
-      case VarDeclaration: {
-        const { key, value } = statement as VarDeclaration;
-        const resolve = this.#local(key.name);
-        if (resolve !== null) {
-          throw this.#error(
-            statement.token,
-            `Variable '${key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
-          );
-        }
-        if (value) {
-          const register = this.#expression(value);
-          const local = {
-            variable: key,
-            register: register.index,
-          };
-          this.#locals.push(local);
-          this.#current.written?.add(local);
-        } else {
-          this.#locals.push({ variable: key });
-        }
         return;
       }
       case WhileStatement: {

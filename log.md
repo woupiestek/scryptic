@@ -14,7 +14,8 @@
 
 ### more expressions
 
-Moving toward a Pratt parser for most stuff.
+Moving toward a Pratt parser for most stuff. Pratt does handle postfix
+operators, as an infix with an empty right hand side.
 
 ## 2024-02-28
 
