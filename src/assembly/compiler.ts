@@ -1,10 +1,11 @@
-import { Instruction, Label, Method, Op } from "./class.ts";
+import { Class, Instruction, Label, Method, Op } from "./class.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
   Binary,
   Block,
   Break,
+  ClassDeclaration,
   Continue,
   Expression,
   IfStatement,
@@ -286,12 +287,8 @@ export class Compiler {
       } else {
         index = r1.index;
       }
-      const local = {
-        variable: this.#declare(assignment.left),
-        register: index,
-      };
-      this.#locals.push(local);
-      this.#current.written?.add(local);
+      const local = this.#declare(assignment.left.key, index);
+      this.#current.written.add(local);
       return { index, owned: true };
     }
 
@@ -348,13 +345,9 @@ export class Compiler {
     }
   }
 
-  // is this how registers are going to be computed?
-  // note that we don't know if the result of the expression is needed for anything.
-  // perhaps we need other options.
   #expression(
     expression: Expression,
   ): Register {
-    // const target = this.#allocate();
     switch (expression.constructor) {
       case LiteralBoolean: {
         const index = this.#allocate();
@@ -405,9 +398,11 @@ export class Compiler {
         return { index };
       }
       case VarDeclaration: {
-        const key = this.#declare(expression as VarDeclaration);
         const index = this.#allocate();
-        this.#locals.push({ variable: key, register: index });
+        this.#declare(
+          (expression as VarDeclaration).key,
+          index,
+        );
         return { index, owned: true };
       }
       default:
@@ -415,60 +410,49 @@ export class Compiler {
     }
   }
 
-  #declare(expression: VarDeclaration): Variable {
-    const resolve = this.#local(expression.key.name);
+  #checkAvailability(variable: Variable) {
+    const resolve = this.#local(variable.name);
     if (resolve !== null) {
       throw this.#error(
-        expression.token,
-        `Variable '${expression.key}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
+        variable.token,
+        `Variable '${variable.name}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
       );
     }
-    return expression.key;
   }
 
-  // is this how registers are going to be computed?
-  // note that we don't know if the result of the expression is needed for anything.
-  // perhaps we need other options.
-  #expressionStatement(
-    expression: Expression,
-  ) {
-    switch (expression.constructor) {
-      case LiteralBoolean:
-      case LiteralString:
-      case New:
-        return;
-      case Binary:
-        this.#repay(this.#binary(expression as Binary));
-        return;
-      case Variable:
-        this.#getRegister(expression as Variable);
-        return;
-      case Access:
-        this.#repay(this.#expression(
-          (expression as Access).object,
-        ));
-        return;
-      case VarDeclaration: {
-        this.#locals.push({
-          variable: this.#declare(expression as VarDeclaration),
-        });
-        return;
-      }
-      case Log: {
-        // type checking might make sense for 'print'
-        // need print now to inspect memory
-        const register = this.#expression((expression as Log).value);
-        this.#emit([Op.Log, register.index]);
-        this.#repay(register);
-        return;
-      }
-      default:
-        throw this.#error(expression.token, "Unexpected expression type");
+  #declare(variable: Variable, register: number): Local {
+    this.#checkAvailability(variable);
+    const local = { variable, register };
+    this.#locals.push(local);
+    //this.#current.written?.add(local);
+    return local;
+  }
+
+  #classes: { [_: string]: Class } = {};
+
+  #class(declaration: ClassDeclaration) {
+    // this.#resolve(declaration.name);
+    const klaz = new Class({});
+    this.#classes[declaration.name.name] = new Class({});
+    for (const methodDeclaration of declaration.methods) {
+      klaz.methods[methodDeclaration.name.name] = new Method(
+        0,
+        new Label([Op.Return]),
+      );
     }
+
+    // todo: should this somehow bring the class and methods in scope?
+    // what about name clashes: are they allowed?
+
+    // todo: actually compile something
   }
 
   #statements(statements: Statement[]) {
     for (const statement of statements) {
+      if (statement instanceof ClassDeclaration) {
+        this.#class(statement);
+        continue;
+      }
       this.#statement(statement);
     }
   }
@@ -604,7 +588,7 @@ export class Compiler {
         return;
       }
       default:
-        this.#expressionStatement(statement);
+        this.#repay(this.#expression(statement));
         return;
     }
   }

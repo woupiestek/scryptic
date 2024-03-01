@@ -198,16 +198,6 @@ export class Parser {
 
   static #PREFIX: ((p: Parser, t: Token) => Expression)[] = [];
   static {
-    Parser.#PREFIX[TokenType.BREAK] = (p, t) => {
-      return p.next.type === TokenType.IDENTIFIER
-        ? new Break(t, p.lexeme(p.#pop()))
-        : new Break(t);
-    };
-    Parser.#PREFIX[TokenType.CONTINUE] = (p, t) => {
-      return p.next.type === TokenType.IDENTIFIER
-        ? new Continue(t, p.lexeme(p.#pop()))
-        : new Continue(t);
-    };
     Parser.#PREFIX[TokenType.FALSE] = (_, t) => new LiteralBoolean(t, false);
     Parser.#PREFIX[TokenType.IDENTIFIER] = (p, t) =>
       new Variable(t, p.lexeme(t));
@@ -306,6 +296,20 @@ export class Parser {
   static #PREFIX2: ((p: Parser) => Expression)[] = [];
   static {
     Parser.#PREFIX2[TokenType.BRACE_LEFT] = (p) => p.#block(p.#pop());
+    Parser.#PREFIX2[TokenType.BREAK] = (p) => {
+      const t = p.#pop();
+      const r = p.next.type === TokenType.LABEL
+        ? new Break(t, p.lexeme(p.#pop()))
+        : new Break(t);
+      return r;
+    };
+    Parser.#PREFIX2[TokenType.CONTINUE] = (p) => {
+      const t = p.#pop();
+      const r = p.next.type === TokenType.LABEL
+        ? new Continue(t, p.lexeme(p.#pop()))
+        : new Continue(t);
+      return r;
+    };
     Parser.#PREFIX2[TokenType.IF] = (p) => {
       const t = p.#pop();
       const condition = p.#expression(p.#pop());
@@ -326,18 +330,15 @@ export class Parser {
         p.#expression(p.#pop()),
         p.#block(p.#consume(TokenType.BRACE_LEFT)),
       );
-    Parser.#PREFIX2[TokenType.IDENTIFIER] = (p) => {
+    Parser.#PREFIX2[TokenType.LABEL] = (p) => {
       const token = p.#pop();
-      if (p.#match(TokenType.COLON)) {
-        const label = p.lexeme(token);
-        return new WhileStatement(
-          p.#consume(TokenType.WHILE),
-          p.#expression(p.#pop()),
-          p.#block(p.#consume(TokenType.BRACE_LEFT)),
-          label,
-        );
-      }
-      return p.#expressionStatement(token);
+      const label = p.lexeme(token);
+      return new WhileStatement(
+        p.#consume(TokenType.WHILE),
+        p.#expression(p.#pop()),
+        p.#block(p.#consume(TokenType.BRACE_LEFT)),
+        label,
+      );
     };
   }
 
@@ -355,9 +356,48 @@ export class Parser {
     return this.#expressionStatement(this.#pop());
   }
 
+  // todo: where and how?
+  #class(): ClassDeclaration {
+    const token = this.#pop();
+    const ident = this.#consume(TokenType.IDENTIFIER);
+    const name = new Variable(ident, this.lexeme(ident));
+    this.#consume(TokenType.BRACE_LEFT);
+    const methods: MethodDeclaration[] = [];
+    while (!this.#match(TokenType.BRACE_RIGHT)) {
+      methods.push(this.#method());
+    }
+    return new ClassDeclaration(token, name, methods);
+  }
+
+  #method(): MethodDeclaration {
+    const ident = this.#consume(TokenType.IDENTIFIER);
+    const name = new Variable(ident, this.lexeme(ident));
+    this.#consume(TokenType.PAREN_LEFT);
+    const operands: Variable[] = [];
+    if (!this.#match(TokenType.PAREN_RIGHT)) {
+      for (;;) {
+        const ident = this.#consume(TokenType.IDENTIFIER);
+        operands.push(new Variable(ident, this.lexeme(ident)));
+        if (this.#match(TokenType.PAREN_RIGHT)) break;
+        if (this.#match(TokenType.COMMA)) break;
+        throw this.#error(this.next, "improper variable list");
+      }
+    }
+    return new MethodDeclaration(
+      ident,
+      name,
+      operands,
+      this.#block(this.#consume(TokenType.BRACE_LEFT)),
+    );
+  }
+
   script(): Statement[] {
-    const script: Statement[] = [];
+    const script: (Statement | ClassDeclaration)[] = [];
     while (!this.#match(TokenType.END)) {
+      if (this.next.type === TokenType.CLASS) {
+        script.push(this.#class());
+        continue;
+      }
       script.push(this.#statement());
     }
     return script;

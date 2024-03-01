@@ -256,7 +256,7 @@ Deno.test(function whileStatements() {
 Deno.test(function breakStatements() {
   assertEquals(
     run(
-      'var x = "wrong!"; while true { x = "right!"; break; } log x;',
+      'var x = "wrong!"; while true { x = "right!"; break } log x;',
     ),
     ["right!"],
   );
@@ -265,7 +265,7 @@ Deno.test(function breakStatements() {
 Deno.test(function continueStatements() {
   assertEquals(
     run(
-      'var x = "wrong!"; while !false { if x == "right!" { break; } else { x = "right!"; continue; } } log x;',
+      'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x;',
     ),
     ["right!"],
   );
@@ -274,7 +274,7 @@ Deno.test(function continueStatements() {
 Deno.test(function labelsStatements() {
   assertEquals(
     run(
-      'var x = "wrong!"; a: while true { if x != "right!" { x = "right!"; continue a; } break a; } log x;',
+      'var x = "wrong!"; #a while true { if x != "right!" { x = "right!"; continue #a } break #a } log x;',
     ),
     ["right!"],
   );
@@ -291,6 +291,6 @@ Deno.test(function nestedVarDeclaration() {
 
 console.log(
   compile(
-    'var x = "wrong!"; a: while true { if x != "right!" { x = "right!"; continue a; } break a; } log x;',
+    'var x = "wrong!"; #a while true { if x != "right!" { x = "right!"; continue #a } break #a } log x;',
   ).toString(),
 );

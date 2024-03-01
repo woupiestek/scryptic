@@ -17,6 +17,7 @@ export enum TokenType {
   IF,
   IS_NOT,
   IS,
+  LABEL,
   LESS,
   LOG,
   MORE,
@@ -97,7 +98,7 @@ export class Lexer {
     );
   }
 
-  #identifier(): Token {
+  #identifierSymbols() {
     for (; this.current < this.input.length; this.current++) {
       const x = this.input.charCodeAt(this.current);
       switch (x >> 5) {
@@ -115,10 +116,19 @@ export class Lexer {
       }
       break;
     }
+  }
+
+  #identifier(): Token {
+    this.#identifierSymbols();
     return this.#token(
       KEYWORDS[this.input.substring(this.from, this.current)] ||
         TokenType.IDENTIFIER,
     );
+  }
+
+  #label(): Token {
+    this.#identifierSymbols();
+    return this.#token(TokenType.LABEL);
   }
 
   #string() {
@@ -181,6 +191,8 @@ export class Lexer {
             return this.#token(TokenType.NOT);
           case 34:
             return this.#string();
+          case 35:
+            return this.#label();
           case 36:
             return this.#identifier();
           case 38:

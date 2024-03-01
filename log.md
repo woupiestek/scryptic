@@ -1,5 +1,36 @@
 # Scryptic
 
+## 2024-03-01
+
+### compiling 'everything is an expression'
+
+Creating the parser that generate such output is not a problem, although it does
+bring some challenges. For example, should `;` simply be an operator? and the
+delimiters `{` and `}` simply a way to group expressions, like `(` and `)`? Why
+have extra delimiters then?
+
+Compiling it might be an issue. Every statement must have a value, so can
+statement be empty? What does `x = {}` do?
+
+I thing lables should be special tokens, I think it is inconvenient to let them
+be identifiers.
+
+I like the idea of `;` and `{...}` being operators, but then `;` may get
+required where you would not expect.
+
+Could be an interesting problem, or not really that important. I guess I better
+pick something else to work on now.
+
+### classes and methods
+
+Once again, lot's of ideas, like adding methods after the fact. I need to see
+the vm handle this, though.
+
+First, where do classes and methods actually live? How do they get there?
+
+Wait... the compiler has to resolve classes by name, but the same does not go
+for the vm. The 'load constant' op should be good enough.
+
 ## 2024-02-29
 
 ### todos
