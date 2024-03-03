@@ -312,3 +312,10 @@ Deno.test(function passParameterToConstructor() {
   const script = 'class A { new(x){ log x } } new A("right!")';
   assertEquals(run(script), ["right!"]);
 });
+
+// test this
+
+Deno.test(function testThis() {
+  const script = 'class A { new(x){ this.x = x } } log(new A("right!").x)';
+  assertEquals(run(script), ["right!"]);
+});

@@ -47,7 +47,7 @@ type Register = {
 export class Compiler {
   #size = 0;
   #freeRegisters: number[] = [];
-  #current: TypedLabel = { label: new Label([Op.Return]), written: new Set() };
+  #current: TypedLabel = { label: new Label(), written: new Set() };
   #locals: Local[] = [];
   #names: NamedLabel[] = [];
 
@@ -130,7 +130,7 @@ export class Compiler {
       case TokenType.AND: {
         this.#boolean(expression.left, onFalse);
         const b = new Label(this.#next());
-        this.#current.label.next = [Op.Jump, b];
+        this.#current.label.next = b;
         this.#goto(b);
         this.#boolean(expression.right, onFalse);
         return;
@@ -232,15 +232,15 @@ export class Compiler {
         if ((expression as LiteralBoolean).value) {
           return;
         }
-        this.#current.label.next = [Op.Jump, onFalse];
+        this.#current.label.next = onFalse;
         return;
       }
       case Not: {
         const next = this.#current.label.next;
-        this.#current.label.next = [Op.Jump, onFalse];
+        this.#current.label.next = onFalse;
         this.#boolean(
           (expression as Not).expression,
-          next[0] === Op.Jump ? next[1] : new Label(next),
+          next || new Label(),
         );
         return;
       }
@@ -329,8 +329,8 @@ export class Compiler {
       case TokenType.NOT_MORE:
       case TokenType.OR: {
         const continuation = new Label(this.#next());
-        const falseBranch = new Label([Op.Jump, continuation]);
-        this.#current.label.next = [Op.Jump, continuation];
+        const falseBranch = new Label(continuation);
+        this.#current.label.next = continuation;
         const index = this.#allocate();
         this.#emit([Op.Constant, index, true]);
         this.#booleanBinary(expression, falseBranch);
@@ -476,10 +476,10 @@ export class Compiler {
     classes: Record<string, Class>,
   ): Method {
     const compiler = new Compiler(classes);
-    compiler.#declare(
+    compiler.#current.written.add(compiler.#declare(
       new Variable(declaration.token, "this"),
       compiler.#allocate(),
-    );
+    ));
     for (const variable of declaration.args) {
       compiler.#current.written.add(
         compiler.#declare(variable, compiler.#allocate()),
@@ -530,7 +530,7 @@ export class Compiler {
             throw this.#error(statement.token, `Label ${name} not found`);
           }
         }
-        this.#current.label.next = [Op.Jump, target];
+        this.#current.label.next = target;
         return;
       }
       case Block:
@@ -554,19 +554,16 @@ export class Compiler {
             throw this.#error(statement.token, `Label ${name} not found`);
           }
         }
-        this.#current.label.next = [Op.Jump, target];
+        this.#current.label.next = target;
         return;
       }
       case IfStatement: {
         const { condition, onFalse, onTrue } = statement as IfStatement;
         if (onFalse) {
           const continuation = new Label(this.#next());
-          const thenBranch = new Label([Op.Jump, continuation]);
-          const elseBranch = new Label([Op.Jump, continuation]);
-          this.#current.label.next = [
-            Op.Jump,
-            thenBranch,
-          ];
+          const thenBranch = new Label(continuation);
+          const elseBranch = new Label(continuation);
+          this.#current.label.next = thenBranch;
           this.#boolean(condition, elseBranch);
           // record assignments for the else branch
           const we = new Set(
@@ -592,10 +589,7 @@ export class Compiler {
           return;
         }
         const continuation = new Label(this.#next());
-        this.#current.label.next = [
-          Op.Jump,
-          continuation,
-        ];
+        this.#current.label.next = continuation;
         this.#boolean(condition, continuation);
         // reset assignments
         const wc = new Set(
@@ -607,22 +601,20 @@ export class Compiler {
       }
       case Return: {
         const e = (statement as Return).expression;
-        if (e !== undefined) {
-          const reg = this.#expression(e);
-          this.#current.label.next = [Op.Return, reg.index];
-          this.#repay(reg);
-          return;
-        }
-        this.#current.label.next = [Op.Return];
+        delete this.#current.label.next;
+        if (e === undefined) return;
+        const reg = this.#expression(e);
+        this.#emit([Op.Return, reg.index]);
+        this.#repay(reg);
         return;
       }
       case WhileStatement: {
         const { condition, onTrue, label } = statement as WhileStatement;
         const continuation = new Label(this.#next());
         const loopA = new Label(this.#next());
-        const loopB = new Label([Op.Jump, loopA]);
-        this.#current.label.next = [Op.Jump, loopA];
-        loopA.next = [Op.Jump, loopB];
+        const loopB = new Label(loopA);
+        this.#current.label.next = loopA;
+        loopA.next = loopB;
 
         this.#goto(loopA);
         this.#boolean(condition, continuation);
@@ -658,7 +650,13 @@ export class Compiler {
     // collect all labels.
     const labels = [start];
     for (let i = 0; i < labels.length; i++) {
-      for (const ins of [...labels[i].instructions, labels[i].next]) {
+      while (labels[i].next?.instructions?.length === 0) {
+        labels[i].next = labels[i].next?.next;
+      }
+      const next = labels[i].next;
+      if (next && !labels.includes(next)) labels.push(next);
+
+      for (const ins of [...labels[i].instructions]) {
         switch (ins[0]) {
           case Op.Jump:
           case Op.JumpIfDifferent:
@@ -673,8 +671,9 @@ export class Compiler {
         }
         // eliminate the empty labels
         while (ins[1].instructions.length === 0) {
-          if (ins[1].next[0] === Op.Return) break;
-          ins[1] = ins[1].next[1];
+          if (ins[1].next) {
+            ins[1] = ins[1].next;
+          }
         }
         if (ins[1] && !labels.includes(ins[1])) labels.push(ins[1]);
       }

@@ -1,11 +1,4 @@
-import {
-  Class,
-  Instruction,
-  Label,
-  LimitInstruction,
-  Method,
-  Op,
-} from "./class.ts";
+import { Class, Instruction, Label, Method, Op } from "./class.ts";
 import { CLASS, Instance, Value } from "./object.ts";
 
 class Frame {
@@ -17,10 +10,15 @@ class Frame {
     this.#body = label;
     this.#ip = 0;
   }
-  next(): Instruction | LimitInstruction {
-    return this.#ip < this.#body.instructions.length
-      ? this.#body.instructions[this.#ip++]
-      : this.#body.next;
+  next(): Instruction {
+    if (this.#ip < this.#body.instructions.length) {
+      return this.#body.instructions[this.#ip++];
+    }
+    if (this.#body.next) {
+      this.goto(this.#body.next);
+      return this.next();
+    }
+    return [Op.Return];
   }
   load(method: Method, offset: number) {
     this.stackTop = offset + method.size;

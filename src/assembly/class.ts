@@ -45,16 +45,13 @@ export type Instruction =
   | [Op.New, Register, Class] // y = new A; -- constructor methods may be required, but we  don't need them here.
   | [Op.Log, Register]
   | [Op.SetField, Register, Identifier, Register] // y.i = x
-;
-export type LimitInstruction =
-  | [Op.Jump, Label] // goto [label]
   | [Op.Return, Register?] // return
 ;
 
 export class Label {
   readonly instructions: Instruction[] = [];
-  next: LimitInstruction;
-  constructor(next: LimitInstruction) {
+  next?: Label;
+  constructor(next?: Label) {
     this.next = next;
   }
 }
@@ -85,12 +82,14 @@ export class Method {
       return arg;
     }
     for (let i = 0; i < labels.length; i++) {
-      results[i] = [...labels[i].instructions, labels[i].next].map(
+      const { instructions, next } = labels[i];
+      results[i] = instructions.map(
         ([h, ...t]) => {
           return [Op[h], ...t.map(_string)]
             .join(" ");
         },
       );
+      if (next !== undefined) results[i].push(`Jump ${_labelId(next)}`);
     }
     return results;
   }
@@ -104,7 +103,7 @@ export class Class {
     readonly methods: Record<Method> = {},
   ) {
     // add constructor if missing
-    methods.new ||= new Method(0, 0, new Label([Op.Return]));
+    methods.new ||= new Method(0, 0, new Label());
   }
   _strings() {
     return Object.fromEntries(

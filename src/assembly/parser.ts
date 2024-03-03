@@ -212,50 +212,61 @@ export class Parser {
     return false;
   }
 
-  static #PREFIX: ((p: Parser, t: Token) => Expression)[] = [];
+  static #PREFIX: ((p: Parser) => Expression)[] = [];
   static {
-    Parser.#PREFIX[TokenType.FALSE] = (_, t) => new LiteralBoolean(t, false);
-    Parser.#PREFIX[TokenType.IDENTIFIER] = (p, t) =>
-      new Variable(t, p.lexeme(t));
-    Parser.#PREFIX[TokenType.LOG] = (p, t) => new Log(t, p.#unary(p.#pop()));
-    Parser.#PREFIX[TokenType.NEW] = (p, t) => {
+    Parser.#PREFIX[TokenType.FALSE] = (p) =>
+      new LiteralBoolean(p.#pop(), false);
+    Parser.#PREFIX[TokenType.IDENTIFIER] = (p) => {
+      const t = p.#pop();
+      return new Variable(t, p.lexeme(t));
+    };
+    Parser.#PREFIX[TokenType.LOG] = (p) => new Log(p.#pop(), p.#unary());
+    Parser.#PREFIX[TokenType.NEW] = (p) => {
+      const t = p.#pop();
       const name = p.lexeme(p.#consume(TokenType.IDENTIFIER));
       p.#consume(TokenType.PAREN_LEFT);
       return new New(t, name, p.#operands());
     };
-    Parser.#PREFIX[TokenType.NOT] = (p, t) => new Not(t, p.#unary(p.#pop()));
-    Parser.#PREFIX[TokenType.PAREN_LEFT] = (p, _) => {
-      const e = p.#expression(p.#pop());
+    Parser.#PREFIX[TokenType.NOT] = (p) => new Not(p.#pop(), p.#unary());
+    Parser.#PREFIX[TokenType.PAREN_LEFT] = (p) => {
+      p.#pop();
+      const e = p.#expression();
       p.#consume(TokenType.PAREN_RIGHT);
       return e;
     };
-    Parser.#PREFIX[TokenType.STRING] = (p, t) =>
-      new LiteralString(t, JSON.parse(p.lexeme(t)));
-    Parser.#PREFIX[TokenType.THIS] = (p, t) => new Variable(t, p.lexeme(t));
-    Parser.#PREFIX[TokenType.TRUE] = (_, t) => new LiteralBoolean(t, true);
-    Parser.#PREFIX[TokenType.VAR] = (p, t) => {
+    Parser.#PREFIX[TokenType.STRING] = (p) => {
+      const t = p.#pop();
+      return new LiteralString(t, JSON.parse(p.lexeme(t)));
+    };
+    Parser.#PREFIX[TokenType.THIS] = (p) => {
+      const t = p.#pop();
+      return new Variable(t, p.lexeme(t));
+    };
+    Parser.#PREFIX[TokenType.TRUE] = (p) => new LiteralBoolean(p.#pop(), true);
+    Parser.#PREFIX[TokenType.VAR] = (p) => {
+      const t = p.#pop();
       const v = p.#consume(TokenType.IDENTIFIER);
       return new VarDeclaration(t, new Variable(v, p.lexeme(v)));
     };
   }
 
-  #unary(head: Token): Expression {
-    const prefix = Parser.#PREFIX[head.type];
+  #unary(): Expression {
+    const prefix = Parser.#PREFIX[this.next.type];
     if (!prefix) {
-      throw this.#error(head, "Expected expression");
+      throw this.#error(this.next, "Expected expression");
     }
-    return prefix(this, head);
+    return prefix(this);
   }
 
   static #__binary(precedence: number) {
     return (self: Parser, left: Expression) =>
-      new Binary(self.#pop(), left, self.#binary(self.#pop(), precedence));
+      new Binary(self.#pop(), left, self.#binary(precedence));
   }
 
   #operands(): Expression[] {
     const operands: Expression[] = [];
     while (this.next.type !== TokenType.PAREN_RIGHT) {
-      operands.push(this.#expression(this.#pop()));
+      operands.push(this.#expression());
       if (!this.#match(TokenType.COMMA)) break;
     }
     this.#consume(TokenType.PAREN_RIGHT);
@@ -287,8 +298,8 @@ export class Parser {
     Parser.#INFIX[TokenType.PAREN_LEFT] = [4, Parser.#__call];
   }
 
-  #binary(head: Token, precedence: number): Expression {
-    let left = this.#unary(head);
+  #binary(precedence: number): Expression {
+    let left = this.#unary();
     for (;;) {
       const a = Parser.#INFIX[this.next.type];
       if (!a) return left;
@@ -298,8 +309,8 @@ export class Parser {
     }
   }
 
-  #expression(token: Token): Expression {
-    return this.#binary(token, 0);
+  #expression(): Expression {
+    return this.#binary(0);
   }
 
   #block(braceLeft: Token): Block {
@@ -335,7 +346,7 @@ export class Parser {
     };
     Parser.#PREFIX2[TokenType.IF] = (p) => {
       const t = p.#pop();
-      const condition = p.#expression(p.#pop());
+      const condition = p.#expression();
       const ifTrue = p.#block(p.#consume(TokenType.BRACE_LEFT));
       if (p.#match(TokenType.ELSE)) {
         return new IfStatement(
@@ -350,7 +361,7 @@ export class Parser {
     Parser.#PREFIX2[TokenType.WHILE] = (p) =>
       new WhileStatement(
         p.#pop(),
-        p.#expression(p.#pop()),
+        p.#expression(),
         p.#block(p.#consume(TokenType.BRACE_LEFT)),
       );
     Parser.#PREFIX2[TokenType.LABEL] = (p) => {
@@ -358,7 +369,7 @@ export class Parser {
       const label = p.lexeme(token);
       return new WhileStatement(
         p.#consume(TokenType.WHILE),
-        p.#expression(p.#pop()),
+        p.#expression(),
         p.#block(p.#consume(TokenType.BRACE_LEFT)),
         label,
       );
@@ -368,14 +379,14 @@ export class Parser {
       if (
         p.next.type !== TokenType.END && p.next.type !== TokenType.BRACE_RIGHT
       ) {
-        return new Return(token, p.#expression(p.#pop()));
+        return new Return(token, p.#expression());
       }
       return new Return(token);
     };
   }
 
-  #expressionStatement(token: Token): Statement {
-    const statement = this.#expression(token);
+  #expressionStatement(): Statement {
+    const statement = this.#expression();
     if (
       this.next.type === TokenType.END ||
       this.next.type === TokenType.BRACE_RIGHT
@@ -389,7 +400,7 @@ export class Parser {
     if (prefix) {
       return prefix(this);
     }
-    return this.#expressionStatement(this.#pop());
+    return this.#expressionStatement();
   }
 
   // todo: constructor?
