@@ -10,6 +10,7 @@ import {
   Continue,
   Expression,
   IfStatement,
+  Jump,
   LiteralBoolean,
   LiteralString,
   Log,
@@ -167,8 +168,7 @@ export class Compiler {
         this.#boolean(expression.right, onFalse);
         return;
       }
-      case TokenType.BE:
-      {
+      case TokenType.BE: {
         const reg = this.#assignment(expression);
         this.#emit([Op.JumpIfFalse, onFalse, reg.index]);
         this.#repay(reg);
@@ -467,27 +467,21 @@ export class Compiler {
     method.size = compiler.#size;
   }
 
-  #statements(statements: Statement[]) {
-    for (const statement of statements) {
-      if (statement instanceof ClassDeclaration) {
-        this.#class(statement);
-        continue;
-      }
-      this.#statement(statement);
-    }
-  }
-
   #block(block: Block) {
     const depth = this.#locals.length;
-    this.#statements(block.statements);
+    for (const statement of block.statements) {
+      this.#statement(statement);
+    }
+    if (block.jump) {
+      this.#jump(block.jump);
+    }
     while (this.#locals.length > depth) {
       const register = this.#locals.pop()?.register;
       if (register !== undefined) this.#freeRegisters.push(register);
     }
   }
 
-  // not good enough?
-  #statement(statement: Statement) {
+  #jump(statement: Jump) {
     switch (statement.constructor) {
       case Break: {
         if (this.#names.length === 0) {
@@ -510,9 +504,6 @@ export class Compiler {
         this.#current.label.next = target;
         return;
       }
-      case Block:
-        this.#block(statement as Block);
-        return;
       case Continue: {
         if (this.#names.length === 0) {
           throw this.#error(statement.token, "Cannot break here");
@@ -534,6 +525,26 @@ export class Compiler {
         this.#current.label.next = target;
         return;
       }
+      case Return: {
+        const e = (statement as Return).expression;
+        delete this.#current.label.next;
+        if (e === undefined) return;
+        const reg = this.#expression(e);
+        this.#emit([Op.Return, reg.index]);
+        this.#repay(reg);
+        return;
+      }
+      default:
+        throw this.#error(statement.token, "Bad end of block");
+    }
+  }
+
+  // not good enough?
+  #statement(statement: Statement) {
+    switch (statement.constructor) {
+      case Block:
+        this.#block(statement as Block);
+        return;
       case IfStatement: {
         const { condition, onFalse, onTrue } = statement as IfStatement;
         const continuation = new Label(this.#next());
@@ -566,15 +577,6 @@ export class Compiler {
         };
         return;
       }
-      case Return: {
-        const e = (statement as Return).expression;
-        delete this.#current.label.next;
-        if (e === undefined) return;
-        const reg = this.#expression(e);
-        this.#emit([Op.Return, reg.index]);
-        this.#repay(reg);
-        return;
-      }
       case WhileStatement: {
         const { condition, onTrue, label } = statement as WhileStatement;
         const continuation = new Label(this.#next());
@@ -601,15 +603,21 @@ export class Compiler {
         return;
       }
       default:
-        this.#repay(this.#expression(statement));
+        this.#repay(this.#expression(statement as Expression));
         return;
     }
   }
 
-  compile(script: Statement[]): Method {
+  compile(script: (Block | ClassDeclaration)[]): Method {
     const method = new Method();
     method.start = this.#current.label;
-    this.#statements(script);
+    for (const line of script) {
+      if (line instanceof Block) {
+        this.#block(line);
+      } else {
+        this.#class(line);
+      }
+    }
     Compiler.mergeLabels(method.start);
     method.size = this.#size;
     return method;

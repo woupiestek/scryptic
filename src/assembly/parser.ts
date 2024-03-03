@@ -66,16 +66,15 @@ export class Return implements Node {
   constructor(readonly token: Token, readonly expression?: Expression) {}
 }
 
-export type Statement =
-  | Block
-  | Expression
-  | IfStatement
-  | Log
-  | Return
-  | WhileStatement;
+export type Statement = Block | Expression | IfStatement | WhileStatement;
+export type Jump = Break | Continue | Return;
 
 export class Block implements Node {
-  constructor(readonly token: Token, readonly statements: Statement[]) {}
+  constructor(
+    readonly token: Token,
+    readonly statements: Statement[],
+    readonly jump?: Jump,
+  ) {}
 }
 
 export class Access implements Node {
@@ -127,9 +126,7 @@ export class Call implements Node {
 export type Expression =
   | Access
   | Binary
-  | Break
   | Call
-  | Continue
   | LiteralBoolean
   | LiteralString
   | Log
@@ -314,90 +311,126 @@ export class Parser {
   }
 
   #block(braceLeft: Token): Block {
-    const statements: Statement[] = [];
-    while (!this.#match(TokenType.END)) {
-      if (this.#match(TokenType.BRACE_RIGHT)) {
-        return new Block(braceLeft, statements);
+    const statements: (Block | Expression | IfStatement | WhileStatement)[] =
+      [];
+    for (;;) {
+      switch (this.next.type) {
+        case TokenType.BRACE_LEFT:
+          statements.push(this.#block(this.#pop()));
+          this.#consume(TokenType.BRACE_RIGHT);
+          continue;
+        case TokenType.BRACE_RIGHT:
+          return new Block(
+            braceLeft,
+            statements,
+          );
+        case TokenType.BREAK: {
+          const token = this.next;
+          this.next = this.lexer.next();
+          return new Block(
+            braceLeft,
+            statements,
+            this.next.type === TokenType.LABEL
+              ? new Break(token, this.lexeme(this.#pop()))
+              : new Break(token),
+          );
+        }
+        case TokenType.CONTINUE: {
+          const token = this.next;
+          this.next = this.lexer.next();
+          return new Block(
+            braceLeft,
+            statements,
+            this.next.type === TokenType.LABEL
+              ? new Continue(token, this.lexeme(this.#pop()))
+              : new Continue(token),
+          );
+        }
+        case TokenType.END:
+          return new Block(
+            braceLeft,
+            statements,
+          );
+        case TokenType.IF: {
+          const token = this.#pop();
+          const condition = this.#expression();
+          const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
+          this.#consume(TokenType.BRACE_RIGHT);
+          if (this.#match(TokenType.ELSE)) {
+            const ifFalse = this.#block(this.#consume(TokenType.BRACE_LEFT));
+            this.#consume(TokenType.BRACE_RIGHT);
+            statements.push(
+              new IfStatement(
+                token,
+                condition,
+                ifTrue,
+                ifFalse,
+              ),
+            );
+          } else {
+            statements.push(new IfStatement(token, condition, ifTrue));
+          }
+          continue;
+        }
+        case TokenType.LABEL: {
+          const label = this.lexeme(this.#pop());
+          const token = this.#consume(TokenType.WHILE);
+          const condition = this.#expression();
+          const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
+          this.#consume(TokenType.BRACE_RIGHT);
+          statements.push(
+            new WhileStatement(
+              token,
+              condition,
+              ifTrue,
+              label,
+            ),
+          );
+          continue;
+        }
+        case TokenType.RETURN: {
+          const token = this.next;
+          this.next = this.lexer.next();
+          if (
+            this.next.type !== TokenType.END &&
+            this.next.type !== TokenType.BRACE_RIGHT
+          ) {
+            return new Block(
+              braceLeft,
+              statements,
+              new Return(token, this.#expression()),
+            );
+          } else {
+            return new Block(
+              braceLeft,
+              statements,
+              new Return(token),
+            );
+          }
+        }
+        case TokenType.WHILE: {
+          const token = this.#pop();
+          const condition = this.#expression();
+          const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
+          this.#consume(TokenType.BRACE_RIGHT);
+          statements.push(
+            new WhileStatement(
+              token,
+              condition,
+              ifTrue,
+            ),
+          );
+          continue;
+        }
+        default: //expression
+        {
+          statements.push(this.#expression());
+          if (this.#match(TokenType.SEMICOLON)) {
+            continue;
+          } else break;
+        }
       }
-      statements.push(this.#statement());
     }
-    throw this.#error(
-      braceLeft,
-      `'{' at [${braceLeft.line}, ${braceLeft.column}] is missing a '}'`,
-    );
-  }
-
-  static #PREFIX2: ((p: Parser) => Expression)[] = [];
-  static {
-    Parser.#PREFIX2[TokenType.BRACE_LEFT] = (p) => p.#block(p.#pop());
-    Parser.#PREFIX2[TokenType.BREAK] = (p) => {
-      const t = p.#pop();
-      return p.next.type === TokenType.LABEL
-        ? new Break(t, p.lexeme(p.#pop()))
-        : new Break(t);
-    };
-    Parser.#PREFIX2[TokenType.CONTINUE] = (p) => {
-      const t = p.#pop();
-      return p.next.type === TokenType.LABEL
-        ? new Continue(t, p.lexeme(p.#pop()))
-        : new Continue(t);
-    };
-    Parser.#PREFIX2[TokenType.IF] = (p) => {
-      const t = p.#pop();
-      const condition = p.#expression();
-      const ifTrue = p.#block(p.#consume(TokenType.BRACE_LEFT));
-      if (p.#match(TokenType.ELSE)) {
-        return new IfStatement(
-          t,
-          condition,
-          ifTrue,
-          p.#block(p.#consume(TokenType.BRACE_LEFT)),
-        );
-      }
-      return new IfStatement(t, condition, ifTrue);
-    };
-    Parser.#PREFIX2[TokenType.WHILE] = (p) =>
-      new WhileStatement(
-        p.#pop(),
-        p.#expression(),
-        p.#block(p.#consume(TokenType.BRACE_LEFT)),
-      );
-    Parser.#PREFIX2[TokenType.LABEL] = (p) => {
-      const label = p.lexeme(p.#pop());
-      return new WhileStatement(
-        p.#consume(TokenType.WHILE),
-        p.#expression(),
-        p.#block(p.#consume(TokenType.BRACE_LEFT)),
-        label,
-      );
-    };
-    Parser.#PREFIX2[TokenType.RETURN] = (p) => {
-      const token = p.#pop();
-      if (
-        p.next.type !== TokenType.END && p.next.type !== TokenType.BRACE_RIGHT
-      ) {
-        return new Return(token, p.#expression());
-      }
-      return new Return(token);
-    };
-  }
-
-  #expressionStatement(): Statement {
-    const statement = this.#expression();
-    if (
-      this.next.type === TokenType.END ||
-      this.next.type === TokenType.BRACE_RIGHT
-    ) return statement;
-    this.#consume(TokenType.SEMICOLON);
-    return statement;
-  }
-
-  #statement(): Statement {
-    const prefix = Parser.#PREFIX2[this.next.type];
-    if (prefix) {
-      return prefix(this);
-    }
-    return this.#expressionStatement();
   }
 
   #class(): ClassDeclaration {
@@ -423,22 +456,24 @@ export class Parser {
       if (!this.#match(TokenType.COMMA)) break;
     }
     this.#consume(TokenType.PAREN_RIGHT);
+    const body = this.#block(this.#consume(TokenType.BRACE_LEFT));
+    this.#consume(TokenType.BRACE_RIGHT);
     return new MethodDeclaration(
       ident,
       name,
       operands,
-      this.#block(this.#consume(TokenType.BRACE_LEFT)),
+      body,
     );
   }
 
-  script(): Statement[] {
-    const script: (Statement | ClassDeclaration)[] = [];
+  script(): (Block | ClassDeclaration)[] {
+    const script: (Block | ClassDeclaration)[] = [];
     while (!this.#match(TokenType.END)) {
       if (this.next.type === TokenType.CLASS) {
         script.push(this.#class());
-        continue;
+      } else {
+        script.push(this.#block(new Token(TokenType.BRACE_LEFT, 0, 0, 1, 1)));
       }
-      script.push(this.#statement());
     }
     return script;
   }
