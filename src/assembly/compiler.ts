@@ -16,6 +16,7 @@ import {
   MethodDeclaration,
   New,
   Not,
+  Return,
   Statement,
   VarDeclaration,
   Variable,
@@ -346,6 +347,24 @@ export class Compiler {
     }
   }
 
+  #call(call: Call): Register {
+    if (call.operator instanceof Access) {
+      const args = [call.operator.object, ...call.operands].map((it) =>
+        this.#expression(it)
+      );
+      this.#emit([
+        Op.InvokeVirtual,
+        call.operator.field,
+        args.map((it) => it.index),
+      ]);
+      args.forEach((it) => this.#repay(it));
+      const index = this.#allocate();
+      this.#emit([Op.MoveResult, index]);
+      return { index };
+    }
+    throw this.#error(call.token, "uncallable operand");
+  }
+
   #expression(
     expression: Expression,
   ): Register {
@@ -376,32 +395,24 @@ export class Compiler {
         return register;
       }
       case New: {
+        const { klaz, operands } = expression as New;
         const index = this.#allocate();
         this.#emit([
           Op.New,
           index,
-          this.classes[(expression as New).klaz] ||= new Class(),
+          this.classes[klaz] ||= new Class(),
         ]);
-        return { index };
-      }
-      case Call: {
-        const { token, operator, operands } = expression as Call;
-        if (!(operator instanceof Access)) {
-          throw this.#error(token, "uncallable operand");
-        }
-        const args = [operator.object, ...operands].map((it) =>
-          this.#expression(it)
-        );
-        const index = this.#allocate();
+        const args = operands.map((it) => this.#expression(it));
         this.#emit([
-          Op.InvokeVirtual,
-          index,
-          operator.field,
-          args.map((it) => it.index),
+          Op.InvokeStatic,
+          this.classes[klaz].methods.new, // does it already exist???
+          [index, ...args.map((it) => it.index)],
         ]);
         args.forEach((it) => this.#repay(it));
         return { index };
       }
+      case Call:
+        return this.#call(expression as Call);
       case Binary:
         return this.#binary(expression as Binary);
       case Variable:
@@ -453,7 +464,7 @@ export class Compiler {
   #class(declaration: ClassDeclaration) {
     const klaz = this.classes[declaration.name.name] ||= new Class({});
     for (const methodDeclaration of declaration.methods) {
-      klaz.methods[methodDeclaration.name.name] = Compiler.#method(
+      klaz.methods[methodDeclaration.name?.name || "new"] = Compiler.#method(
         methodDeclaration,
         this.classes,
       );
@@ -470,11 +481,13 @@ export class Compiler {
       compiler.#allocate(),
     );
     for (const variable of declaration.args) {
-      compiler.#declare(variable, compiler.#allocate());
+      compiler.#current.written.add(
+        compiler.#declare(variable, compiler.#allocate()),
+      );
     }
     const start = compiler.#current.label;
     compiler.#block(declaration.body);
-    return new Method(compiler.#size, start);
+    return new Method(declaration.args.length, compiler.#size, start);
   }
 
   #statements(statements: Statement[]) {
@@ -592,6 +605,17 @@ export class Compiler {
         this.#current = { label: continuation, written: wc };
         return;
       }
+      case Return: {
+        const e = (statement as Return).expression;
+        if (e !== undefined) {
+          const reg = this.#expression(e);
+          this.#current.label.next = [Op.Return, reg.index];
+          this.#repay(reg);
+          return;
+        }
+        this.#current.label.next = [Op.Return];
+        return;
+      }
       case WhileStatement: {
         const { condition, onTrue, label } = statement as WhileStatement;
         const continuation = new Label(this.#next());
@@ -627,7 +651,7 @@ export class Compiler {
     const start = this.#current.label;
     this.#statements(script);
     Compiler.mergeLabels(start);
-    return new Method(this.#size, start);
+    return new Method(0, this.#size, start);
   }
 
   static mergeLabels(start: Label) {

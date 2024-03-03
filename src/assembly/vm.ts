@@ -92,20 +92,13 @@ export class VM {
           this.set(instruction[1], new Instance(instruction[2]));
           continue;
         case Op.InvokeStatic:
-          this.invoke(
-            instruction[2],
-            instruction[3],
-          );
-          // not optional now
-          this.set(instruction[1], this.#result);
+          this.invoke(instruction[1], instruction[2]);
           continue;
         case Op.InvokeVirtual:
           this.invoke(
-            this.classOf(instruction[3][0]).methods[instruction[2]],
-            instruction[3],
+            this.classOf(instruction[2][0]).methods[instruction[1]],
+            instruction[2],
           );
-          // not optional now
-          this.set(instruction[1], this.#result);
           continue;
         case Op.Jump:
           this.frames[this.fp].goto(instruction[1]);
@@ -164,6 +157,13 @@ export class VM {
     method: Method,
     locals: number[],
   ) {
+    if (method.arity !== locals.length - 1) {
+      throw new Error(
+        `arity mismatch: ${method.arity} demanded ${
+          locals.length - 1
+        } supplied`,
+      );
+    }
     if (this.fp >= VM.MAX_FRAMES) throw new Error("stack overflow");
     const f2 = this.frames[this.fp + 1];
     f2.load(method, this.frames[this.fp].stackTop);

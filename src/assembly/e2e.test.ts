@@ -74,7 +74,7 @@ Deno.test(function doubleAssignment() {
 });
 
 Deno.test(function construction() {
-  assertEquals(JSON.stringify(run("var x = new A; log x")), "[{}]");
+  assertEquals(JSON.stringify(run("var x = new A(); log x")), "[{}]");
 });
 
 Deno.test(function newLogOperator() {
@@ -82,7 +82,7 @@ Deno.test(function newLogOperator() {
 });
 
 Deno.test(function testFields() {
-  assertEquals(run('var x = new A; x.y = "Hello, World!"; log(x.y)'), [
+  assertEquals(run('var x = new A(); x.y = "Hello, World!"; log(x.y)'), [
     "Hello, World!",
   ]);
 });
@@ -238,7 +238,7 @@ Deno.test(function partialAssignment() {
 Deno.test(function doubleAssignment() {
   assertEquals(
     run(
-      'var x; var y = new A; x = y.m = "test"; if x == "test" { log "right!" } else { log "wrong!" }',
+      'var x; var y = new A(); x = y.m = "test"; if x == "test" { log "right!" } else { log "wrong!" }',
     ),
     ["right!"],
   );
@@ -281,14 +281,34 @@ Deno.test(function labelsStatements() {
 Deno.test(function nestedVarDeclaration() {
   assertEquals(
     run(
-      '(var x = new A).y = "right!"; log(x.y)',
+      '(var x = new A()).y = "right!"; log(x.y)',
     ),
     ["right!"],
   );
 });
 
 Deno.test(function classesAndMethods() {
-  const script = 'class A { run(){ log "right!" } } new A.run()';
+  const script = 'class A { run(){ log "right!" } } new A().run()';
   console.log(compile(script).toString());
+  assertEquals(run(script), ["right!"]);
+});
+
+Deno.test(function constructors() {
+  assertEquals(run('class A { new(){ log "right!" } } new A()'), ["right!"]);
+});
+
+Deno.test(function returns() {
+  assertEquals(run('class A { run(){ return "right!" } } log(new A().run())'), [
+    "right!",
+  ]);
+});
+
+Deno.test(function passParameter() {
+  const script = 'class A { print(x){ log x } } new A().print("right!")';
+  assertEquals(run(script), ["right!"]);
+});
+
+Deno.test(function passParameterToConstructor() {
+  const script = 'class A { new(x){ log x } } new A("right!")';
   assertEquals(run(script), ["right!"]);
 });

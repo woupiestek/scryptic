@@ -10,7 +10,7 @@
 - ~~class, methods, calls,~~
 - numbers, arrays
 - optimisations
-- constructors, returns
+- ~~constructors, returns~~
 
 ### dynamic variation
 
@@ -61,6 +61,14 @@ The class variables are a challenge, right: suppose we want to point ahead in
 the direction of a class that is not declared yet. How can the compiler resolve
 that? It seems like the class object need to be created as soon as the class is
 found.
+
+### classes
+
+Classes are global variables, distinct from locals. The funny thing is that
+classes can now be defined piecemeal, by using multiple declarations. Methods
+can also be overridden that way. Adding methods after the fact is what I like.
+
+Now the constructor...
 
 ## 2024-03-01
 

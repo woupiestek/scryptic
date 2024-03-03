@@ -22,15 +22,11 @@ export class LiteralString implements Node {
   constructor(readonly token: Token, readonly value: string) {}
 }
 
-// this
-export class This implements Node {
-  constructor(readonly token: Token) {}
-}
-
 export class New implements Node {
   constructor(
     readonly token: Token,
     readonly klaz: string,
+    readonly operands: Expression[],
   ) {}
 }
 
@@ -66,11 +62,16 @@ export class VarDeclaration implements Node {
   ) {}
 }
 
+export class Return implements Node {
+  constructor(readonly token: Token, readonly expression?: Expression) {}
+}
+
 export type Statement =
   | Block
   | Expression
   | IfStatement
   | Log
+  | Return
   | WhileStatement;
 
 export class Block implements Node {
@@ -192,6 +193,17 @@ export class Parser {
     return token;
   }
 
+  #consumeOneOf(...types: TokenType[]) {
+    const token = this.#pop();
+    if (!types.includes(token.type)) {
+      throw this.#error(
+        token,
+        `expected one of ${types.map((it) => TokenType[it])}`,
+      );
+    }
+    return token;
+  }
+
   #match(type: TokenType) {
     if (this.next.type === type) {
       this.next = this.lexer.next();
@@ -206,8 +218,11 @@ export class Parser {
     Parser.#PREFIX[TokenType.IDENTIFIER] = (p, t) =>
       new Variable(t, p.lexeme(t));
     Parser.#PREFIX[TokenType.LOG] = (p, t) => new Log(t, p.#unary(p.#pop()));
-    Parser.#PREFIX[TokenType.NEW] = (p, t) =>
-      new New(t, p.lexeme(p.#consume(TokenType.IDENTIFIER)));
+    Parser.#PREFIX[TokenType.NEW] = (p, t) => {
+      const name = p.lexeme(p.#consume(TokenType.IDENTIFIER));
+      p.#consume(TokenType.PAREN_LEFT);
+      return new New(t, name, p.#operands());
+    };
     Parser.#PREFIX[TokenType.NOT] = (p, t) => new Not(t, p.#unary(p.#pop()));
     Parser.#PREFIX[TokenType.PAREN_LEFT] = (p, _) => {
       const e = p.#expression(p.#pop());
@@ -216,7 +231,7 @@ export class Parser {
     };
     Parser.#PREFIX[TokenType.STRING] = (p, t) =>
       new LiteralString(t, JSON.parse(p.lexeme(t)));
-    Parser.#PREFIX[TokenType.THIS] = (_, t) => new This(t);
+    Parser.#PREFIX[TokenType.THIS] = (p, t) => new Variable(t, p.lexeme(t));
     Parser.#PREFIX[TokenType.TRUE] = (_, t) => new LiteralBoolean(t, true);
     Parser.#PREFIX[TokenType.VAR] = (p, t) => {
       const v = p.#consume(TokenType.IDENTIFIER);
@@ -237,15 +252,18 @@ export class Parser {
       new Binary(self.#pop(), left, self.#binary(self.#pop(), precedence));
   }
 
-  static #__call(that: Parser, operator: Expression) {
-    const head = that.#pop();
+  #operands(): Expression[] {
     const operands: Expression[] = [];
-    while (that.next.type !== TokenType.PAREN_RIGHT) {
-      that.#expression(that.#pop());
-      if (!that.#match(TokenType.COMMA)) break;
+    while (this.next.type !== TokenType.PAREN_RIGHT) {
+      operands.push(this.#expression(this.#pop()));
+      if (!this.#match(TokenType.COMMA)) break;
     }
-    that.#consume(TokenType.PAREN_RIGHT);
-    return new Call(head, operator, operands);
+    this.#consume(TokenType.PAREN_RIGHT);
+    return operands;
+  }
+
+  static #__call(that: Parser, operator: Expression) {
+    return new Call(that.#pop(), operator, that.#operands());
   }
 
   static #__access(that: Parser, expression: Expression) {
@@ -345,6 +363,15 @@ export class Parser {
         label,
       );
     };
+    Parser.#PREFIX2[TokenType.RETURN] = (p) => {
+      const token = p.#pop();
+      if (
+        p.next.type !== TokenType.END && p.next.type !== TokenType.BRACE_RIGHT
+      ) {
+        return new Return(token, p.#expression(p.#pop()));
+      }
+      return new Return(token);
+    };
   }
 
   #expressionStatement(token: Token): Statement {
@@ -379,7 +406,7 @@ export class Parser {
   }
 
   #method(): MethodDeclaration {
-    const ident = this.#consume(TokenType.IDENTIFIER);
+    const ident = this.#consumeOneOf(TokenType.IDENTIFIER, TokenType.NEW);
     const name = new Variable(ident, this.lexeme(ident));
     this.#consume(TokenType.PAREN_LEFT);
     const operands: Variable[] = [];

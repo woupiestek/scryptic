@@ -26,8 +26,8 @@ export type Record<A> = { [_: Identifier]: A };
 export type Instruction =
   | [Op.Constant, Register, Constant] // y = 1
   | [Op.GetField, Register, Register, Identifier] // y = x.i
-  | [Op.InvokeStatic, Register, Method, Register[]] // y = x[0].m(x[1],...,x[arity])
-  | [Op.InvokeVirtual, Register, Identifier, Register[]] // y = x[0].m(x[1],...,x[arity])...
+  | [Op.InvokeStatic, Method, Register[]] // y = x[0].m(x[1],...,x[arity])
+  | [Op.InvokeVirtual, Identifier, Register[]] // y = x[0].m(x[1],...,x[arity])...
   | [
     Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfNotMore,
     Label,
@@ -61,6 +61,7 @@ export class Label {
 
 export class Method {
   constructor(
+    readonly arity: number,
     readonly size: number,
     readonly start: Label,
   ) {}
@@ -77,6 +78,7 @@ export class Method {
       return i.toString();
     }
     function _string(arg: unknown): unknown {
+      if (arg instanceof Array) return arg.join(" ");
       if (arg instanceof Class) return JSON.stringify(arg._strings());
       if (arg instanceof Method) return JSON.stringify(arg._strings());
       if (arg instanceof Label) return _labelId(arg);
@@ -100,10 +102,15 @@ export class Method {
 export class Class {
   constructor(
     readonly methods: Record<Method> = {},
-  ) {}
+  ) {
+    // add constructor if missing
+    methods.new ||= new Method(0, 0, new Label([Op.Return]));
+  }
   _strings() {
     return Object.fromEntries(
-      Object.entries(this.methods).map(([k, v]) => [k, v._strings()]),
+      Object.entries(this.methods).map((
+        [k, v],
+      ) => [`${k}(${v.arity})`, v._strings()]),
     );
   }
   toString() {
