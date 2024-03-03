@@ -332,17 +332,15 @@ export class Parser {
     Parser.#PREFIX2[TokenType.BRACE_LEFT] = (p) => p.#block(p.#pop());
     Parser.#PREFIX2[TokenType.BREAK] = (p) => {
       const t = p.#pop();
-      const r = p.next.type === TokenType.LABEL
+      return p.next.type === TokenType.LABEL
         ? new Break(t, p.lexeme(p.#pop()))
         : new Break(t);
-      return r;
     };
     Parser.#PREFIX2[TokenType.CONTINUE] = (p) => {
       const t = p.#pop();
-      const r = p.next.type === TokenType.LABEL
+      return p.next.type === TokenType.LABEL
         ? new Continue(t, p.lexeme(p.#pop()))
         : new Continue(t);
-      return r;
     };
     Parser.#PREFIX2[TokenType.IF] = (p) => {
       const t = p.#pop();
@@ -365,8 +363,7 @@ export class Parser {
         p.#block(p.#consume(TokenType.BRACE_LEFT)),
       );
     Parser.#PREFIX2[TokenType.LABEL] = (p) => {
-      const token = p.#pop();
-      const label = p.lexeme(token);
+      const label = p.lexeme(p.#pop());
       return new WhileStatement(
         p.#consume(TokenType.WHILE),
         p.#expression(),
@@ -403,7 +400,6 @@ export class Parser {
     return this.#expressionStatement();
   }
 
-  // todo: constructor?
   #class(): ClassDeclaration {
     const token = this.#pop();
     const ident = this.#consume(TokenType.IDENTIFIER);

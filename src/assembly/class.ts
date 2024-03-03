@@ -6,13 +6,9 @@ export enum Op {
   New,
   InvokeStatic,
   InvokeVirtual,
-  Jump,
-  JumpIfDifferent,
   JumpIfEqual,
   JumpIfFalse,
   JumpIfLess,
-  JumpIfNotMore,
-  JumpIfTrue,
   Log,
   Return,
   SetField,
@@ -29,17 +25,16 @@ export type Instruction =
   | [Op.InvokeStatic, Method, Register[]] // y = x[0].m(x[1],...,x[arity])
   | [Op.InvokeVirtual, Identifier, Register[]] // y = x[0].m(x[1],...,x[arity])...
   | [
-    Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfNotMore,
+    Op.JumpIfEqual | Op.JumpIfLess,
     Label,
     Register,
     Register,
   ]
   | [
-    Op.JumpIfTrue | Op.JumpIfFalse,
+    Op.JumpIfFalse,
     Label,
     Register,
   ]
-  | [Op.Jump, Label] // goto [label]
   | [Op.Move, Register, Register] // y = x
   | [Op.MoveResult, Register] // y = (previous function call)
   | [Op.New, Register, Class] // y = new A; -- constructor methods may be required, but we  don't need them here.
@@ -57,11 +52,12 @@ export class Label {
 }
 
 export class Method {
-  constructor(
-    readonly arity: number,
-    readonly size: number,
-    readonly start: Label,
-  ) {}
+  arity = 0;
+
+  size = 0;
+
+  start: Label = new Label();
+
   _strings() {
     const labels = [this.start];
     const results = [];
@@ -99,15 +95,13 @@ export class Method {
 }
 
 export class Class {
-  constructor(
-    readonly methods: Record<Method> = {},
-  ) {
-    // add constructor if missing
-    methods.new ||= new Method(0, 0, new Label());
+  #methods: Record<Method> = {};
+  method(name: string) {
+    return this.#methods[name] ||= new Method();
   }
   _strings() {
     return Object.fromEntries(
-      Object.entries(this.methods).map((
+      Object.entries(this.#methods).map((
         [k, v],
       ) => [`${k}(${v.arity})`, v._strings()]),
     );

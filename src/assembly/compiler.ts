@@ -122,10 +122,35 @@ export class Compiler {
     };
   }
 
+  static #BOOL_BI: [number, boolean, boolean][] = [];
+  static {
+    Compiler.#BOOL_BI[TokenType.IS] = [Op.JumpIfEqual, true, false];
+    Compiler.#BOOL_BI[TokenType.IS_NOT] = [Op.JumpIfEqual, false, false];
+    Compiler.#BOOL_BI[TokenType.LESS] = [Op.JumpIfLess, false, true];
+    Compiler.#BOOL_BI[TokenType.MORE] = [Op.JumpIfLess, true, true];
+    Compiler.#BOOL_BI[TokenType.NOT_LESS] = [Op.JumpIfLess, false, false];
+    Compiler.#BOOL_BI[TokenType.NOT_MORE] = [Op.JumpIfLess, true, false];
+  }
+
   #booleanBinary(
     expression: Binary,
     onFalse: Label,
   ) {
+    const a = Compiler.#BOOL_BI[expression.token.type];
+    if (a) {
+      const [op, negate, reverse] = a;
+      const target = negate ? this.#switch(onFalse) : onFalse;
+      const reg1 = this.#expression(expression.left);
+      const reg2 = this.#expression(expression.right);
+      this.#emit(
+        reverse
+          ? [op, target, reg2.index, reg1.index]
+          : [op, target, reg1.index, reg2.index],
+      );
+      this.#repay(reg1, reg2);
+      return;
+    }
+
     switch (expression.token.type) {
       case TokenType.AND: {
         this.#boolean(expression.left, onFalse);
@@ -135,59 +160,6 @@ export class Compiler {
         this.#boolean(expression.right, onFalse);
         return;
       }
-      case TokenType.IS_NOT: {
-        const reg1 = this.#expression(expression.left);
-        const reg2 = this.#expression(expression.right);
-        this.#emit([Op.JumpIfEqual, onFalse, reg1.index, reg2.index]);
-        this.#repay(reg1, reg2);
-        return;
-      }
-      case TokenType.IS: {
-        const reg1 = this.#expression(expression.left);
-        const reg2 = this.#expression(expression.right);
-        this.#emit([
-          Op.JumpIfDifferent,
-          onFalse,
-          reg1.index,
-          reg2.index,
-        ]);
-        this.#repay(reg1, reg2);
-        return;
-      }
-      case TokenType.LESS: {
-        const reg1 = this.#expression(expression.left);
-        const reg2 = this.#expression(expression.right);
-        this.#emit(
-          // note: changed register ordering!
-          [Op.JumpIfNotMore, onFalse, reg2.index, reg1.index],
-        );
-        this.#repay(reg1, reg2);
-        return;
-      }
-      case TokenType.MORE: {
-        const reg1 = this.#expression(expression.left);
-        const reg2 = this.#expression(expression.right);
-        this.#emit([Op.JumpIfNotMore, onFalse, reg1.index, reg2.index]);
-        this.#repay(reg1, reg2);
-        return;
-      }
-      case TokenType.NOT_LESS: {
-        const reg1 = this.#expression(expression.left);
-        const reg2 = this.#expression(expression.right);
-        this.#emit([Op.JumpIfLess, onFalse, reg1.index, reg2.index]);
-        this.#repay(reg1, reg2);
-        return;
-      }
-      case TokenType.NOT_MORE: {
-        const reg1 = this.#expression(expression.left);
-        const reg2 = this.#expression(expression.right);
-        this.#emit(
-          // note: changed register ordering!
-          [Op.JumpIfLess, onFalse, reg2.index, reg1.index],
-        );
-        this.#repay(reg1, reg2);
-        return;
-      }
       case TokenType.OR: {
         const b = new Label(this.#next());
         this.#boolean(expression.left, b);
@@ -195,19 +167,22 @@ export class Compiler {
         this.#boolean(expression.right, onFalse);
         return;
       }
-      case TokenType.BE: //when everthing is an expression, but then we must take care of partial assignments everywhere as well
+      case TokenType.BE:
       {
         const reg = this.#assignment(expression);
         this.#emit([Op.JumpIfFalse, onFalse, reg.index]);
         this.#repay(reg);
         return;
       }
-      // later perhaps
-      // case TokenType.SEMICOLON:
-      // case TokenType.VAR:
       default:
         throw this.#error(expression.token, "Malformed boolean expression");
     }
+  }
+
+  #switch(onFalse: Label): Label {
+    const next = this.#current.label.next || new Label();
+    this.#current.label.next = onFalse;
+    return next;
   }
 
   #boolean(
@@ -229,18 +204,15 @@ export class Compiler {
         this.#booleanBinary(expression as Binary, onFalse);
         return;
       case LiteralBoolean: {
-        if ((expression as LiteralBoolean).value) {
-          return;
+        if (!(expression as LiteralBoolean).value) {
+          this.#current.label.next = onFalse;
         }
-        this.#current.label.next = onFalse;
         return;
       }
       case Not: {
-        const next = this.#current.label.next;
-        this.#current.label.next = onFalse;
         this.#boolean(
           (expression as Not).expression,
-          next || new Label(),
+          this.#switch(onFalse),
         );
         return;
       }
@@ -261,15 +233,17 @@ export class Compiler {
   #assignment(assignment: Binary): Register {
     if (assignment.left instanceof Variable) {
       const local = this.#resolve(assignment.left);
-      // local.register could already hav a value and target could be temporary, so...
-      // ownership shows up already!
-      local.register ??= this.#allocate();
       const r1 = this.#expression(assignment.right);
-      this.#emit([
-        Op.Move,
-        local.register,
-        r1.index,
-      ]);
+      if (local.register === undefined && !r1.owned) {
+        local.register = r1.index;
+        r1.owned = true;
+      } else {
+        this.#emit([
+          Op.Move,
+          local.register ??= this.#allocate(),
+          r1.index,
+        ]);
+      }
       this.#current.written?.add(
         local,
       );
@@ -405,7 +379,7 @@ export class Compiler {
         const args = operands.map((it) => this.#expression(it));
         this.#emit([
           Op.InvokeStatic,
-          this.classes[klaz].methods.new, // does it already exist???
+          this.classes[klaz].method("new"),
           [index, ...args.map((it) => it.index)],
         ]);
         args.forEach((it) => this.#repay(it));
@@ -462,11 +436,12 @@ export class Compiler {
   }
 
   #class(declaration: ClassDeclaration) {
-    const klaz = this.classes[declaration.name.name] ||= new Class({});
+    const klaz = this.classes[declaration.name.name] ||= new Class();
     for (const methodDeclaration of declaration.methods) {
-      klaz.methods[methodDeclaration.name?.name || "new"] = Compiler.#method(
+      Compiler.#method(
         methodDeclaration,
         this.classes,
+        klaz.method(methodDeclaration.name.name),
       );
     }
   }
@@ -474,8 +449,11 @@ export class Compiler {
   static #method(
     declaration: MethodDeclaration,
     classes: Record<string, Class>,
-  ): Method {
+    method: Method,
+  ) {
+    method.arity = declaration.args.length;
     const compiler = new Compiler(classes);
+    method.start = compiler.#current.label;
     compiler.#current.written.add(compiler.#declare(
       new Variable(declaration.token, "this"),
       compiler.#allocate(),
@@ -485,9 +463,8 @@ export class Compiler {
         compiler.#declare(variable, compiler.#allocate()),
       );
     }
-    const start = compiler.#current.label;
     compiler.#block(declaration.body);
-    return new Method(declaration.args.length, compiler.#size, start);
+    method.size = compiler.#size;
   }
 
   #statements(statements: Statement[]) {
@@ -559,44 +536,34 @@ export class Compiler {
       }
       case IfStatement: {
         const { condition, onFalse, onTrue } = statement as IfStatement;
-        if (onFalse) {
-          const continuation = new Label(this.#next());
-          const thenBranch = new Label(continuation);
-          const elseBranch = new Label(continuation);
-          this.#current.label.next = thenBranch;
-          this.#boolean(condition, elseBranch);
-          // record assignments for the else branch
-          const we = new Set(
-            this.#current.written,
-          );
-          this.#goto(thenBranch);
-          this.#block(onTrue);
-          // record assignment after for continuation
-          const assignedOnTrue = [
-            ...this.#current.written,
-          ];
-          this.#current = { label: elseBranch, written: we };
-          this.#block(onFalse);
-          // combine
-          this.#current = {
-            label: continuation,
-            written: new Set(
-              [...this.#current.written].filter((it) =>
-                assignedOnTrue.includes(it)
-              ),
-            ),
-          };
-          return;
-        }
         const continuation = new Label(this.#next());
-        this.#current.label.next = continuation;
-        this.#boolean(condition, continuation);
-        // reset assignments
-        const wc = new Set(
+        const thenBranch = new Label(continuation);
+        const elseBranch = new Label(continuation);
+        this.#current.label.next = thenBranch;
+        this.#boolean(condition, elseBranch);
+        // record assignments for the else branch
+        const we = new Set(
           this.#current.written,
         );
-        this.#statement(onTrue);
-        this.#current = { label: continuation, written: wc };
+        this.#goto(thenBranch);
+        this.#block(onTrue);
+        // record assignment after for continuation
+        const assignedOnTrue = [
+          ...this.#current.written,
+        ];
+        this.#current = { label: elseBranch, written: we };
+        if (onFalse) {
+          this.#block(onFalse);
+        }
+        // combine
+        this.#current = {
+          label: continuation,
+          written: new Set(
+            [...this.#current.written].filter((it) =>
+              assignedOnTrue.includes(it)
+            ),
+          ),
+        };
         return;
       }
       case Return: {
@@ -640,10 +607,12 @@ export class Compiler {
   }
 
   compile(script: Statement[]): Method {
-    const start = this.#current.label;
+    const method = new Method();
+    method.start = this.#current.label;
     this.#statements(script);
-    Compiler.mergeLabels(start);
-    return new Method(0, this.#size, start);
+    Compiler.mergeLabels(method.start);
+    method.size = this.#size;
+    return method;
   }
 
   static mergeLabels(start: Label) {
@@ -658,13 +627,9 @@ export class Compiler {
 
       for (const ins of [...labels[i].instructions]) {
         switch (ins[0]) {
-          case Op.Jump:
-          case Op.JumpIfDifferent:
           case Op.JumpIfLess:
           case Op.JumpIfEqual:
-          case Op.JumpIfNotMore:
           case Op.JumpIfFalse:
-          case Op.JumpIfTrue:
             break;
           default:
             continue;

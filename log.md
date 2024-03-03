@@ -70,6 +70,18 @@ can also be overridden that way. Adding methods after the fact is what I like.
 
 Now the constructor...
 
+### optimisations helped by SSA
+
+- Constant Propagation: Translation of calculations from runtime to compile
+  time. E.g. – the instruction v = 2*7+13 is treated like v = 27
+- Value Range Propagation: Finding the possible range of values a calculation
+  could result in.
+- Dead Code Elimination: Removing the code which is not accessible and will have
+  no effect on results whatsoever.
+- Strength Reduction: Replacing computationally expensive calculations by
+  inexpensive ones.
+- Register Allocation – Optimising the use of registers for calculations.
+
 ## 2024-03-01
 
 ### compiling 'everything is an expression'

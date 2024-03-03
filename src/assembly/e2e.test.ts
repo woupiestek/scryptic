@@ -117,12 +117,9 @@ Deno.test(function booleanNot() {
 });
 
 Deno.test(function booleanEquals() {
-  assertEquals(
-    run('var x = "wrong!"; if x == "wrong!" { x = "right!" } log x'),
-    [
-      "right!",
-    ],
-  );
+  const script = 'var x = "wrong!"; if x == "wrong!" { x = "right!" } log x';
+  console.log(compile(script).toString());
+  assertEquals(run(script), ["right!"]);
 });
 
 Deno.test(function booleanDifferent() {
@@ -245,12 +242,9 @@ Deno.test(function doubleAssignment() {
 });
 
 Deno.test(function whileStatements() {
-  assertEquals(
-    run(
-      'var x = "wrong!"; while x != "right!" { x = "right!" } log x',
-    ),
-    ["right!"],
-  );
+  const script = 'var x = "wrong!"; while x != "right!" { x = "right!" } log x';
+  console.log(compile(script).toString());
+  assertEquals(run(script), ["right!"]);
 });
 
 Deno.test(function breakStatements() {
@@ -312,8 +306,6 @@ Deno.test(function passParameterToConstructor() {
   const script = 'class A { new(x){ log x } } new A("right!")';
   assertEquals(run(script), ["right!"]);
 });
-
-// test this
 
 Deno.test(function testThis() {
   const script = 'class A { new(x){ this.x = x } } log(new A("right!").x)';

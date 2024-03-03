@@ -86,7 +86,6 @@ export class VM {
           this.#result = null;
           continue;
         case Op.New:
-          // todo: change parser, compiler, call constructor
           this.set(instruction[1], new Instance(instruction[2]));
           continue;
         case Op.InvokeStatic:
@@ -94,17 +93,9 @@ export class VM {
           continue;
         case Op.InvokeVirtual:
           this.invoke(
-            this.classOf(instruction[2][0]).methods[instruction[1]],
+            this.classOf(instruction[2][0]).method(instruction[1]),
             instruction[2],
           );
-          continue;
-        case Op.Jump:
-          this.frames[this.fp].goto(instruction[1]);
-          continue;
-        case Op.JumpIfDifferent:
-          if (this.get(instruction[2]) !== this.get(instruction[3])) {
-            this.frames[this.fp].goto(instruction[1]);
-          }
           continue;
         case Op.JumpIfEqual:
           if (this.get(instruction[2]) === this.get(instruction[3])) {
@@ -118,16 +109,6 @@ export class VM {
           continue;
         case Op.JumpIfLess:
           if (this.less(instruction[2], instruction[3])) {
-            this.frames[this.fp].goto(instruction[1]);
-          }
-          continue;
-        case Op.JumpIfNotMore:
-          if (!this.less(instruction[3], instruction[2])) {
-            this.frames[this.fp].goto(instruction[1]);
-          }
-          continue;
-        case Op.JumpIfTrue:
-          if (this.get(instruction[2])) {
             this.frames[this.fp].goto(instruction[1]);
           }
           continue;
