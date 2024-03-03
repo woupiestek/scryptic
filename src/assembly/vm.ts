@@ -6,7 +6,7 @@ import {
   Method,
   Op,
 } from "./class.ts";
-import { Struct, Value } from "./object.ts";
+import { CLASS, Instance, Value } from "./object.ts";
 
 class Frame {
   static #null = null as unknown;
@@ -31,7 +31,8 @@ class Frame {
 export class VM {
   static MAX_FRAMES = 64;
   frames: Frame[] = [];
-  stack: Value[] = [{}];
+  // a place to put global functions like 'log'
+  stack: Value[] = [new Instance()];
   fp = 0;
   // good old dependency injection...
   constructor(readonly log: (_: Value) => void = console.log) {
@@ -39,6 +40,13 @@ export class VM {
   }
   get(i: number): Value {
     return this.stack[this.frames[this.fp].stackTop - i] || null;
+  }
+  classOf(i: number): Class {
+    const instance: Value = this.get(i);
+    if (instance instanceof Instance) {
+      return instance[CLASS];
+    }
+    throw new Error(`value ${JSON.stringify(instance)} has no class`);
   }
   less(i: number, j: number): boolean {
     const x = this.get(i);
@@ -67,7 +75,7 @@ export class VM {
           // that is what we need a type checker for
           this.set(
             instruction[1],
-            (this.get(instruction[2]) as Struct)[
+            (this.get(instruction[2]) as Instance)[
               instruction[3]
             ],
           );
@@ -80,19 +88,24 @@ export class VM {
           this.#result = null;
           continue;
         case Op.New:
-          this.set(instruction[1], {});
+          // todo: change parser, compiler, call constructor
+          this.set(instruction[1], new Instance(instruction[2]));
           continue;
         case Op.InvokeStatic:
           this.invoke(
-            instruction[1],
             instruction[2],
+            instruction[3],
           );
+          // not optional now
+          this.set(instruction[1], this.#result);
           continue;
         case Op.InvokeVirtual:
           this.invoke(
-            (this.get(instruction[1]) as Class).methods[instruction[2]],
+            this.classOf(instruction[3][0]).methods[instruction[2]],
             instruction[3],
           );
+          // not optional now
+          this.set(instruction[1], this.#result);
           continue;
         case Op.Jump:
           this.frames[this.fp].goto(instruction[1]);
@@ -140,7 +153,7 @@ export class VM {
             continue;
           }
         case Op.SetField:
-          (this.get(instruction[1]) as Struct)[instruction[2]] = this.get(
+          (this.get(instruction[1]) as Instance)[instruction[2]] = this.get(
             instruction[3],
           );
       }

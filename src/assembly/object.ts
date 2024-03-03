@@ -1,6 +1,13 @@
-import { Class, Identifier } from "./class.ts";
+import { Class } from "./class.ts";
 
-export type Struct = {
-  [_: Identifier]: Value;
-};
-export type Value = boolean | null | string | number | Struct | Class;
+export const CLASS = Symbol("class");
+
+export class Instance {
+  [CLASS]: Class;
+  [x: string]: Value;
+  constructor(klaz: Class = new Class()) {
+    this[CLASS] = klaz;
+  }
+}
+
+export type Value = boolean | Class | Instance | null | number | string;

@@ -26,8 +26,8 @@ export type Record<A> = { [_: Identifier]: A };
 export type Instruction =
   | [Op.Constant, Register, Constant] // y = 1
   | [Op.GetField, Register, Register, Identifier] // y = x.i
-  | [Op.InvokeStatic, Method, Register[]] // x[0].m(x[1],...,x[arity])
-  | [Op.InvokeVirtual, Register, Identifier, Register[]] // x[0].m(x[1],...,x[arity])...
+  | [Op.InvokeStatic, Register, Method, Register[]] // y = x[0].m(x[1],...,x[arity])
+  | [Op.InvokeVirtual, Register, Identifier, Register[]] // y = x[0].m(x[1],...,x[arity])...
   | [
     Op.JumpIfDifferent | Op.JumpIfEqual | Op.JumpIfLess | Op.JumpIfNotMore,
     Label,
@@ -39,16 +39,16 @@ export type Instruction =
     Label,
     Register,
   ]
-  //| [Op.Jump, Label] // goto [label]
+  | [Op.Jump, Label] // goto [label]
   | [Op.Move, Register, Register] // y = x
   | [Op.MoveResult, Register] // y = (previous function call)
-  | [Op.New, Register] // y = new(); -- constructor methonds may be required, but we  don't need them here.
+  | [Op.New, Register, Class] // y = new A; -- constructor methods may be required, but we  don't need them here.
   | [Op.Log, Register]
   | [Op.SetField, Register, Identifier, Register] // y.i = x
 ;
 export type LimitInstruction =
   | [Op.Jump, Label] // goto [label]
-  | [Op.Return, Register?] // return; whatever is left on the bottom can be taken as return value
+  | [Op.Return, Register?] // return
 ;
 
 export class Label {
@@ -76,10 +76,16 @@ export class Method {
       }
       return i.toString();
     }
+    function _string(arg: unknown): unknown {
+      if (arg instanceof Class) return JSON.stringify(arg._strings());
+      if (arg instanceof Method) return JSON.stringify(arg._strings());
+      if (arg instanceof Label) return _labelId(arg);
+      return arg;
+    }
     for (let i = 0; i < labels.length; i++) {
       results[i] = [...labels[i].instructions, labels[i].next].map(
         ([h, ...t]) => {
-          return [Op[h], ...t.map((i) => i instanceof Label ? _labelId(i) : i)]
+          return [Op[h], ...t.map(_string)]
             .join(" ");
         },
       );
@@ -93,7 +99,7 @@ export class Method {
 
 export class Class {
   constructor(
-    readonly methods: Record<Method>,
+    readonly methods: Record<Method> = {},
   ) {}
   _strings() {
     return Object.fromEntries(

@@ -28,8 +28,12 @@ export class This implements Node {
 }
 
 export class New implements Node {
-  constructor(readonly token: Token) {}
+  constructor(
+    readonly token: Token,
+    readonly klaz: string,
+  ) {}
 }
+
 export class IfStatement implements Node {
   constructor(
     readonly token: Token,
@@ -202,7 +206,8 @@ export class Parser {
     Parser.#PREFIX[TokenType.IDENTIFIER] = (p, t) =>
       new Variable(t, p.lexeme(t));
     Parser.#PREFIX[TokenType.LOG] = (p, t) => new Log(t, p.#unary(p.#pop()));
-    Parser.#PREFIX[TokenType.NEW] = (_, t) => new New(t);
+    Parser.#PREFIX[TokenType.NEW] = (p, t) =>
+      new New(t, p.lexeme(p.#consume(TokenType.IDENTIFIER)));
     Parser.#PREFIX[TokenType.NOT] = (p, t) => new Not(t, p.#unary(p.#pop()));
     Parser.#PREFIX[TokenType.PAREN_LEFT] = (p, _) => {
       const e = p.#expression(p.#pop());
@@ -235,7 +240,7 @@ export class Parser {
   static #__call(that: Parser, operator: Expression) {
     const head = that.#pop();
     const operands: Expression[] = [];
-    for (;;) {
+    while (that.next.type !== TokenType.PAREN_RIGHT) {
       that.#expression(that.#pop());
       if (!that.#match(TokenType.COMMA)) break;
     }
@@ -344,6 +349,10 @@ export class Parser {
 
   #expressionStatement(token: Token): Statement {
     const statement = this.#expression(token);
+    if (
+      this.next.type === TokenType.END ||
+      this.next.type === TokenType.BRACE_RIGHT
+    ) return statement;
     this.#consume(TokenType.SEMICOLON);
     return statement;
   }
@@ -356,7 +365,7 @@ export class Parser {
     return this.#expressionStatement(this.#pop());
   }
 
-  // todo: where and how?
+  // todo: constructor?
   #class(): ClassDeclaration {
     const token = this.#pop();
     const ident = this.#consume(TokenType.IDENTIFIER);
@@ -374,15 +383,12 @@ export class Parser {
     const name = new Variable(ident, this.lexeme(ident));
     this.#consume(TokenType.PAREN_LEFT);
     const operands: Variable[] = [];
-    if (!this.#match(TokenType.PAREN_RIGHT)) {
-      for (;;) {
-        const ident = this.#consume(TokenType.IDENTIFIER);
-        operands.push(new Variable(ident, this.lexeme(ident)));
-        if (this.#match(TokenType.PAREN_RIGHT)) break;
-        if (this.#match(TokenType.COMMA)) break;
-        throw this.#error(this.next, "improper variable list");
-      }
+    while (this.next.type !== TokenType.PAREN_RIGHT) {
+      const ident = this.#consume(TokenType.IDENTIFIER);
+      operands.push(new Variable(ident, this.lexeme(ident)));
+      if (!this.#match(TokenType.COMMA)) break;
     }
+    this.#consume(TokenType.PAREN_RIGHT);
     return new MethodDeclaration(
       ident,
       name,

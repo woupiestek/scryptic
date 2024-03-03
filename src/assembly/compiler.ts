@@ -5,6 +5,7 @@ import {
   Binary,
   Block,
   Break,
+  Call,
   ClassDeclaration,
   Continue,
   Expression,
@@ -12,6 +13,7 @@ import {
   LiteralBoolean,
   LiteralString,
   Log,
+  MethodDeclaration,
   New,
   Not,
   Statement,
@@ -47,9 +49,8 @@ export class Compiler {
   #current: TypedLabel = { label: new Label([Op.Return]), written: new Set() };
   #locals: Local[] = [];
   #names: NamedLabel[] = [];
-  constructor(
-    readonly script: Statement[],
-  ) {}
+
+  constructor(private readonly classes: Record<string, Class> = {}) {}
 
   #emit(...instructions: Instruction[]) {
     this.#current.label.instructions.push(
@@ -376,7 +377,29 @@ export class Compiler {
       }
       case New: {
         const index = this.#allocate();
-        this.#emit([Op.New, index]);
+        this.#emit([
+          Op.New,
+          index,
+          this.classes[(expression as New).klaz] ||= new Class(),
+        ]);
+        return { index };
+      }
+      case Call: {
+        const { token, operator, operands } = expression as Call;
+        if (!(operator instanceof Access)) {
+          throw this.#error(token, "uncallable operand");
+        }
+        const args = [operator.object, ...operands].map((it) =>
+          this.#expression(it)
+        );
+        const index = this.#allocate();
+        this.#emit([
+          Op.InvokeVirtual,
+          index,
+          operator.field,
+          args.map((it) => it.index),
+        ]);
+        args.forEach((it) => this.#repay(it));
         return { index };
       }
       case Binary:
@@ -424,27 +447,34 @@ export class Compiler {
     this.#checkAvailability(variable);
     const local = { variable, register };
     this.#locals.push(local);
-    //this.#current.written?.add(local);
     return local;
   }
 
-  #classes: { [_: string]: Class } = {};
-
   #class(declaration: ClassDeclaration) {
-    // this.#resolve(declaration.name);
-    const klaz = new Class({});
-    this.#classes[declaration.name.name] = new Class({});
+    const klaz = this.classes[declaration.name.name] ||= new Class({});
     for (const methodDeclaration of declaration.methods) {
-      klaz.methods[methodDeclaration.name.name] = new Method(
-        0,
-        new Label([Op.Return]),
+      klaz.methods[methodDeclaration.name.name] = Compiler.#method(
+        methodDeclaration,
+        this.classes,
       );
     }
+  }
 
-    // todo: should this somehow bring the class and methods in scope?
-    // what about name clashes: are they allowed?
-
-    // todo: actually compile something
+  static #method(
+    declaration: MethodDeclaration,
+    classes: Record<string, Class>,
+  ): Method {
+    const compiler = new Compiler(classes);
+    compiler.#declare(
+      new Variable(declaration.token, "this"),
+      compiler.#allocate(),
+    );
+    for (const variable of declaration.args) {
+      compiler.#declare(variable, compiler.#allocate());
+    }
+    const start = compiler.#current.label;
+    compiler.#block(declaration.body);
+    return new Method(compiler.#size, start);
   }
 
   #statements(statements: Statement[]) {
@@ -593,9 +623,9 @@ export class Compiler {
     }
   }
 
-  compile(): Method {
+  compile(script: Statement[]): Method {
     const start = this.#current.label;
-    this.#statements(this.script);
+    this.#statements(script);
     Compiler.mergeLabels(start);
     return new Method(this.#size, start);
   }

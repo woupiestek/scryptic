@@ -11,7 +11,7 @@ function parse(input: string) {
   return new Parser(input).script();
 }
 function compile(input: string) {
-  return new Compiler(parse(input)).compile();
+  return new Compiler().compile(parse(input));
 }
 function run(input: string) {
   const log: Value[] = [];
@@ -20,27 +20,27 @@ function run(input: string) {
 }
 
 Deno.test(function helloWorld() {
-  assertEquals(run('log "Hello, World!";'), ["Hello, World!"]);
+  assertEquals(run('log "Hello, World!"'), ["Hello, World!"]);
 });
 
 Deno.test(function borrowJsonParse() {
-  assertEquals(run('log "Hello, \u2260!";'), ["Hello, ≠!"]);
+  assertEquals(run('log "Hello, \u2260!"'), ["Hello, ≠!"]);
 });
 
 Deno.test(function variableDeclaration() {
-  assertEquals(run('var x = "Hello, World!"; log x;'), ["Hello, World!"]);
+  assertEquals(run('var x = "Hello, World!"; log x'), ["Hello, World!"]);
 });
 
 Deno.test(function assignUndeclared() {
-  assertThrows(() => compile('x = "Hello, World!"; log x;'));
+  assertThrows(() => compile('x = "Hello, World!"; log x'));
 });
 
 Deno.test(function assignment() {
   assertEquals(
     run(
       'var x;\
-    { x = "Hello, World!"; }\
-    log x;',
+    { x = "Hello, World!" }\
+    log x',
     ),
     ["Hello, World!"],
   );
@@ -50,8 +50,8 @@ Deno.test(function reassignment() {
   assertEquals(
     run(
       'var x = "Something else";\
-    { x = "Hello, World!"; }\
-    log x;',
+    { x = "Hello, World!" }\
+    log x',
     ),
     ["Hello, World!"],
   );
@@ -60,7 +60,7 @@ Deno.test(function reassignment() {
 Deno.test(function assignmentOutOfScope() {
   assertThrows(() =>
     compile(
-      '{ var x = "Hello, World!"; } log x;',
+      '{ var x = "Hello, World!" } log x',
     )
   );
 });
@@ -68,28 +68,28 @@ Deno.test(function assignmentOutOfScope() {
 Deno.test(function doubleAssignment() {
   assertThrows(() =>
     compile(
-      'var x; { var x = "Hello, World!"; } log x;',
+      'var x; { var x = "Hello, World!" } log x',
     )
   );
 });
 
 Deno.test(function construction() {
-  assertEquals(run("var x = new; log x;"), [{}]);
+  assertEquals(JSON.stringify(run("var x = new A; log x")), "[{}]");
 });
 
 Deno.test(function newLogOperator() {
-  assertEquals(run('var x; log (x = "Hello, World!");'), ["Hello, World!"]);
+  assertEquals(run('var x; log (x = "Hello, World!")'), ["Hello, World!"]);
 });
 
 Deno.test(function testFields() {
-  assertEquals(run('var x = new; x.y = "Hello, World!"; log(x.y);'), [
+  assertEquals(run('var x = new A; x.y = "Hello, World!"; log(x.y)'), [
     "Hello, World!",
   ]);
 });
 
 Deno.test(function booleanTrue() {
   // the ;; are not going to stay!
-  assertEquals(run('var x = "wrong!"; if true { x = "right!"; } log x;'), [
+  assertEquals(run('var x = "wrong!"; if true { x = "right!" } log x'), [
     "right!",
   ]);
 });
@@ -97,7 +97,7 @@ Deno.test(function booleanTrue() {
 Deno.test(function booleanFalse() {
   assertEquals(
     run(
-      'var x = "wrong!"; if false { x = "wrong!"; } else { x = "right!"; } log x;',
+      'var x = "wrong!"; if false { x = "wrong!" } else { x = "right!" } log x',
     ),
     [
       "right!",
@@ -108,7 +108,7 @@ Deno.test(function booleanFalse() {
 Deno.test(function booleanNot() {
   assertEquals(
     run(
-      'var x = "wrong!"; if !true { x = "wrong!"; } else { x = "right!"; } log x;',
+      'var x = "wrong!"; if !true { x = "wrong!" } else { x = "right!" } log x',
     ),
     [
       "right!",
@@ -118,7 +118,7 @@ Deno.test(function booleanNot() {
 
 Deno.test(function booleanEquals() {
   assertEquals(
-    run('var x = "wrong!"; if x == "wrong!" { x = "right!"; } log x;'),
+    run('var x = "wrong!"; if x == "wrong!" { x = "right!" } log x'),
     [
       "right!",
     ],
@@ -128,7 +128,7 @@ Deno.test(function booleanEquals() {
 Deno.test(function booleanDifferent() {
   assertEquals(
     run(
-      'var x = "test"; if x != "test" { x = "wrong!"; } else { x = "right!"; } log x;',
+      'var x = "test"; if x != "test" { x = "wrong!" } else { x = "right!" } log x',
     ),
     [
       "right!",
@@ -139,7 +139,7 @@ Deno.test(function booleanDifferent() {
 Deno.test(function booleanLess() {
   assertEquals(
     run(
-      'var x = "test"; if x < "zzz" { x = "right!"; } else { x = "wrong!"; } log x;',
+      'var x = "test"; if x < "zzz" { x = "right!" } else { x = "wrong!" } log x',
     ),
     [
       "right!",
@@ -150,7 +150,7 @@ Deno.test(function booleanLess() {
 Deno.test(function booleanLessOrEqual() {
   assertEquals(
     run(
-      'var x = "test"; if x <= "zzz" { x = "right!"; } else { x = "wrong!"; } log x;',
+      'var x = "test"; if x <= "zzz" { x = "right!" } else { x = "wrong!" } log x',
     ),
     [
       "right!",
@@ -161,7 +161,7 @@ Deno.test(function booleanLessOrEqual() {
 Deno.test(function booleanMore() {
   assertEquals(
     run(
-      'var x = "test"; if x > "zzz" { x = "wrong!"; } else { x = "right!"; } log x;',
+      'var x = "test"; if x > "zzz" { x = "wrong!" } else { x = "right!" } log x',
     ),
     [
       "right!",
@@ -172,7 +172,7 @@ Deno.test(function booleanMore() {
 Deno.test(function booleanMoreOrEqual() {
   assertEquals(
     run(
-      'var x = "test"; if x >= "zzz" { x = "wrong!"; } else { x = "right!"; } log x;',
+      'var x = "test"; if x >= "zzz" { x = "wrong!" } else { x = "right!" } log x',
     ),
     [
       "right!",
@@ -183,7 +183,7 @@ Deno.test(function booleanMoreOrEqual() {
 Deno.test(function booleanNotLess() {
   assertEquals(
     run(
-      'var x = "test"; if !(x < "zzz") { x = "wrong!"; } else { x = "right!"; } log x;',
+      'var x = "test"; if !(x < "zzz") { x = "wrong!" } else { x = "right!" } log x',
     ),
     [
       "right!",
@@ -194,7 +194,7 @@ Deno.test(function booleanNotLess() {
 Deno.test(function booleanAnd() {
   assertEquals(
     run(
-      'var x = "test"; if x < "zzz" && true { x = "right!"; } else { x = "wrong!"; } log x;',
+      'var x = "test"; if x < "zzz" && true { x = "right!" } else { x = "wrong!" } log x',
     ),
     [
       "right!",
@@ -205,7 +205,7 @@ Deno.test(function booleanAnd() {
 Deno.test(function booleanOr() {
   assertEquals(
     run(
-      'var x = "test"; if x > "zzz" || true { x = "right!"; } else { x = "wrong!"; } log x;',
+      'var x = "test"; if x > "zzz" || true { x = "right!" } else { x = "wrong!" } log x',
     ),
     [
       "right!",
@@ -216,7 +216,7 @@ Deno.test(function booleanOr() {
 Deno.test(function booleanCompound() {
   assertEquals(
     run(
-      'var x = "test"; if !(x > "zzz" || true) { x = "wrong!"; } else { x = "right!"; } log x;',
+      'var x = "test"; if !(x > "zzz" || true) { x = "wrong!" } else { x = "right!" } log x',
     ),
     [
       "right!",
@@ -230,7 +230,7 @@ Deno.test(function partialAssignment() {
   // function arguments to work with.
   assertThrows(() =>
     compile(
-      'var x; if true { x = "wrong!"; } log x;',
+      'var x; if true { x = "wrong!" } log x',
     )
   );
 });
@@ -238,7 +238,7 @@ Deno.test(function partialAssignment() {
 Deno.test(function doubleAssignment() {
   assertEquals(
     run(
-      'var x; var y = new; x = y.m = "test"; if x == "test" { log "right!"; } else { log "wrong!"; }',
+      'var x; var y = new A; x = y.m = "test"; if x == "test" { log "right!" } else { log "wrong!" }',
     ),
     ["right!"],
   );
@@ -247,7 +247,7 @@ Deno.test(function doubleAssignment() {
 Deno.test(function whileStatements() {
   assertEquals(
     run(
-      'var x = "wrong!"; while x != "right!" { x = "right!"; } log x;',
+      'var x = "wrong!"; while x != "right!" { x = "right!" } log x',
     ),
     ["right!"],
   );
@@ -256,7 +256,7 @@ Deno.test(function whileStatements() {
 Deno.test(function breakStatements() {
   assertEquals(
     run(
-      'var x = "wrong!"; while true { x = "right!"; break } log x;',
+      'var x = "wrong!"; while true { x = "right!"; break } log x',
     ),
     ["right!"],
   );
@@ -265,32 +265,30 @@ Deno.test(function breakStatements() {
 Deno.test(function continueStatements() {
   assertEquals(
     run(
-      'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x;',
+      'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x',
     ),
     ["right!"],
   );
 });
 
 Deno.test(function labelsStatements() {
-  assertEquals(
-    run(
-      'var x = "wrong!"; #a while true { if x != "right!" { x = "right!"; continue #a } break #a } log x;',
-    ),
-    ["right!"],
-  );
+  const script =
+    'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x';
+  console.log(compile(script).toString());
+  assertEquals(run(script), ["right!"]);
 });
 
 Deno.test(function nestedVarDeclaration() {
   assertEquals(
     run(
-      '(var x = new).y = "right!"; log(x.y);',
+      '(var x = new A).y = "right!"; log(x.y)',
     ),
     ["right!"],
   );
 });
 
-console.log(
-  compile(
-    'var x = "wrong!"; #a while true { if x != "right!" { x = "right!"; continue #a } break #a } log x;',
-  ).toString(),
-);
+Deno.test(function classesAndMethods() {
+  const script = 'class A { run(){ log "right!" } } new A.run()';
+  console.log(compile(script).toString());
+  assertEquals(run(script), ["right!"]);
+});

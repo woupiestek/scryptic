@@ -1,5 +1,67 @@
 # Scryptic
 
+## 2024-03-03
+
+### todos
+
+- more expressions, as in: make everything that can occur inside a method an
+  expression. `;` as a binary operator.
+- type checker
+- ~~class, methods, calls,~~
+- numbers, arrays
+- optimisations
+- constructors, returns
+
+### dynamic variation
+
+I am thinking: stick with classes inside objects for now. Reconsider after a
+type checker allows avoiding dynamic dispatch.
+
+### blocking and repl
+
+Use blocking to implement a repl for this language.
+
+### labels as linked lists
+
+Each label one instruction, basically. Putting instructions in order and even
+computing jump offsets won't have to be difficult. Merging certain aspects
+together, delaying the layout of the methods.
+
+It could help with parsing to use linked lists of statements as well, despite
+all appearances.
+
+In the ultimate implementation, have arrays acting as linked lists? I.e. an
+array of linked list nodes, with the nodes merely using array indices to point
+to other elements, to make the linked list space efficient.
+
+The same array can back multiple linked lists. This is becoming baout a data
+structure with gargabe collection integrated. So there is a single array with
+nodes, and a structure that points to an index, to represent a list. Perhaps
+this structure also keeps a reference count, to indicated to the global memory
+that some index is no longer needed. Maybe not.
+
+Anyways, each entry would have an extra field to point to the next entry, which
+ironically would be one index below if the list is built by attaching elements
+to the front as usual.
+
+### handling variables
+
+Clox and rlox use this linked list of compilers. But let's think about this.
+
+A method in the current language may refer to other classes, and to variables
+that got passed in, but what else? Much can be excluded that his point.
+
+So the list of local variables is pretty simple: this, and whatever is declared.
+From the surrounding script, only the classes count, and they are not in
+registers, if they don't need to be.
+
+The surrounding script is a special case, mostly here for testing.
+
+The class variables are a challenge, right: suppose we want to point ahead in
+the direction of a class that is not declared yet. How can the compiler resolve
+that? It seems like the class object need to be created as soon as the class is
+found.
+
 ## 2024-03-01
 
 ### compiling 'everything is an expression'

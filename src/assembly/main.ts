@@ -3,7 +3,7 @@ import { Parser } from "./parser.ts";
 import { VM } from "./vm.ts";
 
 export function rep(input: string) {
-  new VM().run(new Compiler(new Parser(input).script()).compile());
+  new VM().run(new Compiler().compile(new Parser(input).script()));
 }
 
-rep('print "Hello, World!";');
+rep('log "Hello, World!"');
