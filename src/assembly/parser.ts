@@ -18,10 +18,6 @@ export class Continue {
   constructor(readonly token: Token, readonly label?: string) {}
 }
 
-export class LiteralString implements Node {
-  constructor(readonly token: Token, readonly value: string) {}
-}
-
 export class New implements Node {
   constructor(
     readonly token: Token,
@@ -93,10 +89,10 @@ export class Binary implements Node {
   ) {}
 }
 
-export class LiteralBoolean implements Node {
+export class Literal implements Node {
   constructor(
     readonly token: Token,
-    readonly value: boolean,
+    readonly value: boolean | string,
   ) {}
 }
 
@@ -114,7 +110,6 @@ export class Variable implements Node {
   ) {}
 }
 
-// M.n(...)
 export class Call implements Node {
   constructor(
     readonly token: Token,
@@ -127,15 +122,13 @@ export type Expression =
   | Access
   | Binary
   | Call
-  | LiteralBoolean
-  | LiteralString
+  | Literal
   | Log
   | New
   | Not
   | VarDeclaration
   | Variable;
 
-// method(...) {...}
 export class MethodDeclaration implements Node {
   constructor(
     readonly token: Token,
@@ -145,7 +138,6 @@ export class MethodDeclaration implements Node {
   ) {}
 }
 
-// class name { ... }
 export class ClassDeclaration implements Node {
   constructor(
     readonly token: Token,
@@ -211,8 +203,7 @@ export class Parser {
 
   static #PREFIX: ((p: Parser) => Expression)[] = [];
   static {
-    Parser.#PREFIX[TokenType.FALSE] = (p) =>
-      new LiteralBoolean(p.#pop(), false);
+    Parser.#PREFIX[TokenType.FALSE] = (p) => new Literal(p.#pop(), false);
     Parser.#PREFIX[TokenType.IDENTIFIER] = (p) => {
       const t = p.#pop();
       return new Variable(t, p.lexeme(t));
@@ -233,13 +224,13 @@ export class Parser {
     };
     Parser.#PREFIX[TokenType.STRING] = (p) => {
       const t = p.#pop();
-      return new LiteralString(t, JSON.parse(p.lexeme(t)));
+      return new Literal(t, JSON.parse(p.lexeme(t)));
     };
     Parser.#PREFIX[TokenType.THIS] = (p) => {
       const t = p.#pop();
       return new Variable(t, p.lexeme(t));
     };
-    Parser.#PREFIX[TokenType.TRUE] = (p) => new LiteralBoolean(p.#pop(), true);
+    Parser.#PREFIX[TokenType.TRUE] = (p) => new Literal(p.#pop(), true);
     Parser.#PREFIX[TokenType.VAR] = (p) => {
       const t = p.#pop();
       const v = p.#consume(TokenType.IDENTIFIER);

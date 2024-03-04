@@ -1,5 +1,19 @@
 # Scryptic
 
+## 2024-03-04
+
+### breaking up compilation
+
+To apply SSA related stuff, perhaps there should be one step to create an
+intermediate representation, in the shape of this control flow graph, and a
+second step to turn that into a list of instructions.
+
+### more on ssa
+
+SSA is extended to arrays in early papers, and the notation works for objects.
+It basically makes assignments to fields look like immutatble varaints of the
+same operation.
+
 ## 2024-03-03
 
 ### todos
@@ -73,7 +87,7 @@ Now the constructor...
 ### optimisations helped by SSA
 
 - Constant Propagation: Translation of calculations from runtime to compile
-  time. E.g. – the instruction v = 2*7+13 is treated like v = 27
+  time. E.g. – the instruction v = 2\*7+13 is treated like v = 27
 - Value Range Propagation: Finding the possible range of values a calculation
   could result in.
 - Dead Code Elimination: Removing the code which is not accessible and will have

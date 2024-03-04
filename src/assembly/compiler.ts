@@ -11,8 +11,7 @@ import {
   Expression,
   IfStatement,
   Jump,
-  LiteralBoolean,
-  LiteralString,
+  Literal,
   Log,
   MethodDeclaration,
   New,
@@ -203,11 +202,17 @@ export class Compiler {
       case Binary:
         this.#booleanBinary(expression as Binary, onFalse);
         return;
-      case LiteralBoolean: {
-        if (!(expression as LiteralBoolean).value) {
-          this.#current.label.next = onFalse;
+      case Literal: {
+        const { token, value } = expression as Literal;
+        switch (value) {
+          case true:
+            return;
+          case false:
+            this.#current.label.next = onFalse;
+            return;
+          default:
+            throw this.#error(token, 'expected "true" or "false".');
         }
-        return;
       }
       case Not: {
         this.#boolean(
@@ -343,21 +348,12 @@ export class Compiler {
     expression: Expression,
   ): Register {
     switch (expression.constructor) {
-      case LiteralBoolean: {
+      case Literal: {
         const index = this.#allocate();
         this.#emit([
           Op.Constant,
           index,
-          (expression as LiteralBoolean).value,
-        ]);
-        return { index };
-      }
-      case LiteralString: {
-        const index = this.#allocate();
-        this.#emit([
-          Op.Constant,
-          index,
-          (expression as LiteralString).value,
+          (expression as Literal).value,
         ]);
         return { index };
       }
@@ -481,50 +477,31 @@ export class Compiler {
     }
   }
 
+  #getNamedLabel(token: Token, name?: string): NamedLabel {
+    if (name === undefined) {
+      if (this.#names.length > 0) return this.#names[this.#names.length - 1];
+    } else {
+      for (let i = this.#names.length - 1; i >= 0; i--) {
+        if (this.#names[i].name === name) {
+          return this.#names[i];
+        }
+      }
+    }
+    throw this.#error(token, `Target ${name} not found`);
+  }
+
   #jump(statement: Jump) {
     switch (statement.constructor) {
-      case Break: {
-        if (this.#names.length === 0) {
-          throw this.#error(statement.token, "Cannot break here");
-        }
-        const name = (statement as Break).label;
-        let target;
-        if (name === undefined) {
-          target = this.#names[this.#names.length - 1].break;
-        } else {
-          for (let i = this.#names.length - 1; i >= 0; i--) {
-            if (this.#names[i].name === name) {
-              target = this.#names[i].break;
-            }
-          }
-          if (!target) {
-            throw this.#error(statement.token, `Label ${name} not found`);
-          }
-        }
-        this.#current.label.next = target;
+      case Break:
+        this.#current.label.next =
+          this.#getNamedLabel(statement.token, (statement as Break).label)
+            .break;
         return;
-      }
-      case Continue: {
-        if (this.#names.length === 0) {
-          throw this.#error(statement.token, "Cannot break here");
-        }
-        const name = (statement as Continue).label;
-        let target;
-        if (name === undefined) {
-          target = this.#names[this.#names.length - 1].continue;
-        } else {
-          for (let i = this.#names.length - 1; i >= 0; i--) {
-            if (this.#names[i].name === name) {
-              target = this.#names[i].continue;
-            }
-          }
-          if (!target) {
-            throw this.#error(statement.token, `Label ${name} not found`);
-          }
-        }
-        this.#current.label.next = target;
+      case Continue:
+        this.#current.label.next =
+          this.#getNamedLabel(statement.token, (statement as Continue).label)
+            .continue;
         return;
-      }
       case Return: {
         const e = (statement as Return).expression;
         delete this.#current.label.next;
