@@ -1,5 +1,55 @@
 # Scryptic
 
+## 2024-03-06
+
+### graph coloring
+
+The connection between regsietr allocations and graphs coloring is obvious:
+create a graph where the vertices are the needed registers, and the edges
+connect registers that are needed at the same time. Then look to color them with
+the registers that are available.
+
+## 2024-03-06
+
+### todos
+
+- more expressions, as in: make everything that can occur inside a method an
+  expression. `;` as a binary operator.
+- type checker
+- numbers, arrays
+- optimisations
+
+### garbage
+
+Since the garbage collection needs to know what it is cleaning up, objects need
+to contain their class. Not all details of the class have to be recorded. It is
+mostly the amount of data, and what parts of it can be pointers, and the
+interpreters could to normalize, so many classes can share the same layout of
+fields. The downside? Unions of classes are a bit harder to tell apart.
+
+### object literals
+
+Been through this before. If a functions is valued in a union of classes, then
+the range of that function is not any particular class. So how can classes be
+defined? it could be part of the object literals: `object x:y {}`.
+
+This is a breakup between classes, which are tied to a specific layout of data
+in memory, but also to an implementation of the methods on and hand, and images
+of functions, which provide things like encapsulation and control over the
+states of objects like classes do, but are not constrained the same way, on the
+other.
+
+### limits and colimits
+
+For types, the colimit side has the eager products, sum and existential types.
+This is data. The limit side has the lazy products, functions and generic types.
+These are the traits. A class is something in between.
+
+### operators
+
+Import and export in the middle of expressions with operators. Same for
+declaring types: see these are special side effects.
+
 ## 2024-03-04
 
 ### breaking up compilation

@@ -1,11 +1,21 @@
+import { TokenType } from "./lexer.ts";
 import {
+  Access,
+  Binary,
   Block,
   Break,
+  Call,
   Continue,
   Expression,
   IfStatement,
+  Literal,
+  Log,
+  New,
+  Not,
   Return,
   Statement,
+  VarDeclaration,
+  Variable,
   WhileStatement,
 } from "./parser.ts";
 
@@ -16,6 +26,75 @@ export type Edge =
   | ["goto", BasicBlock] // goto $1
   | ["if", Expression, BasicBlock, BasicBlock]; // if $1 { $2 } else { $3 }
 
+function stringifyExpression(expression: Expression): string {
+  switch (expression.constructor) {
+    case Access:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          stringifyExpression((expression as Access).object),
+          (expression as Access).field,
+        ].join(" ")
+      })`;
+    case Binary:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          stringifyExpression((expression as Binary).left),
+          stringifyExpression((expression as Binary).right),
+        ].join(" ")
+      })`;
+    case Call:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          stringifyExpression((expression as Call).operator),
+          ...(expression as Call).operands.map(stringifyExpression),
+        ].join(" ")
+      })`;
+    case Literal:
+      return JSON.stringify((expression as Literal).value);
+    case Log:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          stringifyExpression((expression as Log).value),
+        ].join(" ")
+      })`;
+    case New:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          (expression as New).klaz,
+          ...(expression as New).operands.map(stringifyExpression),
+        ].join(" ")
+      })`;
+    case Not:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          stringifyExpression((expression as Not).expression),
+        ].join(" ")
+      })`;
+    case VarDeclaration:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          stringifyExpression((expression as VarDeclaration).key),
+        ].join(" ")
+      })`;
+    case Variable:
+      return `(${
+        [
+          TokenType[expression.token.type],
+          (expression as Variable).name,
+        ].join(" ")
+      })`;
+    default:
+      return "[ERROR]";
+  }
+}
+
 export class BasicBlock {
   readonly expressions: Expression[] = [];
   jump: Edge;
@@ -24,6 +103,44 @@ export class BasicBlock {
   ) {
     this.jump = jump;
   }
+
+  toString() {
+    const blocks: BasicBlock[] = [this];
+    const results: string[][] = [];
+    function blockIndex(block: BasicBlock) {
+      let i = blocks.indexOf(block);
+      if (i < 0) {
+        i = blocks.length;
+        blocks[i] = block;
+      }
+      return i;
+    }
+    for (let i = 0; i < blocks.length; i++) {
+      results[i] = blocks[i].expressions.map(stringifyExpression);
+      const jump = blocks[i].jump;
+      switch (jump[0]) {
+        case "goto":
+          results[i].push(`(goto ${blockIndex(jump[1])})`);
+          break;
+        case "return":
+          results[i].push(
+            jump[1] === undefined
+              ? "(return)"
+              : `(return ${stringifyExpression(jump[1])})`,
+          );
+          break;
+        case "if":
+          results[i].push(
+            `(if ${stringifyExpression(jump[1])} ${blockIndex(jump[2])} ${
+              blockIndex(jump[3])
+            })`,
+          );
+      }
+    }
+    return results.map((block, index) => [`#${index}:`, ...block].join("\n  "))
+      .join("\n");
+  }
+  //
 }
 
 type Labeled = {
@@ -91,7 +208,7 @@ export class Grapher {
           break;
         }
         default:
-          current.expressions.push(statement as Expression);
+          current.expressions.push(statement as Expression);break;
       }
     }
     current.jump = end;

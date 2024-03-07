@@ -132,7 +132,7 @@ export type Expression =
 export class MethodDeclaration implements Node {
   constructor(
     readonly token: Token,
-    readonly name: Variable,
+    readonly name: string,
     readonly args: Variable[],
     readonly body: Block,
   ) {}
@@ -141,7 +141,7 @@ export class MethodDeclaration implements Node {
 export class ClassDeclaration implements Node {
   constructor(
     readonly token: Token,
-    readonly name: Variable,
+    readonly name: string,
     readonly methods: MethodDeclaration[],
   ) {}
 }
@@ -427,18 +427,16 @@ export class Parser {
   #class(): ClassDeclaration {
     const token = this.#pop();
     const ident = this.#consume(TokenType.IDENTIFIER);
-    const name = new Variable(ident, this.lexeme(ident));
     this.#consume(TokenType.BRACE_LEFT);
     const methods: MethodDeclaration[] = [];
     while (!this.#match(TokenType.BRACE_RIGHT)) {
       methods.push(this.#method());
     }
-    return new ClassDeclaration(token, name, methods);
+    return new ClassDeclaration(token, this.lexeme(ident), methods);
   }
 
   #method(): MethodDeclaration {
     const ident = this.#consumeOneOf(TokenType.IDENTIFIER, TokenType.NEW);
-    const name = new Variable(ident, this.lexeme(ident));
     this.#consume(TokenType.PAREN_LEFT);
     const operands: Variable[] = [];
     while (this.next.type !== TokenType.PAREN_RIGHT) {
@@ -451,7 +449,7 @@ export class Parser {
     this.#consume(TokenType.BRACE_RIGHT);
     return new MethodDeclaration(
       ident,
-      name,
+      this.lexeme(ident),
       operands,
       body,
     );

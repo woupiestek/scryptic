@@ -432,12 +432,12 @@ export class Compiler {
   }
 
   #class(declaration: ClassDeclaration) {
-    const klaz = this.classes[declaration.name.name] ||= new Class();
+    const klaz = this.classes[declaration.name] ||= new Class();
     for (const methodDeclaration of declaration.methods) {
       Compiler.#method(
         methodDeclaration,
         this.classes,
-        klaz.method(methodDeclaration.name.name),
+        klaz.method(methodDeclaration.name),
       );
     }
   }
