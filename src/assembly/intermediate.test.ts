@@ -1,17 +1,14 @@
 import { Block, Parser } from "./parser.ts";
-import { Grapher } from "./intermediate.ts";
-import { Token } from "./lexer.ts";
+import { Grapher, GraphType, stringifyGraph } from "./intermediate.ts";
 
 function run(input: string) {
+  console.log("#####", input, "#####");
   const parseResult = new Parser(input).script();
-  console.log(input);
   console.log(
-    new Grapher().compile(
-      new Block(
-        new Token(0, 0, 0, 0, 0),
-        parseResult.filter((it) => it instanceof Block),
-      ),
-    ).toString(),
+    stringifyGraph(new Grapher().statementsToGraph(
+      parseResult.filter((it) => it instanceof Block),
+      [GraphType.RETURN],
+    )),
   );
 }
 
@@ -93,27 +90,26 @@ run(
 );
 run('var x = "wrong!"; while x != "right!" { x = "right!" } log x');
 
-// run(
-//   'var x = "wrong!"; while true { x = "right!"; break } log x',
-// );
-// run(
-//   'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x',
-// );
-// run(
-//   'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x',
-// );
+run('var x = "wrong!"; while true { x = "right!"; break } log x');
+run(
+  'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x',
+);
 
-// run(
-//   '(var x = new A()).y = "right!"; log(x.y)',
-// );
+run(
+  '(var x = new A()).y = "right!"; log(x.y)',
+);
 
-// run('class A { run(){ log "right!" } } new A().run()');
+run('class A { run(){ log "right!" } } new A().run()');
 
-// run('class A { new(){ log "right!" } } new A()');
+run('class A { new(){ log "right!" } } new A()');
 
-// run('class A { run(){ return "right!" } } log(new A().run())');
-// run('class A { print(x){ log x } } new A().print("right!")');
+run('class A { run(){ return "right!" } } log(new A().run())');
+run('class A { print(x){ log x } } new A().print("right!")');
 
-// run('class A { new(x){ log x } } new A("right!")');
+run('class A { new(x){ log x } } new A("right!")');
 
-// run('class A { new(x){ this.x = x } } log(new A("right!").x)');
+run('class A { new(x){ this.x = x } } log(new A("right!").x)');
+
+run(
+  'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x',
+);

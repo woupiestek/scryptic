@@ -8,6 +8,7 @@ import {
   Continue,
   Expression,
   IfStatement,
+  Jump,
   Literal,
   Log,
   New,
@@ -19,144 +20,149 @@ import {
   WhileStatement,
 } from "./parser.ts";
 
-// control flow graph && ssa (maybe)
+function tupleString(...strings: unknown[]): string {
+  return `(${strings.join(" ")})`;
+}
 
-export type Edge =
-  | ["return", Expression | undefined]
-  | ["goto", BasicBlock] // goto $1
-  | ["if", Expression, BasicBlock, BasicBlock]; // if $1 { $2 } else { $3 }
-
-function stringifyExpression(expression: Expression): string {
+function expressionString(expression: Expression): string {
   switch (expression.constructor) {
     case Access:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          stringifyExpression((expression as Access).object),
-          (expression as Access).field,
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        expressionString((expression as Access).object),
+        (expression as Access).field,
+      );
     case Binary:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          stringifyExpression((expression as Binary).left),
-          stringifyExpression((expression as Binary).right),
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        expressionString((expression as Binary).left),
+        expressionString((expression as Binary).right),
+      );
     case Call:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          stringifyExpression((expression as Call).operator),
-          ...(expression as Call).operands.map(stringifyExpression),
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        expressionString((expression as Call).operator),
+        ...(expression as Call).operands.map(expressionString),
+      );
     case Literal:
       return JSON.stringify((expression as Literal).value);
     case Log:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          stringifyExpression((expression as Log).value),
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        expressionString((expression as Log).value),
+      );
     case New:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          (expression as New).klaz,
-          ...(expression as New).operands.map(stringifyExpression),
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        (expression as New).klaz,
+        ...(expression as New).operands.map(expressionString),
+      );
     case Not:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          stringifyExpression((expression as Not).expression),
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        expressionString((expression as Not).expression),
+      );
     case VarDeclaration:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          stringifyExpression((expression as VarDeclaration).key),
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        expressionString((expression as VarDeclaration).key),
+      );
     case Variable:
-      return `(${
-        [
-          TokenType[expression.token.type],
-          (expression as Variable).name,
-        ].join(" ")
-      })`;
+      return tupleString(
+        TokenType[expression.token.type],
+        (expression as Variable).name,
+      );
     default:
       return "[ERROR]";
   }
 }
 
-export class BasicBlock {
-  readonly expressions: Expression[] = [];
-  jump: Edge;
-  constructor(
-    jump: Edge,
-  ) {
-    this.jump = jump;
-  }
+export enum GraphType {
+  BLOCK,
+  IF,
+  RETURN,
+}
+export type Graph =
+  | [GraphType.BLOCK, Expression[], Graph]
+  | [GraphType.IF, Expression, Graph, Graph]
+  | [GraphType.RETURN, Expression]
+  | [GraphType.RETURN];
 
-  toString() {
-    const blocks: BasicBlock[] = [this];
-    const results: string[][] = [];
-    function blockIndex(block: BasicBlock) {
-      let i = blocks.indexOf(block);
-      if (i < 0) {
-        i = blocks.length;
-        blocks[i] = block;
-      }
-      return i;
-    }
-    for (let i = 0; i < blocks.length; i++) {
-      results[i] = blocks[i].expressions.map(stringifyExpression);
-      const jump = blocks[i].jump;
-      switch (jump[0]) {
-        case "goto":
-          results[i].push(`(goto ${blockIndex(jump[1])})`);
-          break;
-        case "return":
-          results[i].push(
-            jump[1] === undefined
-              ? "(return)"
-              : `(return ${stringifyExpression(jump[1])})`,
-          );
-          break;
-        case "if":
-          results[i].push(
-            `(if ${stringifyExpression(jump[1])} ${blockIndex(jump[2])} ${
-              blockIndex(jump[3])
-            })`,
-          );
-      }
-    }
-    return results.map((block, index) => [`#${index}:`, ...block].join("\n  "))
-      .join("\n");
+function loop(
+  key: Graph,
+  value: Graph,
+  inside: Graph,
+  started: Set<Graph> = new Set(),
+) {
+  if (key === inside) throw new Error("impossible loop");
+  if (started.has(inside)) return;
+  started.add(inside);
+  switch (inside[0]) {
+    case GraphType.BLOCK:
+      if (inside[2] === key) inside[2] = value;
+      loop(key, value, inside[2], started);
+      break;
+    case GraphType.IF:
+      if (inside[2] === key) inside[2] = value;
+      loop(key, value, inside[2], started);
+      if (inside[3] === key) inside[3] = value;
+      loop(key, value, inside[3], started);
+      break;
+    default:
+      break;
   }
-  //
 }
 
-type Labeled = {
-  label?: string;
-  break: BasicBlock;
-  continue: BasicBlock;
-};
+export function stringifyGraph(graph: Graph) {
+  const graphs = [graph];
+  const results: string[] = [];
+  function graphIndex(graph: Graph) {
+    let i = graphs.indexOf(graph);
+    if (i < 0) {
+      i = graphs.length;
+      graphs[i] = graph;
+    }
+    return i;
+  }
+
+  for (let i = 0; i < graphs.length; i++) {
+    const graph = graphs[i];
+    switch (graph[0]) {
+      case GraphType.BLOCK:
+        results[i] = [
+          `${i} => BLOCK`,
+          ...graph[1].map(expressionString),
+          "GOTO " + graphIndex(graph[2]),
+        ].join("\n  ");
+        continue;
+      case GraphType.IF:
+        results[i] = [
+          `${i} => IF`,
+          expressionString(graph[1]),
+          "THEN",
+          graphIndex(graph[2]),
+          "ELSE",
+          graphIndex(graph[3]),
+        ].join(" ");
+        continue;
+      case GraphType.RETURN:
+        results[i] = [
+          `${i} => RETURN`,
+          graph[1] ? expressionString(graph[1]) : "",
+        ].join(" ");
+        continue;
+    }
+  }
+  return results.join("\n");
+}
 
 export class Grapher {
-  #labels: Labeled[] = [];
-
-  #getLabel(label?: string): Labeled {
-    if (label) {
-      for (let i = this.#labels.length - 1; i >= 0; i--) {
-        if (this.#labels[i].label === label) {
-          return this.#labels[this.#labels.length - 1];
+  #labels: { label?: string; break: Graph; continue: Graph }[] = [];
+  #getLabel(label?: string) {
+    if (label !== undefined) {
+      for (const l of this.#labels) {
+        if (l.label === label) {
+          return l;
         }
       }
     } else {
@@ -166,74 +172,125 @@ export class Grapher {
     }
     throw new Error("missing label " + label);
   }
-
-  #addStatements(statements: Statement[], current: BasicBlock, end: Edge) {
-    for (const statement of statements) {
-      switch (statement.constructor) {
-        case Block: {
-          const cont = new BasicBlock(end);
-          // todo: scoping
-          this.#addStatements((statement as Block).statements, current, [
-            "goto",
-            cont,
-          ]);
-          current = cont;
-          break;
-        }
+  jumpToGraph(jump: Jump): Graph {
+    switch (jump?.constructor) {
+      case Break: {
+        const { label } = jump as Break;
+        return this.#getLabel(label).break;
+      }
+      case Continue: {
+        const { label } = jump as Continue;
+        return this.#getLabel(label).continue;
+      }
+      case Return: {
+        const { expression } = jump as Return;
+        return expression ? [GraphType.RETURN, expression] : [GraphType.RETURN];
+      }
+      default:
+        throw new Error("Unexpected type of jump");
+    }
+  }
+  blockToGraph(block: Block, graph: Graph): Graph {
+    const { statements, jump } = block;
+    return this.statementsToGraph(
+      statements,
+      jump === undefined ? graph : this.jumpToGraph(jump),
+    );
+  }
+  statementsToGraph(
+    statements: Statement[],
+    graph: Graph,
+  ): Graph {
+    const expressions: Expression[] = [];
+    a: for (let i = 0; i < statements.length; i++) {
+      switch (statements[i].constructor) {
+        case Block:
+          graph = this.blockToGraph(
+            statements[i] as Block,
+            this.statementsToGraph(statements.slice(i + 1), graph),
+          );
+          break a;
         case IfStatement: {
-          const cont = new BasicBlock(end);
-          const { condition, onTrue, onFalse } = statement as IfStatement;
-          const thenBranch = this.compile(onTrue, ["goto", cont]);
-          const elseBranch = onFalse
-            ? this.compile(onFalse, ["goto", cont])
-            : new BasicBlock(["goto", cont]);
-          current.jump = ["if", condition, thenBranch, elseBranch];
-          current = cont;
-          break;
+          const cont = this.statementsToGraph(statements.slice(i + 1), graph);
+          const { condition, onTrue, onFalse } = statements[i] as IfStatement;
+          graph = this.ifThenElse(
+            condition,
+            this.blockToGraph(onTrue, cont),
+            onFalse === undefined ? cont : this.blockToGraph(onFalse, cont),
+          );
+          break a;
         }
         case WhileStatement: {
-          const cont = new BasicBlock(end);
-          const { condition, onTrue, label } = statement as WhileStatement;
-          const loopA = new BasicBlock(["return", undefined]);
-          const loopB = this.compile(onTrue, ["goto", loopA]);
-          loopA.jump = ["if", condition, loopB, cont];
-          current = cont;
-          if (label) {
-            this.#labels.push({
-              label: label,
-              break: cont,
-              continue: loopA,
-            });
-          }
-          break;
+          const cont = this.statementsToGraph(statements.slice(i + 1), graph);
+          const { condition, onTrue, label } = statements[i] as WhileStatement;
+          const key: Graph = [
+            GraphType.RETURN,
+          ];
+          const head = this.ifThenElse(condition, key, cont);
+          this.#labels.push({ label, break: cont, continue: head });
+          const value = this.blockToGraph(onTrue, cont);
+          this.#labels.pop();
+          graph = key === head ? value : head;
+          loop(key, value, graph);
+          break a;
         }
         default:
-          current.expressions.push(statement as Expression);break;
+          expressions.push(statements[i] as Expression);
+          continue;
       }
     }
-    current.jump = end;
+    if (expressions.length > 0) {
+      return [GraphType.BLOCK, expressions, graph];
+    }
+    return graph;
   }
 
-  compile(block: Block, end: Edge = ["return", undefined]): BasicBlock {
-    if (block.jump) {
-      switch (block.jump.constructor) {
-        case Break: {
-          const { label } = block.jump as Break;
-          end = ["goto", this.#getLabel(label).break];
-          break;
-        }
-        case Continue: {
-          const { label } = block.jump as Continue;
-          end = ["goto", this.#getLabel(label).continue];
-          break;
-        }
-        case Return:
-          end = ["return", (block.jump as Return).expression];
-          break;
+  ifThenElse(
+    condition: Expression,
+    thenBranch: Graph,
+    elseBranch: Graph,
+  ): Graph {
+    switch (condition.token.type) {
+      case TokenType.AND: {
+        const { left, right } = condition as Binary;
+        return this.ifThenElse(
+          left,
+          this.ifThenElse(right, thenBranch, elseBranch),
+          elseBranch,
+        );
       }
+      case TokenType.BE:
+      case TokenType.DOT:
+      case TokenType.IDENTIFIER:
+      case TokenType.IS:
+      case TokenType.IS_NOT:
+      case TokenType.LESS:
+      case TokenType.LOG:
+      case TokenType.MORE:
+      case TokenType.NOT_LESS:
+      case TokenType.NOT_MORE:
+      case TokenType.VAR:
+        return [GraphType.IF, condition, thenBranch, elseBranch];
+      case TokenType.FALSE:
+        return elseBranch;
+      case TokenType.NOT: {
+        const { expression } = condition as Not;
+        return [GraphType.IF, expression, elseBranch, thenBranch];
+      }
+      case TokenType.OR: {
+        const { left, right } = condition as Binary;
+        return this.ifThenElse(
+          left,
+          thenBranch,
+          this.ifThenElse(right, thenBranch, elseBranch),
+        );
+      }
+      case TokenType.TRUE:
+        return thenBranch;
+      default:
+        throw new Error(
+          `Illegal condition expression '${expressionString(condition)}'.`,
+        );
     }
-    const start = new BasicBlock(end);
-    this.#addStatements(block.statements, start, end);
-    return start;
   }
 }
