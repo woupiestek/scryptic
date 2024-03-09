@@ -294,3 +294,182 @@ export class Grapher {
     }
   }
 }
+
+export class DGraph {
+  free = new Set<string>();
+  assigns = new Map<string, Expression>();
+  constructor(readonly graph: Graph) {
+    switch (graph[0]) {
+      case GraphType.BLOCK:
+        for (let i = 0, l = graph[1].length; i < l; i++) {
+          graph[1][i] = this.rewrite(graph[1][i]);
+        }
+        return;
+      case GraphType.IF:
+        return;
+      case GraphType.RETURN:
+        if (graph[1]) this.rewrite(graph[1] as Expression);
+    }
+  }
+  rewrite(expression: Expression): Expression {
+    switch (expression.token.type) {
+      case TokenType.AND: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.BE: {
+        const { token, left, right } = expression as Binary;
+        const _left = this.rewrite(left);
+        const _right = this.rewrite(right);
+        if (_left instanceof Variable) {
+          this.assigns.set(_left.name, _right);
+          return _right;
+        }
+        return new Binary(token, _left, _right);
+      }
+      case TokenType.DOT: {
+        const { token, object, field } = expression as Access;
+        return new Access(token, this.rewrite(object), field);
+      }
+      case TokenType.FALSE:
+        return expression;
+      case TokenType.IDENTIFIER: {
+        const { name } = expression as Variable;
+        const value = this.assigns.get(name);
+        if (value) return value;
+        this.free.add(name);
+        return expression;
+      }
+      case TokenType.IS_NOT: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.IS: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.LESS: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.LOG: {
+        const { token, value } = expression as Log;
+        return new Log(token, this.rewrite(value));
+      }
+      case TokenType.MORE: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.NEW: {
+        const { token, klaz, operands } = expression as New;
+        return new New(token, klaz, operands.map(this.rewrite));
+      }
+      case TokenType.NOT_LESS: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.NOT_MORE: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.NOT: {
+        const { token, expression: e } = expression as Not;
+        return new Not(token, e);
+      }
+      case TokenType.OR: {
+        const { token, left, right } = expression as Binary;
+        return new Binary(token, this.rewrite(left), this.rewrite(right));
+      }
+      case TokenType.PAREN_LEFT: {
+        const { token, operator, operands } = expression as Call;
+        return new Call(
+          token,
+          this.rewrite(operator),
+          operands.map(this.rewrite),
+        );
+      }
+      case TokenType.STRING:
+        return expression;
+      case TokenType.THIS: {
+        this.free.add("this");
+        return expression;
+      }
+      case TokenType.TRUE:
+        return expression;
+      case TokenType.VAR: {
+        const { key } = expression as VarDeclaration;
+        this.free.delete(key.name);
+        return key;
+      }
+      default:
+        throw new Error(
+          "Not an expression " + TokenType[expression.token.type],
+        );
+    }
+  }
+}
+
+export function dGraphs(graph: Graph): DGraph[] {
+  const ins = [graph];
+  const outs: DGraph[] = [];
+  function add(g: Graph) {
+    if (ins.indexOf(g) < 0) ins.push(g);
+  }
+  for (let i = 0; i < ins.length; i++) {
+    const g = ins[i];
+    switch (g[0]) {
+      case GraphType.BLOCK:
+        add(g[2]);
+        break;
+      case GraphType.IF:
+        add(g[2]);
+        add(g[3]);
+        break;
+      case GraphType.RETURN:
+    }
+    outs[i] = new DGraph(ins[i]);
+  }
+  return outs;
+}
+
+export function stringifyDGraph(graphs: DGraph[]) {
+  const results: string[] = [];
+  function graphIndex(graph: Graph) {
+    return graphs.findIndex((it) => it.graph === graph);
+  }
+  for (let i = 0; i < graphs.length; i++) {
+    const { free, graph, assigns } = graphs[i];
+    const a = "{" + [...assigns.entries()].map(([k, v]) =>
+      `${k} = ${expressionString(v)}`
+    ).join(", ") + "}";
+    const f = `(${[...free].join(", ")})`;
+    switch (graph[0]) {
+      case GraphType.BLOCK:
+        results[i] = [
+          `${i} => BLOCK${f}`,
+          ...graph[1].map(expressionString),
+          "GOTO " + graphIndex(graph[2]) + a,
+        ].join("\n  ");
+        continue;
+      case GraphType.IF:
+        results[i] = [
+          `${i} => IF${f}`,
+          expressionString(graph[1]),
+          "THEN",
+          graphIndex(graph[2]),
+          "ELSE",
+          graphIndex(graph[3]),
+          a,
+        ].join(" ");
+        continue;
+      case GraphType.RETURN:
+        results[i] = [
+          `${i} => RETURN${f}`,
+          graph[1] ? expressionString(graph[1]) : "",
+          a,
+        ].join(" ");
+        continue;
+    }
+  }
+  return results.join("\n");
+}

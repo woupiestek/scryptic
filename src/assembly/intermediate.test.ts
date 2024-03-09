@@ -1,14 +1,19 @@
 import { Block, Parser } from "./parser.ts";
-import { Grapher, GraphType, stringifyGraph } from "./intermediate.ts";
+import {
+  dGraphs,
+  Grapher,
+  GraphType,
+  stringifyDGraph,
+} from "./intermediate.ts";
 
 function run(input: string) {
   console.log("#####", input, "#####");
   const parseResult = new Parser(input).script();
   console.log(
-    stringifyGraph(new Grapher().statementsToGraph(
+    stringifyDGraph(dGraphs(new Grapher().statementsToGraph(
       parseResult.filter((it) => it instanceof Block),
       [GraphType.RETURN],
-    )),
+    ))),
   );
 }
 
