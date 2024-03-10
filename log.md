@@ -1,5 +1,72 @@
 # Scryptic
 
+## 2024-03-10
+
+### play with new analyzers
+
+Keep expressions in order to keep their side effects so, however: ssa suggests
+just introducting new variables...
+
+So instead of keeping a list of expressions, work with tabels of variables and
+their ultimate values. But how to keep the potential side effects? Solution:
+world parameter! For impure constructs: keep track of the order of certain
+subexpressions, by pretending that they manipulate a world variable.
+
+One way to think about it, is to transform code in order to eliminate variables.
+This is a departure...
+
+So the SSA transfrom transforms a source code, while I transform a tree of
+objects. The source code needs variables with names, which SSA updates. I use
+the implicit references to the nodes instead, so there are no visible names.
+
+The phony functions take care of branches: the different expressions for each
+branch are combined. Is that enough though? They say: runtime support picks the
+right version, so does it needs to be more like `(if x y z)` if we want the
+control flow graph inside the expressions.
+
+Anyway: inlining ast nodes is most of the optimisation.
+
+### strategies
+
+Each node creates a record of assigned variables, or rather is an endomorphism
+of the expression record. Some way to quickly and accurately find duplicates
+here would be good.
+
+Dealing with expressions:
+
+- `var x` have some special value for the declared but not defined state.
+- `x` replace with value if possible. Could use parameter index here
+- booleans: expressions get changes into control flow.
+- `new` this could be a place to use the world variable, to keep track of side
+  effects.
+- `log` world variable certainly belongs here
+- literal: inline aggresively
+- `[...]([...])` another application of the world variable.
+- assignments:
+- access: perhaps many cases, as anything can be accessed.
+
+This one needs words: `new A(...)` is a call expression, mainly to avoid the
+`new A` function pointer, which is not allowed as first class value right now. A
+similar case, `x.m` is interpreted as something else in these cases, but perhaps
+it should not work like that.
+
+Maybe only use the world variable for tracking branches, and let phonies depend
+on the world? I don't see it.
+
+### issues
+
+A block can end with break or continue (or return!) instead of causing a normal change.
+I need a way to keep track of that as well. The solution is to steer closer to the phi
+value, and treat picking a branch as an update to the world. The consequence is that
+the world starts looking like an inverted control flow graph.
+
+### todo
+
+- generate alternatives
+- process alternatives, i.e. merge them back into the model where needed
+- add printer
+- add tests
+
 ## 2024-03-06
 
 ### graph coloring

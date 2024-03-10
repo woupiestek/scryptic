@@ -341,6 +341,23 @@ export class Compiler {
       this.#emit([Op.MoveResult, index]);
       return { index };
     }
+    if (call.operator instanceof New) {
+      const { klaz } = call.operator as New;
+      const index = this.#allocate();
+      this.#emit([
+        Op.New,
+        index,
+        this.classes[klaz] ||= new Class(),
+      ]);
+      const args = call.operands.map((it) => this.#expression(it));
+      this.#emit([
+        Op.InvokeStatic,
+        this.classes[klaz].method("new"),
+        [index, ...args.map((it) => it.index)],
+      ]);
+      args.forEach((it) => this.#repay(it));
+      return { index };
+    }
     throw this.#error(call.token, "uncallable operand");
   }
 
@@ -363,23 +380,6 @@ export class Compiler {
         const register = this.#expression((expression as Log).value);
         this.#emit([Op.Log, register.index]);
         return register;
-      }
-      case New: {
-        const { klaz, operands } = expression as New;
-        const index = this.#allocate();
-        this.#emit([
-          Op.New,
-          index,
-          this.classes[klaz] ||= new Class(),
-        ]);
-        const args = operands.map((it) => this.#expression(it));
-        this.#emit([
-          Op.InvokeStatic,
-          this.classes[klaz].method("new"),
-          [index, ...args.map((it) => it.index)],
-        ]);
-        args.forEach((it) => this.#repay(it));
-        return { index };
       }
       case Call:
         return this.#call(expression as Call);

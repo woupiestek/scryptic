@@ -22,7 +22,7 @@ export class New implements Node {
   constructor(
     readonly token: Token,
     readonly klaz: string,
-    readonly operands: Expression[],
+    // readonly operands: Expression[],
   ) {}
 }
 
@@ -212,8 +212,7 @@ export class Parser {
     Parser.#PREFIX[TokenType.NEW] = (p) => {
       const t = p.#pop();
       const name = p.lexeme(p.#consume(TokenType.IDENTIFIER));
-      p.#consume(TokenType.PAREN_LEFT);
-      return new New(t, name, p.#operands());
+      return new New(t, name);
     };
     Parser.#PREFIX[TokenType.NOT] = (p) => new Not(p.#pop(), p.#unary());
     Parser.#PREFIX[TokenType.PAREN_LEFT] = (p) => {

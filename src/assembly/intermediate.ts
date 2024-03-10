@@ -55,7 +55,6 @@ function expressionString(expression: Expression): string {
       return tupleString(
         TokenType[expression.token.type],
         (expression as New).klaz,
-        ...(expression as New).operands.map(expressionString),
       );
     case Not:
       return tupleString(
@@ -361,8 +360,7 @@ export class DGraph {
         return new Binary(token, this.rewrite(left), this.rewrite(right));
       }
       case TokenType.NEW: {
-        const { token, klaz, operands } = expression as New;
-        return new New(token, klaz, operands.map(this.rewrite));
+        return expression;
       }
       case TokenType.NOT_LESS: {
         const { token, left, right } = expression as Binary;
