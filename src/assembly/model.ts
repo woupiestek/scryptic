@@ -4,13 +4,16 @@ import {
   Access,
   Binary,
   Block,
+  Break,
   Call,
+  Continue,
   Expression,
   IfStatement,
   Literal,
   Log,
   New,
   Not,
+  Return,
   Statement,
   VarDeclaration,
   Variable,
@@ -33,7 +36,7 @@ export enum Kind {
   This,
   Undefined,
 }
-export type _Call = [Kind.Call, Value, Value[]];
+export type _Call = [Kind.Call, World, Value, Value[]];
 export type Value =
   | _Call
   | [Kind.Access, Value, string]
@@ -44,44 +47,57 @@ export type Value =
   | [Kind.Comparison, TokenType, Value, Value]
   | Kind.Undefined
   | Kind.This;
-export type Update =
-  | _Call
-  | [Kind.Return, Value]
-  | [Kind.SetField, Value, string, Value]
-  | [Kind.Then, Value]
-  | [Kind.Else, Value]
-  | [Kind.Log, Value];
-export type World =
-  | null
-  | { type: "update"; previous: World; update: Update }
-  | {
-    type: "join";
-    previous: World[];
-  };
 
-type Alternatives = { [_: string]: Model };
+export type World =
+  | _Call
+  | [Kind.SetField, World, Value, string, Value]
+  | [Kind.Then, World, Value]
+  | [Kind.Else, World, Value]
+  | [Kind.Log, World, Value]
+  | [Kind.Phi, World[]];
+
+type Snapshot = {
+  world: World;
+  values: RedBlackTreeMap<Value>;
+  continuation: Continuation;
+};
+
+type Continuation =
+  | "next"
+  | "return"
+  | ["return", Value]
+  | "break"
+  | ["break", string]
+  | "continue"
+  | ["continue", string];
 
 export class Model {
-  world: World = null;
-  values: RedBlackTreeMap<Value> = RedBlackTreeMap.EMPTY;
+  #world: World = [Kind.Phi, []]; // bad idea?
+  #values: RedBlackTreeMap<Value> = RedBlackTreeMap.EMPTY;
+  #continuation: Continuation = "next";
 
-  clone(): Model {
-    const that = new Model();
-    that.world = this.world;
-    that.values = this.values;
-    return that;
+  snapshot(): Snapshot {
+    return {
+      world: this.#world,
+      values: this.#values,
+      continuation: this.#continuation,
+    };
+  }
+
+  swap({ world, values, continuation }: Snapshot): Snapshot {
+    const snapshot = this.snapshot();
+    this.#world = world;
+    this.#values = values;
+    this.#continuation = continuation;
+    return snapshot;
   }
 
   #get(key: string): Value | undefined {
-    return this.values.get(key);
+    return this.#values.get(key);
   }
 
   #set(key: string, value: Value) {
-    this.values = this.values.add(key, value);
-  }
-
-  #update(update: Update) {
-    this.world = { type: "update", previous: this.world, update };
+    this.#values = this.#values.add(key, value);
   }
 
   static #error(token: Token, msg: string) {
@@ -106,13 +122,13 @@ export class Model {
         const a = this.value(object);
         const b = this.value(right);
         // no trying to track changes to object (yet)
-        this.#update([Kind.SetField, a, field, b]);
+        this.#world = [Kind.SetField, this.#world, a, field, b];
         return b;
       }
       case TokenType.VAR: {
         const { key: { name } } = left as VarDeclaration;
         if (this.#get(name) !== undefined) {
-          // no access to token, alas
+          // no access to other variables token token, alas
           throw Model.#error(token, "variable override");
         }
         const vr = this.value(right);
@@ -164,7 +180,7 @@ export class Model {
       }
       case TokenType.LOG: {
         const value = this.value(expression as Log);
-        this.#update([Kind.Log, value]);
+        this.#world = [Kind.Log, this.#world, value];
         return value;
       }
       case TokenType.NEW:
@@ -173,10 +189,11 @@ export class Model {
         const { operator, operands } = expression as Call;
         const value: _Call = [
           Kind.Call,
+          this.#world,
           this.value(operator),
           operands.map(this.value),
         ];
-        this.#update(value);
+        this.#world = value;
         return value;
       }
       case TokenType.THIS:
@@ -197,7 +214,7 @@ export class Model {
     }
   }
 
-  #boolean(expression: Expression): Alternatives {
+  #boolean(expression: Expression): Snapshot[] {
     switch (expression.token.type) {
       case TokenType.AND: {
         const { left, right } = expression as Binary;
@@ -211,10 +228,10 @@ export class Model {
         const { left, right } = expression as Binary;
         return this.ifThenElse(right, (model) => {
           model.assign(expression.token, left, new Literal(right.token, true));
-          return {};
+          return [];
         }, (model) => {
           model.assign(expression.token, left, new Literal(right.token, false));
-          return {};
+          return [];
         });
       }
       case TokenType.DOT:
@@ -231,65 +248,87 @@ export class Model {
         console.warn(
           `unused boolean statement at [${expression.token.line},${expression.token.column}]`,
         );
-        return {};
+        return [];
       case TokenType.OR: {
         const { left, right } = expression as Binary;
         return this.ifThenElse(left, Model.#noop, (it) => it.#boolean(right));
       }
       case TokenType.LOG:
-        this.#update([Kind.Log, this.value((expression as Log).value)]);
-        return {};
+        this.#world = [
+          Kind.Log,
+          this.#world,
+          this.value((expression as Log).value),
+        ];
+        return [];
       default:
         throw Model.#error(expression.token, "Illegal expression in boolean");
     }
   }
 
-  static #noop: (_: Model) => Alternatives = (_) => ({});
+  static #noop: (_: Model) => Snapshot[] = (_) => [];
 
-  #block(block: Block): Alternatives {
-    // todo
-    throw Model.#error(block.token, "not implemented");
+  #block(block: Block): Snapshot[] {
+    const alt = this.interpret(block.statements);
+    if (block.jump) {
+      switch (block.jump.token.type) {
+        case TokenType.BREAK: {
+          const { label } = block.jump as Break;
+          if (label) this.#continuation = ["break", label];
+          else this.#continuation = "break";
+          break;
+        }
+        case TokenType.CONTINUE: {
+          const { label } = block.jump as Continue;
+          if (label) this.#continuation = ["continue", label];
+          else this.#continuation = "continue";
+          break;
+        }
+        case TokenType.RETURN: {
+          const { expression } = block.jump as Return;
+          if (expression === undefined) this.#continuation = "return";
+          else this.#continuation = ["return", this.value(expression)];
+          break;
+        }
+      }
+    }
+    return alt;
   }
 
-  // no good
-  interpret(statements: Statement[]): Alternatives {
-    const alternatives: Alternatives = {};
+  interpret(statements: Statement[]): Snapshot[] {
+    const snapshots: Snapshot[] = [];
     for (let i = 0; i < statements.length; i++) {
       const statement = statements[i];
       switch (statement.token.type) {
         case TokenType.AND: {
           const { left, right } = statement as Binary;
-          Model.mergeAlternatives(
-            alternatives,
-            this.ifThenElse(
-              left,
-              (it) => it.#boolean(right),
-              Model.#noop,
-            ),
-          ); //???
+          snapshots.push(...this.ifThenElse(
+            left,
+            (it) => it.#boolean(right),
+            Model.#noop,
+          ));
+          // no jump expected here
           continue;
         }
         case TokenType.BRACE_LEFT: {
           // todo: delete variables out of scope
-          Model.mergeAlternatives(
-            alternatives,
-            this.#block(
-              statement as Block,
-            ),
-          );
-          continue;
+          snapshots.push(...this.#block(
+            statement as Block,
+          ));
+          // not good enough
+          if (this.#continuation === "next") continue;
+          else return snapshots;
         }
         case TokenType.IF: {
           const { condition, onTrue, onFalse } = statement as IfStatement;
-          Model.mergeAlternatives(
-            alternatives,
-            this.ifThenElse(
-              condition,
-              (it) => it.#block(onTrue),
-              onFalse ? (it) => it.#block(onFalse) : Model.#noop,
-            ),
-          );
-          continue;
+          snapshots.push(...this.ifThenElse(
+            condition,
+            (it) => it.#block(onTrue),
+            onFalse ? (it) => it.#block(onFalse) : Model.#noop,
+          ));
+          if (this.#continuation === "next") {
+            continue;
+          }
+          return snapshots;
         }
         case TokenType.DOT:
         case TokenType.FALSE:
@@ -306,9 +345,8 @@ export class Model {
           continue;
         case TokenType.OR: {
           const { left, right } = statement as Binary;
-          Model.mergeAlternatives(
-            alternatives,
-            this.ifThenElse(left, Model.#noop, (it) => it.#boolean(right)),
+          snapshots.push(
+            ...this.ifThenElse(left, Model.#noop, (it) => it.#boolean(right)),
           );
           continue;
         }
@@ -320,41 +358,106 @@ export class Model {
         case TokenType.VAR:
           this.value(statement as Expression);
           continue;
-        // case TokenType.RETURN:
         // what!?
-        case TokenType.WHILE: {
-          const { condition, onTrue } = statement as WhileStatement;
-          const head = (it: Model) =>
-            it.ifThenElse(condition, (it: Model) => {
+        case TokenType.WHILE:
+          {
+            // it actually starts with creating seemingly pointless joins and phonies
+            const worlds = [this.#world];
+            this.#world = [Kind.Phi, worlds];
+            // it is the same idea though.
+            const phonies: { [_: string]: [Value] } = {};
+            // the painful one...
+            let values: RedBlackTreeMap<Value> = RedBlackTreeMap.EMPTY;
+            for (const [k, v] of this.#values.entries()) {
+              phonies[k] = [v];
+              values = values.add(k, [Kind.Phi, phonies[k]]);
+            }
+            this.#values = values;
+            // ready
+            const { condition, onTrue, label } = statement as WhileStatement;
+            const alt = this.ifThenElse(condition, (it) => {
               const alt = it.#block(onTrue);
-              // todo: process alternatives
-              head(it);
+              // first solution: insert a continue statement
+              if (it.#continuation === "next") {
+                it.#continuation = "continue";
+              }
               return alt;
             }, Model.#noop);
-          head(this);
-        }
+            // to take care of break and continue now.
+            const alt2: Snapshot[] = [];
+            for (const snapshot of alt) {
+              switch (snapshot.continuation) {
+                case "break":
+                case "next":
+                  this.join(snapshot);
+                  continue;
+                case "continue":
+                  worlds.push(snapshot.world);
+                  for (const [k, v] of snapshot.values.entries()) {
+                    phonies[k]?.push(v);
+                  }
+                  continue;
+                case "return":
+                  alt2.push(snapshot);
+                  continue;
+                default:
+                  switch (snapshot.continuation[0]) {
+                    case "break":
+                      if (snapshot.continuation[1] === label) {
+                        this.join(snapshot);
+                      } else {
+                        alt2.push(snapshot);
+                      }
+                      continue;
+                    case "return":
+                      alt2.push(snapshot);
+                      continue;
+                    case "continue":
+                      if (snapshot.continuation[1] === label) {
+                        worlds.push(snapshot.world);
+                        for (const [k, v] of snapshot.values.entries()) {
+                          phonies[k]?.push(v);
+                        }
+                      } else {
+                        alt2.push(snapshot);
+                      }
+                      continue;
+                    default:
+                      throw Model.#error(statement.token, "Invalid statement");
+                  }
+              }
+            }
+          }
+          continue;
+        default:
+          throw Model.#error(statement.token, "Invalid statement");
       }
     }
-    return alternatives;
+    return snapshots;
   }
 
   // expensive and unproven
-  merge(that: Model) {
-    if (this.world !== that?.world) {
-      this.world = {
-        type: "join",
-        previous: [this.world, that.world],
-      };
+  join(that: Snapshot) {
+    if (this.#world !== that.world) {
+      if (this.#world != null && this.#world[0] === Kind.Phi) {
+        this.#world[1].push(that.world);
+      } else {
+        this.#world = [Kind.Phi, [this.#world, that.world]];
+      }
     }
 
     // no adjustment of values if that is not defined?
     // what are we recording anyway?
-    for (const [k, v] of this.values.entries()) {
-      const w = that.#get(k);
+    for (const [k, v] of this.#values.entries()) {
+      const w = that.values.get(k);
       if (w === undefined || w === Kind.Deleted || w === v) {
         continue;
       }
-      this.#set(k, [Kind.Phi, [w, v]]);
+      if (v instanceof Array && v[0] === Kind.Phi) {
+        v[1].push(w);
+      } else {
+        this.#set(k, [Kind.Phi, [v, w]]);
+      }
     }
 
     for (const [k, v] of that.values.entries()) {
@@ -365,40 +468,35 @@ export class Model {
     }
   }
 
-  static mergeAlternatives(
-    these: Alternatives,
-    those: Alternatives,
-  ) {
-    for (const [k, v] of Object.entries(these)) {
-      if (those[k]) v.merge(those[k]);
-    }
-    for (const [k, v] of Object.entries(those)) {
-      if (these[k]) continue;
-      these[k] = v;
-    }
-  }
-
   __ifThenElse(
     condition: Expression,
-    thenBlock: (_: Model) => Alternatives,
-    elseBlock: (_: Model) => Alternatives,
-  ): Alternatives {
+    thenBlock: (_: Model) => Snapshot[],
+    elseBlock: (_: Model) => Snapshot[],
+  ): Snapshot[] {
     const value = this.value(condition);
-    const that = this.clone();
-    this.#update([Kind.Then, value]);
-    that.#update([Kind.Else, value]);
+    const snapshot0 = this.snapshot();
+    this.#world = [Kind.Then, this.#world, value];
     const a = thenBlock(this);
-    const b = elseBlock(that);
-    this.merge(that);
-    Model.mergeAlternatives(a, b);
+    const snapshot1 = this.swap(snapshot0);
+    this.#world = [Kind.Else, this.#world, value];
+    a.push(...elseBlock(this));
+    if (snapshot1.continuation !== "next") {
+      a.push(snapshot1);
+      return a;
+    }
+    if (this.#continuation === "next") {
+      this.join(snapshot1);
+    } else {
+      a.push(this.swap(snapshot1));
+    }
     return a;
   }
 
   ifThenElse(
     condition: Expression,
-    thenBlock: (_: Model) => Alternatives,
-    elseBlock: (_: Model) => Alternatives,
-  ): Alternatives {
+    thenBlock: (_: Model) => Snapshot[],
+    elseBlock: (_: Model) => Snapshot[],
+  ): Snapshot[] {
     switch (condition.token.type) {
       case TokenType.AND: {
         const { left, right } = condition as Binary;
@@ -433,10 +531,10 @@ export class Model {
       case TokenType.LOG: {
         const { value } = condition as Log;
         return this.ifThenElse(value, (model) => {
-          model.#update([Kind.Log, [Kind.Literal, true]]);
+          model.#world = [Kind.Log, this.#world, [Kind.Literal, true]];
           return thenBlock(model);
         }, (model) => {
-          model.#update([Kind.Log, [Kind.Literal, false]]);
+          model.#world = [Kind.Log, this.#world, [Kind.Literal, false]];
           return elseBlock(model);
         });
       }

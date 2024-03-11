@@ -1,5 +1,63 @@
 # Scryptic
 
+## 2024-03-11
+
+### todo
+
+- ~~generate alternatives~~
+- ~~process alternatives, i.e. merge them back into the model where needed~~
+- add printer
+- add tests
+- try missing optimisations
+
+### the trouble now
+
+A block may end in nothing, which simply continues processing alloing the main
+line. The trouble with that is, it is not inlcuded in the alternatives.
+
+So what do we make the rule now?
+
+- Each model says where it wants to jump to.
+- Alternatives do not need to contain `this`, it should be the other way around.
+
+### the two problems
+
+Firstly a matter of modelling: the effect of a stament is a function
+`Model => Model[]`, the list reflects teh nondetrminisim of multiple paths. But
+since we made the models mutable, we con remove the point to `this` from the
+return value.
+
+Secondly the while loops, how to get the endresult into the beginning? With
+phonies, of course.
+
+So jump targets get these extra nodes of phonies, in the case of the while loop,
+one up front, where afterward the new values are put.
+
+Perhaps this analysis of the dominator tree does a better job. I don't
+necessarily see how.
+
+So I guess I got it, and with some pruning, I may already have a reasonable
+optimizer.
+
+### SSA form explained
+
+It is a process of variable elimnation, which result in a complicated graph in
+memory. What doesn't normally happen with variable elimination is branching,
+which are handled with the phonies at the jump targets.
+
+The whole compotation of the dominator tree: it seems like structured
+programming languages make this trivial, leaving such points aat the end of if
+statements and as the beginning and end of while statements, and not really
+anywhere else, exception perhaps in boolean expressions. Or perhaps computing
+the control flow graphs and then the dominator tree is actuuly more much more
+efficient.
+
+Interestingly, the extra world variable introdcued to keep side effects under
+control, automtically creates an inverted control flow graph for the program,
+with the phi functions as 'come form clusters' within. Simple updates to the
+world and values can be collected into a new kind of basis block, of course. The
+pretty printer should probably invert this again.
+
 ## 2024-03-10
 
 ### play with new analyzers
@@ -55,10 +113,11 @@ on the world? I don't see it.
 
 ### issues
 
-A block can end with break or continue (or return!) instead of causing a normal change.
-I need a way to keep track of that as well. The solution is to steer closer to the phi
-value, and treat picking a branch as an update to the world. The consequence is that
-the world starts looking like an inverted control flow graph.
+A block can end with break or continue (or return!) instead of causing a normal
+change. I need a way to keep track of that as well. The solution is to steer
+closer to the phi value, and treat picking a branch as an update to the world.
+The consequence is that the world starts looking like an inverted control flow
+graph.
 
 ### todo
 
