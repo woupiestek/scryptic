@@ -9,8 +9,10 @@ new woith the same name twice.
 
 ### todo
 
+- avoid duplication in if-then-else with else continuations.
 - add printer
-- add tests
+- add tests and debug!
+- track variables
 - try missing optimisations
 
 ### simplification
@@ -33,6 +35,18 @@ There is an issue of assignments and the like occuring inside, As well as the
 possibility of using block as expresssion later... So creating and marking
 snapshots as being on either side . Maybe I am mistakesn about needless extra
 work: the alternative world all need to be build.
+
+No, this is a important matter: with a complex condition, do you first jump to
+the starting point of collective if and then branches, or do you copy those
+branches as many times as needed? That is the issue.
+
+The solution is to represent the jump to the else branch as a new continuation.
+better pick a lable to tell elses apart, like the else tokens.
+
+### for the printer
+
+It feel like we should put all teh value into an array, and let them refer to
+eachother by id, but: brainwave, why not build that array from the start?
 
 ## 2024-03-11
 
