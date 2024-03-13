@@ -1,5 +1,39 @@
 # Scryptic
 
+## 2024-03-13
+
+### object literal form
+
+Like this: `new Class {...}`, but it would define the class, so you cannot have
+new woith the same name twice.
+
+### todo
+
+- add printer
+- add tests
+- try missing optimisations
+
+### simplification
+
+- Erase the difference bewteen worlds and values.
+- Make snapshot storage a side effect, so values statements can be nested.
+- Combine `value` and `#boolean` functions.
+
+The first one perhaps was not necessary.
+
+Work gets repeated when interpreting conditionals...
+
+There should be a simpler solution, though, Collecting and merging 'then'
+snapshots and 'else' snapshots, before running the blocks.
+
+Perhaps the analysis is just not that interesting: a boolean expression may
+require jump to interpret, but those jumps don't matter?
+
+There is an issue of assignments and the like occuring inside, As well as the
+possibility of using block as expresssion later... So creating and marking
+snapshots as being on either side . Maybe I am mistakesn about needless extra
+work: the alternative world all need to be build.
+
 ## 2024-03-11
 
 ### todo

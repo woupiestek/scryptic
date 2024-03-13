@@ -36,28 +36,22 @@ export enum Kind {
   This,
   Undefined,
 }
-export type _Call = [Kind.Call, World, Value, Value[]];
 export type Value =
-  | _Call
-  | [Kind.Access, Value, string]
-  | Kind.Deleted
-  | [Kind.Phi, Value[]]
-  | [Kind.Literal, boolean | string]
-  | [Kind.New, string]
+  | [Kind.Access, Value, Value, string]
+  | [Kind.Call, Value, Value, Value[]]
   | [Kind.Comparison, TokenType, Value, Value]
-  | Kind.Undefined
-  | Kind.This;
-
-export type World =
-  | _Call
-  | [Kind.SetField, World, Value, string, Value]
-  | [Kind.Then, World, Value]
-  | [Kind.Else, World, Value]
-  | [Kind.Log, World, Value]
-  | [Kind.Phi, World[]];
+  | [Kind.Else, Value, Value]
+  | [Kind.Literal, boolean | string]
+  | [Kind.Log, Value, Value]
+  | [Kind.New, string]
+  | [Kind.Phi, Value[]]
+  | [Kind.SetField, Value, Value, string, Value]
+  | [Kind.Then, Value, Value]
+  | Kind.This
+  | Kind.Undefined;
 
 type Snapshot = {
-  world: World;
+  world: Value;
   values: RedBlackTreeMap<Value>;
   continuation: Continuation;
 };
@@ -72,9 +66,10 @@ type Continuation =
   | ["continue", string];
 
 export class Model {
-  #world: World = [Kind.Phi, []]; // bad idea?
+  #world: Value = [Kind.Phi, []]; // bad idea?
   #values: RedBlackTreeMap<Value> = RedBlackTreeMap.EMPTY;
   #continuation: Continuation = "next";
+  #snapshots: Snapshot[] = [];
 
   snapshot(): Snapshot {
     return {
@@ -102,7 +97,9 @@ export class Model {
 
   static #error(token: Token, msg: string) {
     return new Error(
-      `Compile error at [${token.line},${token.column}]: ${msg}`,
+      `Compile error at ${
+        TokenType[token.type]
+      } [${token.line},${token.column}]: ${msg}`,
     );
   }
 
@@ -148,7 +145,7 @@ export class Model {
       }
       case TokenType.DOT: {
         const { object, field } = expression as Access;
-        return [Kind.Access, this.value(object), field];
+        return [Kind.Access, this.#world, this.value(object), field];
       }
       case TokenType.FALSE:
       case TokenType.STRING:
@@ -179,7 +176,7 @@ export class Model {
         ];
       }
       case TokenType.LOG: {
-        const value = this.value(expression as Log);
+        const value = this.value((expression as Log).value);
         this.#world = [Kind.Log, this.#world, value];
         return value;
       }
@@ -187,11 +184,11 @@ export class Model {
         return [Kind.New, (expression as New).klaz];
       case TokenType.PAREN_LEFT: {
         const { operator, operands } = expression as Call;
-        const value: _Call = [
+        const value: Value = [
           Kind.Call,
           this.#world,
           this.value(operator),
-          operands.map(this.value),
+          operands.map((it) => this.value(it)),
         ];
         this.#world = value;
         return value;
@@ -207,68 +204,31 @@ export class Model {
         this.#set(name, Kind.Undefined);
         return Kind.Undefined;
       }
-      default:
-        throw new Error(
-          "unexpected token type " + TokenType[expression.token.type],
-        );
-    }
-  }
-
-  #boolean(expression: Expression): Snapshot[] {
-    switch (expression.token.type) {
       case TokenType.AND: {
         const { left, right } = expression as Binary;
-        return this.ifThenElse(
+        let value: Value = Kind.Undefined;
+        this.ifThenElse(
           left,
-          (it: Model) => it.#boolean(right),
+          (it: Model) => value = it.value(right),
           Model.#noop,
         );
+        return value;
       }
-      case TokenType.BE: {
-        const { left, right } = expression as Binary;
-        return this.ifThenElse(right, (model) => {
-          model.assign(expression.token, left, new Literal(right.token, true));
-          return [];
-        }, (model) => {
-          model.assign(expression.token, left, new Literal(right.token, false));
-          return [];
-        });
-      }
-      case TokenType.DOT:
-      case TokenType.FALSE:
-      case TokenType.IDENTIFIER:
-      case TokenType.IS_NOT:
-      case TokenType.IS:
-      case TokenType.LESS:
-      case TokenType.MORE:
-      case TokenType.NOT_LESS:
-      case TokenType.NOT_MORE:
-      case TokenType.NOT:
-      case TokenType.TRUE:
-        console.warn(
-          `unused boolean statement at [${expression.token.line},${expression.token.column}]`,
-        );
-        return [];
       case TokenType.OR: {
         const { left, right } = expression as Binary;
-        return this.ifThenElse(left, Model.#noop, (it) => it.#boolean(right));
+        let value: Value = Kind.Undefined;
+        this.ifThenElse(left, Model.#noop, (it) => value = it.value(right));
+        return value;
       }
-      case TokenType.LOG:
-        this.#world = [
-          Kind.Log,
-          this.#world,
-          this.value((expression as Log).value),
-        ];
-        return [];
       default:
         throw Model.#error(expression.token, "Illegal expression in boolean");
     }
   }
 
-  static #noop: (_: Model) => Snapshot[] = (_) => [];
+  static #noop: (_: Model) => void = (_) => {};
 
-  #block(block: Block): Snapshot[] {
-    const alt = this.interpret(block.statements);
+  #block(block: Block): void {
+    this.interpret(block.statements);
     if (block.jump) {
       switch (block.jump.token.type) {
         case TokenType.BREAK: {
@@ -291,74 +251,42 @@ export class Model {
         }
       }
     }
-    return alt;
   }
 
-  interpret(statements: Statement[]): Snapshot[] {
-    const snapshots: Snapshot[] = [];
+  interpret(statements: Statement[]): void {
     for (let i = 0; i < statements.length; i++) {
       const statement = statements[i];
       switch (statement.token.type) {
         case TokenType.AND: {
           const { left, right } = statement as Binary;
-          snapshots.push(...this.ifThenElse(
+          this.ifThenElse(
             left,
-            (it) => it.#boolean(right),
+            (it) => it.value(right),
             Model.#noop,
-          ));
-          // no jump expected here
+          );
+          // no jump expected
           continue;
         }
         case TokenType.BRACE_LEFT: {
           // todo: delete variables out of scope
-          snapshots.push(...this.#block(
+          this.#block(
             statement as Block,
-          ));
-          // not good enough
+          );
           if (this.#continuation === "next") continue;
-          else return snapshots;
+          else return;
         }
         case TokenType.IF: {
           const { condition, onTrue, onFalse } = statement as IfStatement;
-          snapshots.push(...this.ifThenElse(
+          this.ifThenElse(
             condition,
             (it) => it.#block(onTrue),
             onFalse ? (it) => it.#block(onFalse) : Model.#noop,
-          ));
+          );
           if (this.#continuation === "next") {
             continue;
           }
-          return snapshots;
+          return;
         }
-        case TokenType.DOT:
-        case TokenType.FALSE:
-        case TokenType.IDENTIFIER:
-        case TokenType.IS_NOT:
-        case TokenType.IS:
-        case TokenType.LESS:
-        case TokenType.MORE:
-        case TokenType.NOT_LESS:
-        case TokenType.NOT_MORE:
-        case TokenType.NOT:
-          // can expressions generate alternatives?
-          this.#boolean(statement as Expression);
-          continue;
-        case TokenType.OR: {
-          const { left, right } = statement as Binary;
-          snapshots.push(
-            ...this.ifThenElse(left, Model.#noop, (it) => it.#boolean(right)),
-          );
-          continue;
-        }
-        case TokenType.LOG:
-        case TokenType.NEW:
-        case TokenType.STRING:
-        case TokenType.THIS:
-        case TokenType.TRUE:
-        case TokenType.VAR:
-          this.value(statement as Expression);
-          continue;
-        // what!?
         case TokenType.WHILE:
           {
             // it actually starts with creating seemingly pointless joins and phonies
@@ -367,6 +295,7 @@ export class Model {
             // it is the same idea though.
             const phonies: { [_: string]: [Value] } = {};
             // the painful one...
+            // varaibles are not tracked, which is why we need so many phonies here.
             let values: RedBlackTreeMap<Value> = RedBlackTreeMap.EMPTY;
             for (const [k, v] of this.#values.entries()) {
               phonies[k] = [v];
@@ -375,17 +304,16 @@ export class Model {
             this.#values = values;
             // ready
             const { condition, onTrue, label } = statement as WhileStatement;
-            const alt = this.ifThenElse(condition, (it) => {
-              const alt = it.#block(onTrue);
-              // first solution: insert a continue statement
+            this.ifThenElse(condition, (it) => {
+              it.#block(onTrue);
+              // first solution: insert a continue statement if not there yet.
               if (it.#continuation === "next") {
                 it.#continuation = "continue";
               }
-              return alt;
             }, Model.#noop);
             // to take care of break and continue now.
-            const alt2: Snapshot[] = [];
-            for (const snapshot of alt) {
+            const snapshots: Snapshot[] = [];
+            for (const snapshot of this.#snapshots) {
               switch (snapshot.continuation) {
                 case "break":
                 case "next":
@@ -398,7 +326,7 @@ export class Model {
                   }
                   continue;
                 case "return":
-                  alt2.push(snapshot);
+                  snapshots.push(snapshot);
                   continue;
                 default:
                   switch (snapshot.continuation[0]) {
@@ -406,11 +334,11 @@ export class Model {
                       if (snapshot.continuation[1] === label) {
                         this.join(snapshot);
                       } else {
-                        alt2.push(snapshot);
+                        snapshots.push(snapshot);
                       }
                       continue;
                     case "return":
-                      alt2.push(snapshot);
+                      snapshots.push(snapshot);
                       continue;
                     case "continue":
                       if (snapshot.continuation[1] === label) {
@@ -419,7 +347,7 @@ export class Model {
                           phonies[k]?.push(v);
                         }
                       } else {
-                        alt2.push(snapshot);
+                        snapshots.push(snapshot);
                       }
                       continue;
                     default:
@@ -427,19 +355,19 @@ export class Model {
                   }
               }
             }
+            this.#snapshots = snapshots;
           }
           continue;
         default:
-          throw Model.#error(statement.token, "Invalid statement");
+          this.value(statement as Expression);
+          continue;
       }
     }
-    return snapshots;
   }
 
-  // expensive and unproven
   join(that: Snapshot) {
     if (this.#world !== that.world) {
-      if (this.#world != null && this.#world[0] === Kind.Phi) {
+      if (this.#world instanceof Array && this.#world[0] === Kind.Phi) {
         this.#world[1].push(that.world);
       } else {
         this.#world = [Kind.Phi, [this.#world, that.world]];
@@ -450,7 +378,7 @@ export class Model {
     // what are we recording anyway?
     for (const [k, v] of this.#values.entries()) {
       const w = that.values.get(k);
-      if (w === undefined || w === Kind.Deleted || w === v) {
+      if (w === undefined || w === v) {
         continue;
       }
       if (v instanceof Array && v[0] === Kind.Phi) {
@@ -462,7 +390,7 @@ export class Model {
 
     for (const [k, v] of that.values.entries()) {
       const u = this.#get(k);
-      if (u === undefined || u === Kind.Deleted) {
+      if (u === undefined) {
         this.#set(k, v);
       }
     }
@@ -470,33 +398,32 @@ export class Model {
 
   __ifThenElse(
     condition: Expression,
-    thenBlock: (_: Model) => Snapshot[],
-    elseBlock: (_: Model) => Snapshot[],
-  ): Snapshot[] {
+    thenBlock: (_: Model) => void,
+    elseBlock: (_: Model) => void,
+  ) {
     const value = this.value(condition);
     const snapshot0 = this.snapshot();
     this.#world = [Kind.Then, this.#world, value];
-    const a = thenBlock(this);
+    thenBlock(this);
     const snapshot1 = this.swap(snapshot0);
     this.#world = [Kind.Else, this.#world, value];
-    a.push(...elseBlock(this));
+    elseBlock(this);
     if (snapshot1.continuation !== "next") {
-      a.push(snapshot1);
-      return a;
+      this.#snapshots.push(snapshot1);
+      return;
     }
     if (this.#continuation === "next") {
       this.join(snapshot1);
     } else {
-      a.push(this.swap(snapshot1));
+      this.#snapshots.push(this.swap(snapshot1));
     }
-    return a;
   }
 
   ifThenElse(
     condition: Expression,
-    thenBlock: (_: Model) => Snapshot[],
-    elseBlock: (_: Model) => Snapshot[],
-  ): Snapshot[] {
+    thenBlock: (_: Model) => void,
+    elseBlock: (_: Model) => void,
+  ): void {
     switch (condition.token.type) {
       case TokenType.AND: {
         const { left, right } = condition as Binary;
