@@ -1,5 +1,28 @@
 # Scryptic
 
+## 2024-03-15
+
+### todo
+
+- ~~avoid duplication in if-then-else with else continuations.~~
+- add printer
+- add tests and debug!
+- track variables
+- try missing optimisations
+
+I should probably come up with a data structure that can more efficiently
+represent this collection of alternatives that is created every time, and
+perhaps make it immutable, instead of of the mutable mess I have now.
+
+Combine the kind of the continuation, the label and the variable name into a
+key, and use that in the tree structure.
+
+The keys could be like this `[continuation,label,name]`...
+
+The operations works mostly on the values, so it might be better to work with
+nested maps. `RBT<Value> => RBT<RBT<Value>>` A typical continuation should
+remove the subtrees though, as my red black tree cannot do that yet.
+
 ## 2024-03-13
 
 ### object literal form

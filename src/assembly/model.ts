@@ -1,5 +1,4 @@
 import { RedBlackTreeMap } from "../redBlack2.ts";
-import { Label } from "./class.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
@@ -97,7 +96,8 @@ type Continuation =
   | "break"
   | ["break", string]
   | "continue"
-  | ["continue", string];
+  | ["continue", string]
+  | ["goto", Expression];
 
 export class Model {
   #world: Value = -1; // bad idea?
@@ -251,9 +251,13 @@ export class Model {
         return Kind.This;
       case TokenType.VAR: {
         const { key: { name } } = expression as VarDeclaration;
-        if (this.#get(name) !== undefined) {
-          // no access to token, alas
-          throw Model.#error(expression.token, "variable override");
+        const check = this.#get(name);
+        if (check !== undefined) {
+          const token = this.entries[check].token;
+          throw Model.#error(
+            expression.token,
+            `variable already defined at ${[token.line, token.column]}`,
+          );
         }
         this.#set(name, Kind.Undefined);
         return Kind.Undefined;
@@ -496,21 +500,58 @@ export class Model {
     elseBlock: (_: Model) => void,
   ) {
     const value = this.value(condition);
-    const snapshot0 = this.snapshot();
+    const that = new Model();
+    that.swap(this.snapshot());
     this.#world = this.#enter(condition.token, [Kind.Then, value], this.#world);
     thenBlock(this);
-    const snapshot1 = this.swap(snapshot0);
-    this.#world = this.#enter(condition.token, [Kind.Else, value], this.#world);
-    elseBlock(this);
-    if (snapshot1.continuation !== "next") {
-      this.#snapshots.push(snapshot1);
-      return;
-    }
-    if (this.#continuation === "next") {
-      this.join(snapshot1);
+    that.#world = this.#enter(condition.token, [Kind.Else, value], this.#world);
+    elseBlock(that);
+    if (that.#continuation === "next") {
+      if (this.#continuation === "next") {
+        this.join(that.snapshot());
+      } else {
+        this.#snapshots.push(this.swap(that.snapshot()));
+      }
     } else {
-      this.#snapshots.push(this.swap(snapshot1));
+      this.#snapshots.push(that.snapshot());
     }
+    this.#snapshots.push(...that.#snapshots);
+    return;
+  }
+
+  branch(condition: Expression, block: (_: Model) => void): void {
+    const snapshots: Snapshot[] = this.#snapshots;
+    this.#snapshots = [];
+    let that: Model | null = null;
+    for (const snapshot of snapshots) {
+      if (
+        snapshot.continuation[0] === "goto" &&
+        snapshot.continuation[1] === condition
+      ) {
+        if (that === null) {
+          that = new Model();
+          that.swap(snapshot);
+        } else {
+          that.join(snapshot);
+        }
+      } else if (snapshot.continuation === "next") {
+        continue;
+      } else {
+        this.#snapshots.push(snapshot);
+      }
+    }
+    if (that === null) return;
+    block(that);
+    if (that.#continuation === "next") {
+      if (this.#continuation === "next") {
+        this.join(that.snapshot());
+      } else {
+        this.#snapshots.push(this.swap(that.snapshot()));
+      }
+    } else {
+      this.#snapshots.push(that.snapshot());
+    }
+    this.#snapshots.push(...that.#snapshots);
   }
 
   ifThenElse(
@@ -521,20 +562,27 @@ export class Model {
     switch (condition.token.type) {
       case TokenType.AND: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(
+        // replace the else block with the continuation
+        const elseBlock2 = (it: Model) => {
+          it.#continuation = ["goto", condition];
+        };
+        // do the expression
+        this.ifThenElse(
           left,
-          (it) => it.ifThenElse(right, thenBlock, elseBlock),
-          elseBlock,
+          (it) => it.ifThenElse(right, thenBlock, elseBlock2),
+          elseBlock2,
         );
+        this.branch(condition, elseBlock);
+        return;
       }
       case TokenType.BE: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(right, (model) => {
-          model.assign(condition.token, left, new Literal(right.token, true));
-          return thenBlock(model);
-        }, (model) => {
-          model.assign(condition.token, left, new Literal(right.token, false));
-          return elseBlock(model);
+        return this.ifThenElse(right, (it) => {
+          it.assign(condition.token, left, new Literal(right.token, true));
+          return thenBlock(it);
+        }, (it) => {
+          it.assign(condition.token, left, new Literal(right.token, false));
+          return elseBlock(it);
         });
       }
       case TokenType.DOT:
@@ -573,11 +621,16 @@ export class Model {
         );
       case TokenType.OR: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(
+        const thenBlock2 = (it: Model) => {
+          it.#continuation = ["goto", condition];
+        };
+        this.ifThenElse(
           left,
-          thenBlock,
-          (it) => it.ifThenElse(right, thenBlock, elseBlock),
+          thenBlock2,
+          (it) => it.ifThenElse(right, thenBlock2, elseBlock),
         );
+        this.branch(condition, thenBlock);
+        return;
       }
       case TokenType.TRUE:
         return thenBlock(this);

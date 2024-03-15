@@ -32,7 +32,6 @@ type X<A> = [
   Black<A> | Empty,
 ];
 
-/* extends  */
 // deno-lint-ignore no-explicit-any
 class NonEmpty<A, B extends NonEmpty<A, any>> {
   readonly _left: B | Empty;
