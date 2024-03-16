@@ -131,9 +131,9 @@ function add<A>(key: string, value: A, node?: Node<A>): Node<A> {
 
 function* entries<A>(node?: Node<A>): Generator<[string, A]> {
   if (!node) return;
-  for (const pair of entries(node.right)) yield pair;
+  yield* entries(node.right);
   yield [node.key, node.value];
-  for (const pair of entries(node.left)) yield pair;
+  yield* entries(node.left);
 }
 
 export class RedBlackTreeMap<A> {
@@ -153,9 +153,7 @@ export class RedBlackTreeMap<A> {
     return copy;
   }
   *entries(): Generator<[string, A]> {
-    for (const e of entries(this.node)) {
-      yield e;
-    }
+    yield* entries(this.node);
   }
   object(): { [_: string]: A } {
     const y: { [_: string]: A } = {};

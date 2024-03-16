@@ -55,13 +55,9 @@ class NonEmpty<A, B extends NonEmpty<A, any>> {
     if (key > this._key) return this._right.get(key);
   }
   *entries(): Generator<[string, A]> {
-    if (!(this._left instanceof Empty)) {
-      for (const p of this._left.entries()) yield p;
-    }
+    yield* this._left.entries();
     yield [this._key, this._value];
-    if (!(this._right instanceof Empty)) {
-      for (const p of this._right.entries()) yield p;
-    }
+    yield* this._right.entries();
   }
   object(): { [_: string]: A } {
     const y: { [_: string]: A } = {};

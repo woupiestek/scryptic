@@ -9,6 +9,17 @@
 - track variables
 - try missing optimisations
 
+### immutability
+
+Expressions have a value, but contain assignments and declarations, that could
+have side effects. The model currently handles this with actual side effects. I
+don't like it.
+
+`Values = { values?:RBT<Value> value?: Value, world?: Value }` Main complain
+about RBT is that there is no way to prioritize popular keys.
+`Alternatives = { break: RBT<Values>, continue:RBT<Values>, return?: Values, next?: Values }`
+So maybe implement the splay tree instead?
+
 ## 2024-03-15
 
 ### todo

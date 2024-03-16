@@ -18,7 +18,7 @@ class Cons<A> {
   ) {}
   *entries(): Generator<A> {
     yield this.head;
-    for (const a of this.tail.entries()) return a;
+    yield* this.tail.entries();
   }
   prepend<B>(head: B) {
     return new Cons<A | B>(head, this);

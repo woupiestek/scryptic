@@ -59,13 +59,9 @@ class NonEmpty<A> {
   }
 
   *entries(): Generator<[string, A]> {
-    if (!(this.left instanceof Empty)) {
-      for (const p of this.left.entries()) yield p;
-    }
+    yield* this.left.entries();
     yield [this.key, this.value];
-    if (!(this.right instanceof Empty)) {
-      for (const p of this.right.entries()) yield p;
-    }
+    yield* this.right.entries();
   }
 
   object(): { [_: string]: A } {
