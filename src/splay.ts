@@ -14,6 +14,77 @@ class NonEmpty<A> {
 
 type Tree<A> = Empty | NonEmpty<A>;
 
+// basically combine partition and deleteMin in one.
+// well, not entirely
+function rotate<A>(key: string, tree: NonEmpty<A>): NonEmpty<A> {
+  if (tree.key < key && tree.right instanceof NonEmpty) {
+    if (tree.right.key < key && tree.right.right instanceof NonEmpty) {
+      const rr = rotate(key, tree.right.right);
+      return new NonEmpty(
+        new NonEmpty(
+          new NonEmpty(tree.left, tree.key, tree.value, tree.right.left),
+          tree.right.key,
+          tree.right.value,
+          rr.left,
+        ),
+        rr.key,
+        rr.value,
+        rr.right,
+      );
+    }
+    if (tree.right.key > key && tree.right.left instanceof NonEmpty) {
+      const rl = rotate(key, tree.right.left);
+      return new NonEmpty(tree.left, tree.key, tree.value, rl.left),
+        rl.key,
+        rl.value,
+        new NonEmpty(
+          rl.right,
+          tree.right.key,
+          tree.right.value,
+          tree.right.right,
+        );
+    }
+    return new NonEmpty(
+      new NonEmpty(tree.left, tree.key, tree.value, tree.right.left),
+      tree.right.key,
+      tree.right.value,
+      tree.right.right,
+    );
+  }
+  if (tree.key > key && tree.left instanceof NonEmpty) {
+    if (tree.left.key < key && tree.left.right instanceof NonEmpty) {
+      const lr = rotate(key, tree.left.right);
+      return new NonEmpty(
+        new NonEmpty(tree.left.left, tree.left.key, tree.left.value, lr.right),
+        lr.key,
+        lr.value,
+        new NonEmpty(lr.right, tree.key, tree.value, tree.right),
+      );
+    }
+    if (tree.left.key > key && tree.left.left instanceof NonEmpty) {
+      const ll = rotate(key, tree.left.left);
+      return new NonEmpty(
+        ll.left,
+        ll.key,
+        ll.value,
+        new NonEmpty(
+          ll.right,
+          tree.left.key,
+          tree.left.value,
+          new NonEmpty(tree.left.right, tree.key, tree.value, tree.right),
+        ),
+      );
+    }
+    return new NonEmpty(
+      tree.left.left,
+      tree.left.key,
+      tree.left.value,
+      new NonEmpty(tree.left.right, tree.key, tree.value, tree.right),
+    );
+  }
+  return tree;
+}
+
 function partition<A>(key: string, tree: Tree<A>): [Tree<A>, Tree<A>, A?] {
   if (tree instanceof Empty) return [tree, tree];
   const { left, right } = tree;
@@ -27,7 +98,7 @@ function partition<A>(key: string, tree: Tree<A>): [Tree<A>, Tree<A>, A?] {
         right.value,
       ];
     }
-    if (right.key <= key) {
+    if (right.key < key) {
       const [small, big, value] = partition(key, right.right);
       return [
         new NonEmpty(
@@ -134,6 +205,7 @@ export class SplayMap<A> {
     if (this.tree.key === key) return this.tree.value;
     const [small, big, value] = partition(key, this.tree);
     if (value === undefined) {
+      // seems like a waste, but I don't know what else to do.
       return;
     }
     this.tree = new NonEmpty(small, key, value, big);

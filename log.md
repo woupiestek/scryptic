@@ -24,6 +24,37 @@ So maybe implement the splay tree instead?
 
 I seem to have cracked it.
 
+### block arguments
+
+This seems closer to the executable control flow graph idea from before than
+what I have now. What is the difference?
+
+Variable elimination, but dealing with non linear stuff yet another way.
+
+Each basic block is an object. What does it contain?
+
+See the examples are text again, not data structures. I don't see how this helps
+with the desired optimisation.
+
+Every basic block still ends in some jump, but the collection of expression
+leading up it can be transform into this map fo values.
+
+At the start of each block, however, a list of arguments need to be provided, Or
+the expressions cannot be build up as usual.
+
+The phis make it possible to colect different possible values into one. The
+block argument is that vraibles are not eliminated, so their values can be
+assigned at the start. So where there was a phi, there now is a variable.
+
+### optimisations
+
+Reminder of the goals here:
+
+- constant propagation
+- dead code elemination
+- global value numbering
+- register allocation
+
 ## 2024-03-15
 
 ### todo
