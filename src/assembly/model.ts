@@ -1,4 +1,4 @@
-import { RedBlackTreeMap } from "../redBlack2.ts";
+import { RedBlackTreeMap } from "../redBlack3.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,

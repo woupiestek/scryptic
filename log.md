@@ -4,6 +4,15 @@
 
 ### todo
 
+- add printer
+- add tests and debug!
+- track variables
+- try missing optimisations
+
+## 2024-03-15
+
+### todo
+
 - ~~avoid duplication in if-then-else with else continuations.~~
 - add printer
 - add tests and debug!

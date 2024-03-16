@@ -2,9 +2,6 @@ class Empty {
   readonly red = false;
   static readonly instance = new this();
   private constructor() {}
-  _isBalanced() {
-    return true;
-  }
   get(_: string): undefined {
     return undefined;
   }
@@ -22,40 +19,55 @@ class Empty {
     return new NonEmpty<A>(true, this, key, value, this);
   }
   add<A>(key: string, value: A): RedBlackTreeMap<A> {
-    return new NonEmpty<A>(true, this, key, value, this);
+    return new NonEmpty<A>(false, this, key, value, this);
   }
-  removeLeast(): undefined {
-    return undefined;
+  blacken() {
+    return this;
   }
 }
 
 class NonEmpty<A> {
   constructor(
     readonly red: boolean,
-    readonly left: NonEmpty<A> | Empty,
+    private readonly left: NonEmpty<A> | Empty,
     readonly key: string,
     readonly value: A,
-    readonly right: NonEmpty<A> | Empty,
+    private readonly right: NonEmpty<A> | Empty,
   ) {}
 
   _isBalanced() {
     return !(this.red && (this.left.red || this.right.red));
   }
 
-  get(key: string): A | undefined {
-    if (key === this.key) return this.value;
-    if (key < this.key) return this.left.get(key);
-    if (key > this.key) return this.right.get(key);
+  blacken() {
+    if (this.red) {
+      return new NonEmpty(false, this.left, this.key, this.value, this.right);
+    }
+    return this;
   }
+
+  static _get<A>(that: RedBlackTreeMap<A>, key: string): A | undefined {
+    for (;;) {
+      if (that instanceof Empty) return undefined;
+      if (that.key === key) return that.value;
+      that = key < that.key ? that.left : that.right;
+    }
+  }
+
+  get(key: string): A | undefined {
+    return NonEmpty._get(this, key);
+  }
+
   *entries(): Generator<[string, A]> {
     if (!(this.left instanceof Empty)) {
-      for (const p of this.left.entries()) return p;
+      for (const p of this.left.entries()) yield p;
     }
     yield [this.key, this.value];
     if (!(this.right instanceof Empty)) {
-      for (const p of this.right.entries()) return p;
+      for (const p of this.right.entries()) yield p;
     }
   }
+
   object(): { [_: string]: A } {
     const y: { [_: string]: A } = {};
     for (const [k, v] of this.entries()) {
@@ -63,6 +75,7 @@ class NonEmpty<A> {
     }
     return y;
   }
+
   toString(): string {
     const y: string[] = [];
     for (const [k, v] of this.entries()) {
@@ -72,10 +85,13 @@ class NonEmpty<A> {
   }
 
   _withLeft<B>(
-    left: NonEmpty<A | B>,
+    left: RedBlackTreeMap<A | B>,
     key = this.key,
     value = this.value,
   ): NonEmpty<A | B> {
+    if (left instanceof Empty || left._isBalanced()) {
+      return new NonEmpty(this.red, left, key, value, this.right);
+    }
     if (left.right.red) {
       return new NonEmpty(
         false,
@@ -97,7 +113,6 @@ class NonEmpty<A> {
         ),
       );
     }
-
     return new NonEmpty(
       false,
       left.left,
@@ -107,7 +122,10 @@ class NonEmpty<A> {
     );
   }
 
-  _withRight<B>(right: NonEmpty<A | B>): NonEmpty<A | B> {
+  _withRight<B>(right: RedBlackTreeMap<A | B>): NonEmpty<A | B> {
+    if (right instanceof Empty || right._isBalanced()) {
+      return new NonEmpty(this.red, this.left, this.key, this.value, right);
+    }
     if (right.left.red) {
       // && !right.right.red
       return new NonEmpty(
@@ -139,116 +157,50 @@ class NonEmpty<A> {
       return new NonEmpty<A | B>(this.red, this.left, key, value, this.right);
     }
     if (key < this.key) {
-      const left = this.left._add(key, value);
-      if (left._isBalanced()) {
-        return new NonEmpty(this.red, left, this.key, this.value, this.right);
-      }
-      return this._withLeft(left);
+      return this._withLeft(this.left._add(key, value));
     }
     // if (key < this.key)
-    const right = this.right._add(key, value);
-    if (right._isBalanced()) {
-      return new NonEmpty(false, this.left, this.key, this.value, right);
-    }
-    return this._withRight(right);
+    return this._withRight(this.right._add(key, value));
   }
 
   add<B>(key: string, value: B): RedBlackTreeMap<A | B> {
-    const x = this._add(key, value);
-    // change to color
-    return new NonEmpty<A | B>(
-      false,
-      x.left,
-      x.key,
-      x.value,
-      x.right,
-    );
+    return this._add(key, value).blacken();
   }
 
-  _removeLeast(): [string, A, RedBlackTreeMap<A>] {
-    if (this.left instanceof Empty) {
-      return [this.key, this.value, this.right];
+  static _removeLeast<A>(that: NonEmpty<A>): [string, A, RedBlackTreeMap<A>] {
+    const reverse: NonEmpty<A>[] = [];
+    while (that.left instanceof NonEmpty) {
+      reverse.push(that);
+      that = that.left;
     }
-    const [k, v, left] = this.left._removeLeast();
-    if (left._isBalanced()) {
-      return [
-        k,
-        v,
-        new NonEmpty(this.red, left, this.key, this.value, this.right),
-      ];
+    const { key, value } = that;
+    let result = that.right;
+    while (reverse.length > 0) {
+      result = (reverse.pop() as NonEmpty<A>)._withLeft(result);
     }
-    return [k, v, this._withLeft(left as NonEmpty<A>)];
+    return [key, value, result];
   }
-  removeLeast(): [string, A, RedBlackTreeMap<A>] {
-    if (this.left instanceof Empty) {
-      return [this.key, this.value, this.right];
-    }
-    const [k, v, left] = this.left._removeLeast();
-    if (left._isBalanced()) {
-      return [
-        k,
-        v,
-        new NonEmpty(this.red, left, this.key, this.value, this.right),
-      ];
-    }
-    return [k, v, this._withLeft(left as NonEmpty<A>)];
-  }
+
   _remove(key: string): RedBlackTreeMap<A> {
     if (key < this.key) {
       if (this.left instanceof Empty) return this;
-      const left = this.left._remove(key);
-      if (!left._isBalanced) {
-        return new NonEmpty(this.red, left, this.key, this.value, this.right);
-      }
-      return this._withLeft<A>(left as NonEmpty<A>);
+      return this._withLeft<A>(this.left._remove(key));
     }
 
     if (key > this.key) {
       if (this.right instanceof Empty) return this;
-      const right = this.right._remove(key);
-      if (right._isBalanced()) {
-        return new NonEmpty(this.red, this.left, this.key, this.value, right);
-      }
-      return this._withLeft(right as NonEmpty<A>);
+      return this._withRight(this.right._remove(key));
     }
-
     // if(key === this.key)
     if (this.left instanceof Empty) {
       return this.right;
     }
-    const [k, v, left] = this.left._removeLeast();
-    if (left._isBalanced()) {
-      return new NonEmpty(this.red, left, k, v, this.right);
-    }
-    return this._withLeft(left as NonEmpty<A>, k, v);
+    const [k, v, left] = NonEmpty._removeLeast(this.left);
+    return this._withLeft(left, k, v);
   }
-  remove(key: string): RedBlackTreeMap<A> {
-    if (key < this.key) {
-      if (this.left instanceof Empty) return this;
-      const left = this.left._remove(key);
-      if (left._isBalanced()) {
-        return new NonEmpty(false, left, this.key, this.value, this.right);
-      }
-      return this._withLeft(left as NonEmpty<A>);
-    }
 
-    if (key > this.key) {
-      if (this.right instanceof Empty) return this;
-      const right = this.right._remove(key);
-      if (right._isBalanced()) {
-        return new NonEmpty(false, this.left, this.key, this.value, right);
-      }
-      return this._withRight(right as NonEmpty<A>);
-    }
-    // if(key === this.key)
-    if (this.left instanceof Empty) {
-      return this.right;
-    }
-    const [k, v, left] = this.left._removeLeast();
-    if (left._isBalanced()) {
-      return new NonEmpty(false, left, k, v, this.right);
-    }
-    return this._withLeft(left as NonEmpty<A>, k, v);
+  remove(key: string): RedBlackTreeMap<A> {
+    return this._remove(key).blacken();
   }
 }
 
