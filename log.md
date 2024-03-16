@@ -20,6 +20,10 @@ about RBT is that there is no way to prioritize popular keys.
 `Alternatives = { break: RBT<Values>, continue:RBT<Values>, return?: Values, next?: Values }`
 So maybe implement the splay tree instead?
 
+### splay and refactor
+
+I seem to have cracked it.
+
 ## 2024-03-15
 
 ### todo

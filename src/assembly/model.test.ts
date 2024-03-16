@@ -1,6 +1,7 @@
 import { assertThrows } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Model } from "./model.ts";
 import { Block, Parser } from "./parser.ts";
+import { SplayMap } from "../splay.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
@@ -14,9 +15,12 @@ function run(input: string) {
   const parseResult = new Parser(input).script();
 
   const model = new Model();
-  model.interpret(parseResult.filter((it) => it instanceof Block));
+  const result = model.interpret(
+    SplayMap.empty(),
+    parseResult.filter((it) => it instanceof Block),
+  );
   console.log(
-    model.snapshot(),
+    result.toString(),
     model.entries.map((it) => it.toString()),
   );
 }
@@ -28,7 +32,10 @@ function throws(input: string) {
     const parseResult = new Parser(input).script();
     const model = new Model();
     assertThrows(() =>
-      model.interpret(parseResult.filter((it) => it instanceof Block))
+      model.interpret(
+        SplayMap.empty(),
+        parseResult.filter((it) => it instanceof Block),
+      )
     );
   });
 }

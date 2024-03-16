@@ -1,4 +1,4 @@
-import { RedBlackTreeMap } from "../redBlack3.ts";
+import { SplayMap } from "../splay.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
@@ -30,11 +30,9 @@ export enum Kind {
   Log,
   New,
   Phi,
-  Return,
   SetField,
   Then,
   This,
-  Undefined,
 }
 export type Value = number;
 
@@ -57,18 +55,7 @@ type Data =
 export class Entry {
   constructor(
     readonly token: Token,
-    readonly data?:
-      | [Kind.Access, Value, string]
-      | [Kind.Call, Value, Value[]]
-      | [Kind.Comparison, Value, Value]
-      | [Kind.Else, Value]
-      | [Kind.Literal, boolean | string]
-      | [Kind.Log, Value]
-      | [Kind.New, string]
-      | [Kind.Phi, Value[]]
-      | [Kind.SetField, Value, string, Value]
-      | [Kind.Then, Value]
-      | [Kind.This],
+    readonly data?: Data,
     readonly world?: Value,
   ) {}
 
@@ -83,57 +70,19 @@ export class Entry {
   }
 }
 
-type Snapshot = {
-  world: Value;
-  values: RedBlackTreeMap<Value>;
-  continuation: Continuation;
+type Values = SplayMap<Value>;
+type Alternatives = SplayMap<Values>;
+const KEYS = {
+  break: "<break>",
+  continue: "<continue>",
+  return: "<return>",
+  next: "<next>",
+  value: "<value>",
+  world: "<world>",
 };
 
-type Continuation =
-  | "next"
-  | "return"
-  | ["return", Value]
-  | "break"
-  | ["break", string]
-  | "continue"
-  | ["continue", string]
-  | ["goto", Expression];
-
 export class Model {
-  #world: Value = -1; // bad idea?
-  #values: RedBlackTreeMap<Value> = RedBlackTreeMap.EMPTY;
-  #continuation: Continuation = "next";
-  #snapshots: Snapshot[] = [];
-
   readonly entries: Entry[] = [];
-  #data(index: number): Data | undefined {
-    return this.entries[index].data;
-  }
-
-  snapshot(): Snapshot {
-    return {
-      world: this.#world,
-      values: this.#values,
-      continuation: this.#continuation,
-    };
-  }
-
-  swap({ world, values, continuation }: Snapshot): Snapshot {
-    const snapshot = this.snapshot();
-    this.#world = world;
-    this.#values = values;
-    this.#continuation = continuation;
-    return snapshot;
-  }
-
-  #get(key: string): Value | undefined {
-    return this.#values.get(key);
-  }
-
-  #set(key: string, value: Value) {
-    this.#values = this.#values.add(key, value);
-  }
-
   static #error(token: Token, msg: string) {
     return new Error(
       `Compile error at ${
@@ -142,77 +91,140 @@ export class Model {
     );
   }
 
-  #enter(token: Token, data: Data, world?: Value): number {
+  #enter(token: Token, data?: Data, world?: Value): number {
     return this.entries.push(new Entry(token, data, world)) - 1;
   }
 
-  assign(token: Token, left: Expression, right: Expression): Value {
+  assign(
+    values: Values,
+    token: Token,
+    left: Expression,
+    right: Expression,
+  ): Alternatives {
     switch (left.token.type) {
       case TokenType.IDENTIFIER: {
         const { name } = left as Variable;
-        if (this.#get(name) === undefined) {
+        const value = values.select(name);
+        if (value === undefined) {
           throw Model.#error(token, "Undeclared variable");
         }
-        const vr = this.value(right);
-        this.#set(name, vr);
-        return vr;
+        const a = this.expression(values, right);
+        const b = Model.value(a);
+        return Model.lift(values.insert(name, b).insert(KEYS.value, b));
       }
       case TokenType.DOT: {
         const { token, object, field } = left as Access;
-        const a = this.value(object);
-        const b = this.value(right);
-        // no trying to track changes to object (yet)
-        this.#world = this.#enter(
-          token,
-          [Kind.SetField, a, field, b],
-          this.#world,
+        const a = this.expression(values, object);
+        const b = this.expression(
+          a.select(KEYS.next) || SplayMap.empty(),
+          right,
         );
-        return b;
+        return Model.set(
+          b,
+          KEYS.world,
+          this.#enter(
+            token,
+            [Kind.SetField, Model.value(a), field, Model.value(b)],
+            Model.world(b),
+          ),
+        );
       }
       case TokenType.VAR: {
         const { key: { name } } = left as VarDeclaration;
-        if (this.#get(name) !== undefined) {
-          // no access to other variables token token, alas
-          throw Model.#error(token, "variable override");
+        const value = values.select(name);
+        if (value !== undefined) {
+          const token2 = this.entries[value].token;
+          throw Model.#error(
+            token,
+            `Variable already declared at [${token2.line},${token2.column}]`,
+          );
         }
-        const vr = this.value(right);
-        this.#set(name, vr);
-        return vr;
+        const b = this.expression(values, right);
+        return Model.set(
+          Model.set(b, name, Model.value(b)),
+          KEYS.value,
+          Model.value(b),
+        );
       }
       default:
         throw Model.#error(token, "Illegal assignment");
     }
   }
 
-  value(expression: Expression): Value {
+  static value(alternatives: Alternatives): Value {
+    return Model.get(alternatives, KEYS.value);
+  }
+  static world(alternatives: Alternatives): Value {
+    return Model.get(alternatives, KEYS.world);
+  }
+  static get(alternatives: Alternatives, key: string): Value {
+    return alternatives.select(KEYS.next)?.select(key) ?? -1;
+  }
+  static next(alternatives: Alternatives): Values {
+    return alternatives.select(KEYS.next) || SplayMap.empty();
+  }
+  static set(
+    alternatives: Alternatives,
+    key: string,
+    value: Value,
+  ): Alternatives {
+    return Model.flatMap(
+      alternatives,
+      (next) => Model.lift(next.insert(key, value)),
+    );
+  }
+
+  static lift(values: Values): Alternatives {
+    return SplayMap.empty<Values>().insert(KEYS.next, values);
+  }
+
+  static flatMap(
+    alternatives: Alternatives,
+    f: (values: Values) => Alternatives,
+  ): Alternatives {
+    const x = f(Model.next(alternatives));
+    return alternatives.delete(KEYS.next).merge(x);
+  }
+
+  expression(values: Values, expression: Expression): Alternatives {
     switch (expression.token.type) {
       case TokenType.BE: {
         const { token, left, right } = expression as Binary;
-        return this.assign(token, left, right);
+        return this.assign(values, token, left, right);
       }
       case TokenType.DOT: {
         const { token, object, field } = expression as Access;
-        return this.#enter(
-          token,
-          [Kind.Access, this.value(object), field],
-          this.#world,
+        const o = this.expression(values, object);
+        return Model.set(
+          o,
+          KEYS.value,
+          this.#enter(
+            token,
+            [Kind.Access, Model.value(o), field],
+            Model.get(o, KEYS.world),
+          ),
         );
       }
       case TokenType.FALSE:
       case TokenType.STRING:
       case TokenType.TRUE: {
         const { token, value } = expression as Literal;
-        return this.#enter(token, [Kind.Literal, value]);
+        return Model.lift(
+          values.insert(
+            KEYS.value,
+            this.#enter(token, [Kind.Literal, value]),
+          ),
+        );
       }
       case TokenType.IDENTIFIER: {
-        const value = this.#get((expression as Variable).name);
+        const value = values.select((expression as Variable).name);
         if (value === undefined) {
           throw Model.#error(expression.token, "Undeclared variable");
         }
-        if (value === Kind.Undefined) {
+        if (this.entries[value].data === undefined) {
           throw Model.#error(expression.token, "Unassigned variable");
         }
-        return value;
+        return Model.lift(values.insert(KEYS.value, value));
       }
       case TokenType.IS_NOT:
       case TokenType.IS:
@@ -221,37 +233,61 @@ export class Model {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE: {
         const { token, left, right } = expression as Binary;
-        return this.#enter(token, [
-          Kind.Comparison,
-          this.value(left),
-          this.value(right),
-        ]);
+        const l = this.expression(values, left);
+        const r = Model.flatMap(l, (it) => this.expression(it, right));
+        return Model.set(
+          r,
+          KEYS.value,
+          this.#enter(token, [
+            Kind.Comparison,
+            Model.value(l),
+            Model.value(r),
+          ]),
+        );
       }
       case TokenType.LOG: {
         const { token, value } = expression as Log;
-        const value2 = this.value(value);
-        this.#world = this.#enter(token, [Kind.Log, value2], this.#world);
-        return value2;
+        const values2 = this.expression(values, value);
+        return Model.set(
+          values2,
+          KEYS.world,
+          this.#enter(
+            token,
+            [Kind.Log, Model.value(values2)],
+            Model.world(values2),
+          ),
+        );
       }
       case TokenType.NEW: {
         const { token, klaz } = expression as New;
-        return this.#enter(token, [Kind.New, klaz]);
+        return Model.lift(
+          values.insert(KEYS.value, this.#enter(token, [Kind.New, klaz])),
+        );
       }
       case TokenType.PAREN_LEFT: {
         const { token, operator, operands } = expression as Call;
+        let w = this.expression(values, operator);
+        const x = Model.value(w);
+        const y: Value[] = [];
+        for (const operand of operands) {
+          w = w.merge(this.expression(Model.next(w), operand));
+          y.push(Model.value(w));
+        }
         const value: Value = this.#enter(token, [
           Kind.Call,
-          this.value(operator),
-          operands.map((it) => this.value(it)),
-        ], this.#world);
-        this.#world = value;
-        return value;
+          x,
+          y,
+        ], Model.world(w));
+        return Model.set(Model.set(w, KEYS.world, value), KEYS.value, value);
       }
       case TokenType.THIS:
-        return Kind.This;
+        return Model.lift(values.insert(
+          KEYS.value,
+          this.#enter(expression.token, [Kind.This]),
+        ));
       case TokenType.VAR: {
         const { key: { name } } = expression as VarDeclaration;
-        const check = this.#get(name);
+        const check = values.select(name);
         if (check !== undefined) {
           const token = this.entries[check].token;
           throw Model.#error(
@@ -259,331 +295,317 @@ export class Model {
             `variable already defined at ${[token.line, token.column]}`,
           );
         }
-        this.#set(name, Kind.Undefined);
-        return Kind.Undefined;
+        const u = this.#enter(expression.token);
+        return Model.lift(values.insert(name, u).insert(KEYS.value, u));
       }
       case TokenType.AND: {
         const { left, right } = expression as Binary;
-        let value: Value = Kind.Undefined;
-        this.ifThenElse(
+        return this.ifThenElse(
           left,
-          (it: Model) => value = it.value(right),
-          Model.#noop,
+          (it: Values) => this.expression(it, right),
+          (it: Values) =>
+            Model.lift(
+              it.insert(
+                KEYS.value,
+                this.#enter(expression.token, [Kind.Literal, false]),
+              ),
+            ),
+          values,
         );
-        return value;
       }
       case TokenType.OR: {
         const { left, right } = expression as Binary;
-        let value: Value = Kind.Undefined;
-        this.ifThenElse(left, Model.#noop, (it) => value = it.value(right));
-        return value;
+        return this.ifThenElse(
+          left,
+          (it: Values) =>
+            Model.lift(
+              it.insert(
+                KEYS.value,
+                this.#enter(expression.token, [Kind.Literal, true]),
+              ),
+            ),
+          (it) => this.expression(it, right),
+          values,
+        );
       }
       default:
         throw Model.#error(expression.token, "Illegal expression in boolean");
     }
   }
 
-  static #noop: (_: Model) => void = (_) => {};
-
-  #block(block: Block): void {
-    this.interpret(block.statements);
+  #block(values: Values, block: Block): Alternatives {
+    let alternatives = this.interpret(values, block.statements);
+    const next = alternatives.select(KEYS.next);
+    if (next === undefined) return alternatives;
     if (block.jump) {
+      //alternatives = alternatives.delete(KEYS.next);
       switch (block.jump.token.type) {
         case TokenType.BREAK: {
           const { label } = block.jump as Break;
-          if (label) this.#continuation = ["break", label];
-          else this.#continuation = "break";
-          break;
+          return alternatives.delete(KEYS.next).insert(
+            label ? `<break ${label}>` : KEYS.break,
+            next,
+          );
         }
         case TokenType.CONTINUE: {
           const { label } = block.jump as Continue;
-          if (label) this.#continuation = ["continue", label];
-          else this.#continuation = "continue";
-          break;
+          return alternatives.delete(KEYS.next).insert(
+            label ? `<continue ${label}>` : KEYS.continue,
+            next,
+          );
         }
         case TokenType.RETURN: {
           const { expression } = block.jump as Return;
-          if (expression === undefined) this.#continuation = "return";
-          else this.#continuation = ["return", this.value(expression)];
-          break;
+          if (expression === undefined) {
+            return alternatives.delete(KEYS.next).insert(KEYS.return, next);
+          }
+          alternatives = Model.flatMap(
+            alternatives,
+            (next) => this.expression(next, expression),
+          );
+          const _next = Model.next(alternatives);
+          return alternatives.delete(KEYS.next).insert(KEYS.return, _next);
         }
       }
     }
+    return alternatives;
   }
 
-  interpret(statements: Statement[]): void {
-    for (let i = 0; i < statements.length; i++) {
-      const statement = statements[i];
-      switch (statement.token.type) {
-        case TokenType.AND: {
-          const { left, right } = statement as Binary;
-          this.ifThenElse(
-            left,
-            (it) => it.value(right),
-            Model.#noop,
+  phi(left: Values, right: Values): Values {
+    for (const [k, v] of right.entries()) {
+      const value = left.select(k);
+      if (value === undefined) {
+        left = left.insert(k, v);
+      } else {
+        const entry = this.entries[value];
+        if (entry.data?.[0] === Kind.Phi) {
+          entry.data[1].push(v);
+        } else {
+          left = left.insert(
+            k,
+            this.#enter(entry.token, [Kind.Phi, [value, v]]),
           );
-          // no jump expected
-          continue;
         }
+      }
+    }
+    return left;
+  }
+
+  interpret(values: Values, statements: Statement[]): Alternatives {
+    let alternatives = Model.lift(values);
+    for (const statement of statements) {
+      switch (statement.token.type) {
         case TokenType.BRACE_LEFT: {
           // todo: delete variables out of scope
-          this.#block(
-            statement as Block,
+          alternatives = Model.flatMap(
+            alternatives,
+            (next) => this.#block(next, statement as Block),
           );
-          if (this.#continuation === "next") continue;
-          else return;
+          if (alternatives.select(KEYS.next) === undefined) return alternatives;
+          continue;
         }
         case TokenType.IF: {
           const { condition, onTrue, onFalse } = statement as IfStatement;
-          this.ifThenElse(
-            condition,
-            (it) => it.#block(onTrue),
-            onFalse ? (it) => it.#block(onFalse) : Model.#noop,
-          );
-          if (this.#continuation === "next") {
-            continue;
-          }
-          return;
+          alternatives = Model.flatMap(alternatives, (next) =>
+            this.ifThenElse(
+              condition,
+              (it) => this.#block(it, onTrue),
+              onFalse ? (it) => this.#block(it, onFalse) : Model.lift,
+              next,
+            ));
+          if (alternatives.select(KEYS.next) === undefined) return alternatives;
+          continue;
         }
         case TokenType.WHILE: {
           // it actually starts with creating seemingly pointless joins and phonies
-          const worlds = [this.#world];
-          this.#world = this.#enter(statement.token, [Kind.Phi, worlds]);
           // it is the same idea though.
           const phonies: { [_: string]: [Value] } = {};
           // the painful one...
           // varaibles are not tracked, which is why we need so many phonies here.
-          let values: RedBlackTreeMap<Value> = RedBlackTreeMap.EMPTY;
-          for (const [k, v] of this.#values.entries()) {
+          let values: Values = SplayMap.empty();
+          for (const [k, v] of Model.next(alternatives).entries()) {
             phonies[k] = [v];
-            values = values.add(
+            values = values.insert(
               k,
               this.#enter(statement.token, [Kind.Phi, phonies[k]]),
             );
           }
-          this.#values = values;
+          alternatives = alternatives.insert(KEYS.next, values);
           // ready
           const { condition, onTrue, label } = statement as WhileStatement;
-          let snapshot0;
-          this.ifThenElse(condition, (it) => {
-            snapshot0 = it.snapshot();
-            it.#block(onTrue);
-            // first solution: insert a continue statement if not there yet.
-            if (it.#continuation === "next") {
-              it.#continuation = "continue";
-            }
-          }, Model.#noop);
+          alternatives = Model.flatMap(
+            alternatives,
+            (next) =>
+              this.ifThenElse(
+                condition,
+                (it) => {
+                  const alt = this.#block(it, onTrue);
+                  const next = alt.select(KEYS.next);
+                  if (next === undefined) return alt;
+                  return alt.delete(KEYS.next).insert(KEYS.continue, next);
+                },
+                Model.lift,
+                next,
+              ),
+          );
 
-          if (snapshot0) {
-            this.#snapshots.push(this.swap(snapshot0));
-          }
-          const snapshots: Snapshot[] = this.#snapshots;
-          this.#snapshots = [];
-          for (const snapshot of snapshots) {
-            switch (snapshot.continuation) {
-              case "break":
-              case "next":
-                // shouldn't the this check be done first?
-                this.join(snapshot);
-                continue;
-              case "continue":
-                worlds.push(snapshot.world);
-                for (const [k, v] of snapshot.values.entries()) {
-                  phonies[k]?.push(v);
-                }
-                continue;
-              case "return":
-                this.#snapshots.push(snapshot);
-                continue;
-              default:
-                break;
-            }
-            switch (snapshot.continuation[0]) {
-              case "break":
-                if (snapshot.continuation[1] === label) {
-                  // shouldn't the this check be done first?
-                  this.join(snapshot);
-                } else {
-                  this.#snapshots.push(snapshot);
-                }
-                continue;
-              case "return":
-                this.#snapshots.push(snapshot);
-                continue;
-              case "continue":
-                if (snapshot.continuation[1] === label) {
-                  worlds.push(snapshot.world);
-                  for (const [k, v] of snapshot.values.entries()) {
-                    phonies[k]?.push(v);
-                  }
-                } else {
-                  this.#snapshots.push(snapshot);
-                }
-                continue;
-              default:
-                throw Model.#error(statement.token, "Invalid statement");
+          // do we get a payoff now?
+          const cont = alternatives.select(KEYS.continue);
+          if (cont !== undefined) {
+            alternatives = alternatives.delete(KEYS.continue);
+            for (const [k, v] of Object.entries(phonies)) {
+              const w = cont.select(k);
+              if (w !== undefined) v.push(w);
             }
           }
-          // forgot about this...
-          switch (this.#continuation) {
-            case "break":
-            case "continue":
-              this.#continuation = "next";
-              continue;
-            case "next":
-              continue;
-            case "return":
-              return;
-            default:
-              break;
+          if (label !== undefined) {
+            const key = `<continue ${label}>`;
+            const cl = alternatives.select(key);
+            if (cl !== undefined) {
+              alternatives = alternatives.delete(key);
+              for (const [k, v] of Object.entries(phonies)) {
+                const w = cl.select(k);
+                if (w !== undefined) v.push(w);
+              }
+            }
           }
-          switch (this.#continuation[0]) {
-            case "break":
-            case "continue":
-              if (this.#continuation[1] === label) {
-                this.#continuation = "next";
-                continue;
-              } else return;
-            case "return":
-              return;
-            default:
-              break;
+
+          // second jump target after the loop
+          const br = alternatives.select(KEYS.break);
+          if (br !== undefined) {
+            alternatives = alternatives.delete(KEYS.break).insert(
+              KEYS.next,
+              this.phi(Model.next(alternatives), br),
+            );
           }
-          throw Model.#error(statement.token, "Invalid statement");
+          if (label !== undefined) {
+            const key = `<break ${label}>`;
+            const brl = alternatives.select(key);
+            if (brl !== undefined) {
+              alternatives = alternatives.delete(key).insert(
+                KEYS.next,
+                this.phi(Model.next(alternatives), brl),
+              );
+            }
+          }
+
+          if (alternatives.select(KEYS.next) === undefined) return alternatives;
+          continue;
         }
         default:
-          this.value(statement as Expression);
+          alternatives = Model.flatMap(
+            alternatives,
+            (next) => this.expression(next, statement as Expression),
+          );
           continue;
       }
     }
+    return alternatives;
   }
 
-  join(that: Snapshot) {
-    if (this.#world !== that.world) {
-      const data = this.entries[this.#world].data;
-      if (data?.[0] === Kind.Phi) {
-        data[1].push(that.world);
+  par(left: Alternatives, right: Alternatives): Alternatives {
+    for (const [k, v] of right.entries()) {
+      const valT = left.select(k);
+      if (valT === undefined) {
+        left = left.insert(k, v);
       } else {
-        this.#world = this.#enter(this.entries[this.#world].token, [Kind.Phi, [
-          this.#world,
-          that.world,
-        ]]);
+        left = left.insert(k, this.phi(valT, v));
       }
     }
-
-    // no adjustment of values if that is not defined?
-    // what are we recording anyway?
-    for (const [k, v] of this.#values.entries()) {
-      const w = that.values.get(k);
-      if (w === undefined || w === v) {
-        continue;
-      }
-      const data = this.#data(v);
-      if (data?.[0] === Kind.Phi) {
-        data[1].push(w);
-      } else {
-        this.#set(k, this.#enter(this.entries[v].token, [Kind.Phi, [v, w]]));
-      }
-    }
-
-    for (const [k, v] of that.values.entries()) {
-      const u = this.#get(k);
-      if (u === undefined) {
-        this.#set(k, v);
-      }
-    }
+    return left;
   }
 
   __ifThenElse(
     condition: Expression,
-    thenBlock: (_: Model) => void,
-    elseBlock: (_: Model) => void,
-  ) {
-    const value = this.value(condition);
-    const that = new Model();
-    that.swap(this.snapshot());
-    this.#world = this.#enter(condition.token, [Kind.Then, value], this.#world);
-    thenBlock(this);
-    that.#world = this.#enter(condition.token, [Kind.Else, value], this.#world);
-    elseBlock(that);
-    if (that.#continuation === "next") {
-      if (this.#continuation === "next") {
-        this.join(that.snapshot());
-      } else {
-        this.#snapshots.push(this.swap(that.snapshot()));
-      }
-    } else {
-      this.#snapshots.push(that.snapshot());
-    }
-    this.#snapshots.push(...that.#snapshots);
-    return;
-  }
-
-  branch(condition: Expression, block: (_: Model) => void): void {
-    const snapshots: Snapshot[] = this.#snapshots;
-    this.#snapshots = [];
-    let that: Model | null = null;
-    for (const snapshot of snapshots) {
-      if (
-        snapshot.continuation[0] === "goto" &&
-        snapshot.continuation[1] === condition
-      ) {
-        if (that === null) {
-          that = new Model();
-          that.swap(snapshot);
-        } else {
-          that.join(snapshot);
-        }
-      } else if (snapshot.continuation === "next") {
-        continue;
-      } else {
-        this.#snapshots.push(snapshot);
-      }
-    }
-    if (that === null) return;
-    block(that);
-    if (that.#continuation === "next") {
-      if (this.#continuation === "next") {
-        this.join(that.snapshot());
-      } else {
-        this.#snapshots.push(this.swap(that.snapshot()));
-      }
-    } else {
-      this.#snapshots.push(that.snapshot());
-    }
-    this.#snapshots.push(...that.#snapshots);
+    thenBlock: (_: Values) => Alternatives,
+    elseBlock: (_: Values) => Alternatives,
+    values: Values,
+  ): Alternatives {
+    const alt0 = this.expression(values, condition);
+    const altT = Model.flatMap(
+      alt0,
+      (next) =>
+        thenBlock(
+          next.insert(
+            KEYS.world,
+            this.#enter(
+              condition.token,
+              [Kind.Then, Model.value(alt0)],
+              next.select(KEYS.world),
+            ),
+          ),
+        ),
+    );
+    const altF = Model.flatMap(
+      alt0,
+      (next) =>
+        elseBlock(
+          next.insert(
+            KEYS.world,
+            this.#enter(
+              condition.token,
+              [Kind.Else, Model.value(alt0)],
+              next.select(KEYS.world),
+            ),
+          ),
+        ),
+    );
+    return this.par(altT, altF);
   }
 
   ifThenElse(
     condition: Expression,
-    thenBlock: (_: Model) => void,
-    elseBlock: (_: Model) => void,
-  ): void {
+    thenBlock: (_: Values) => Alternatives,
+    elseBlock: (_: Values) => Alternatives,
+    values: Values,
+  ): Alternatives {
     switch (condition.token.type) {
       case TokenType.AND: {
+        const key =
+          `<goto [${condition.token.line},${condition.token.column}]>`;
+        const elseBlock2 = (it: Values) =>
+          SplayMap.empty<Values>().insert(key, it);
         const { left, right } = condition as Binary;
         // replace the else block with the continuation
-        const elseBlock2 = (it: Model) => {
-          it.#continuation = ["goto", condition];
-        };
         // do the expression
-        this.ifThenElse(
+        const alt0 = this.ifThenElse(
           left,
-          (it) => it.ifThenElse(right, thenBlock, elseBlock2),
+          (it) => this.ifThenElse(right, thenBlock, elseBlock2, it),
           elseBlock2,
+          values,
         );
-        this.branch(condition, elseBlock);
-        return;
+        const gt = alt0.select(key);
+        if (gt !== undefined) {
+          return this.par(alt0.delete(key), elseBlock(gt));
+        }
+        return alt0;
       }
       case TokenType.BE: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(right, (it) => {
-          it.assign(condition.token, left, new Literal(right.token, true));
-          return thenBlock(it);
-        }, (it) => {
-          it.assign(condition.token, left, new Literal(right.token, false));
-          return elseBlock(it);
-        });
+        return this.ifThenElse(
+          right,
+          (it) =>
+            Model.flatMap(
+              this.assign(
+                it,
+                condition.token,
+                left,
+                new Literal(right.token, true),
+              ),
+              thenBlock,
+            ),
+          (it) =>
+            Model.flatMap(
+              this.assign(
+                it,
+                condition.token,
+                left,
+                new Literal(right.token, false),
+              ),
+              elseBlock,
+            ),
+          values,
+        );
       }
       case TokenType.DOT:
       case TokenType.IDENTIFIER:
@@ -594,46 +616,58 @@ export class Model {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.PAREN_LEFT:
-        return this.__ifThenElse(condition, thenBlock, elseBlock);
+        return this.__ifThenElse(condition, thenBlock, elseBlock, values);
       case TokenType.FALSE:
-        return elseBlock(this);
+        return elseBlock(values);
       case TokenType.LOG: {
         const { token, value } = condition as Log;
-        return this.ifThenElse(value, (model) => {
-          model.#world = model.#enter(token, [
-            Kind.Log,
-            model.#enter(token, [Kind.Literal, true]),
-          ], this.#world);
-          return thenBlock(model);
-        }, (model) => {
-          model.#world = model.#enter(token, [
-            Kind.Log,
-            model.#enter(token, [Kind.Literal, false]),
-          ], this.#world);
-          return elseBlock(model);
-        });
+        return this.ifThenElse(value, (model) =>
+          thenBlock(
+            model.insert(
+              KEYS.world,
+              this.#enter(token, [
+                Kind.Log,
+                this.#enter(token, [Kind.Literal, true]),
+              ], model.select(KEYS.world)),
+            ),
+          ), (model) =>
+          elseBlock(
+            model.insert(
+              KEYS.world,
+              this.#enter(token, [
+                Kind.Log,
+                this.#enter(token, [Kind.Literal, false]),
+              ], model.select(KEYS.world)),
+            ),
+          ), values);
       }
       case TokenType.NOT:
         return this.ifThenElse(
           (condition as Not).expression,
           elseBlock,
           thenBlock,
+          values,
         );
       case TokenType.OR: {
+        const key =
+          `<goto [${condition.token.line},${condition.token.column}]>`;
+        const thenBlock2 = (it: Values) =>
+          SplayMap.empty<Values>().insert(key, it);
         const { left, right } = condition as Binary;
-        const thenBlock2 = (it: Model) => {
-          it.#continuation = ["goto", condition];
-        };
-        this.ifThenElse(
+        const alt0 = this.ifThenElse(
           left,
           thenBlock2,
-          (it) => it.ifThenElse(right, thenBlock2, elseBlock),
+          (it) => this.ifThenElse(right, thenBlock2, elseBlock, it),
+          values,
         );
-        this.branch(condition, thenBlock);
-        return;
+        const gt = alt0.select(key);
+        if (gt !== undefined) {
+          return this.par(alt0.delete(key), elseBlock(gt));
+        }
+        return alt0;
       }
       case TokenType.TRUE:
-        return thenBlock(this);
+        return thenBlock(values);
       default:
         throw Model.#error(condition.token, "Illegal condition expression");
     }

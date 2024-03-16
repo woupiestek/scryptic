@@ -20,6 +20,13 @@ function partition<A>(key: string, tree: Tree<A>): [Tree<A>, Tree<A>, A?] {
   if (tree.key === key) return [left, right, tree.value];
   if (tree.key < key) {
     if (right instanceof Empty) return [tree, right];
+    if (right.key === key) {
+      return [
+        new NonEmpty(left, tree.key, tree.value, right.left),
+        right.right,
+        right.value,
+      ];
+    }
     if (right.key <= key) {
       const [small, big, value] = partition(key, right.right);
       return [
@@ -41,7 +48,14 @@ function partition<A>(key: string, tree: Tree<A>): [Tree<A>, Tree<A>, A?] {
     ];
   }
   if (left instanceof Empty) return [left, tree];
-  if (left.key <= key) {
+  if (left.key === key) {
+    return [
+      left.left,
+      new NonEmpty(left.right, tree.key, tree.value, right),
+      left.value,
+    ];
+  }
+  if (left.key < key) {
     const [small, big, value] = partition(key, left.right);
     return [
       new NonEmpty(left.left, left.key, left.value, small),
@@ -77,6 +91,17 @@ function deleteMin<A>(tree: NonEmpty<A>): [string, A, Tree<A>] {
   return [key, value, left];
 }
 
+function merge<A, B>(left: Tree<A>, right: Tree<B>): Tree<A | B> {
+  if (right instanceof Empty) return left;
+  const [small, big] = partition(right.key, left);
+  return new NonEmpty(
+    merge(small, right.left),
+    right.key,
+    right.value,
+    merge(big, right.right),
+  );
+}
+
 function* entries<A>(tree: Tree<A>): Generator<[string, A]> {
   if (tree instanceof Empty) return;
   yield* entries(tree.left);
@@ -85,7 +110,10 @@ function* entries<A>(tree: Tree<A>): Generator<[string, A]> {
 }
 
 export class SplayMap<A> {
-  static readonly EMPTY = new this(Empty.INSTANCE);
+  private static readonly EMPTY = new this(Empty.INSTANCE);
+  static empty<A>(): SplayMap<A> {
+    return new SplayMap(Empty.INSTANCE);
+  }
   private constructor(
     private tree: Tree<A>,
   ) {}
@@ -105,8 +133,14 @@ export class SplayMap<A> {
     if (this.tree instanceof Empty) return undefined;
     if (this.tree.key === key) return this.tree.value;
     const [small, big, value] = partition(key, this.tree);
+    if (value === undefined) {
+      return;
+    }
     this.tree = new NonEmpty(small, key, value, big);
     return value;
+  }
+  merge<B>(that: SplayMap<B>): SplayMap<A | B> {
+    return new SplayMap(merge(this.tree, that.tree));
   }
   *entries() {
     yield* entries(this.tree);
@@ -114,7 +148,7 @@ export class SplayMap<A> {
   toString() {
     const ps: string[] = [];
     for (const [k, v] of entries(this.tree)) {
-      ps.push(`${k}: ${v}`);
+      ps.push(`${k}: ${v?.toString() || v}`);
     }
     return `{${ps.join(", ")}}`;
   }
