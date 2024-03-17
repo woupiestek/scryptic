@@ -1,197 +1,165 @@
-class Empty {
-  static readonly INSTANCE = new this();
-  private constructor() {}
-}
-
 class NonEmpty<A> {
-  constructor(
+  private constructor(
     readonly left: Tree<A>,
     readonly key: string,
-    readonly value: A,
     readonly right: Tree<A>,
+    readonly value?: A,
   ) {}
-  withLeft(left: Tree<A>): NonEmpty<A> {
+
+  static make<A>(
+    left: Tree<A>,
+    key: string,
+    right: Tree<A>,
+    value?: A,
+  ): Tree<A> {
+    // tombstone removal
+    if (
+      value === undefined && left === undefined && right === undefined
+    ) return undefined;
+    return new NonEmpty(left, key, right, value);
+  }
+  withLeft(left: Tree<A>): Tree<A> {
     return this.withLeftRight(left, this.right);
   }
-  withRight(right: Tree<A>): NonEmpty<A> {
+  withRight(right: Tree<A>): Tree<A> {
     return this.withLeftRight(this.left, right);
   }
-  withLeftRight(left: Tree<A>, right: Tree<A>): NonEmpty<A> {
-    return new NonEmpty(left, this.key, this.value, right);
+  withLeftRight(left: Tree<A>, right: Tree<A>): Tree<A> {
+    return NonEmpty.make(left, this.key, right, this.value);
   }
 }
 
-type Tree<A> = Empty | NonEmpty<A>;
-
-function rotate<A>(tree: NonEmpty<A>, pivot: string): NonEmpty<A> {
-  // avoid reconstruction in trivial cases
-  if (
-    tree.key === pivot || (tree.key < pivot && tree.right instanceof Empty) ||
-    tree.key > pivot && tree.left instanceof Empty
-  ) return tree;
-
-  let { left, key, value, right } = tree;
-  for (;;) {
-    if (key < pivot && right instanceof NonEmpty) {
-      if (right.key > pivot) {
-        // avoid endless loop
-        if (right.left instanceof Empty) {
-          return new NonEmpty(left, key, value, right);
-        }
-        left = new NonEmpty(left, key, value, right.left.left);
-        key = right.left.key;
-        value = right.left.value;
-        right = right.withLeft(right.left.right);
-        continue;
-      }
-      left = new NonEmpty(left, key, value, right.left);
-      key = right.key;
-      value = right.value;
-      right = right.right;
-      continue;
-    }
-    if (key > pivot && left instanceof NonEmpty) {
-      if (left.key < pivot) {
-        // avoid endless loop
-        if (left.right instanceof Empty) {
-          return new NonEmpty(left, key, value, right);
-        }
-        right = new NonEmpty(left.right.right, key, value, right);
-        key = left.right.key;
-        value = left.right.value;
-        left = left.withRight(left.right.left);
-        continue;
-      }
-      right = new NonEmpty(left.right, key, value, right);
-      key = left.key;
-      value = left.value;
-      left = left.left;
-      continue;
-    }
-    // if (key === pivot)
-    return new NonEmpty(left, key, value, right);
-  }
-}
+type Tree<A> = undefined | NonEmpty<A>;
 
 function partition<A>(
   pivot: string,
-  tree: NonEmpty<A>,
-): [Tree<A>, Tree<A>] {
-  // avoid reconstruction in trivial cases
-  if (tree.key < pivot && tree.right instanceof Empty) {
-    return [tree, tree.right];
+  tree: Tree<A>,
+): Tree<A> {
+  if (tree === undefined) {
+    return undefined;
   }
-  if (tree.key > pivot && tree.left instanceof Empty) return [tree.left, tree];
+  // avoid reconstruction in trivial cases
+  if (tree.key < pivot && tree.right === undefined) {
+    return NonEmpty.make(tree, pivot, undefined);
+  }
+  if (tree.key > pivot && tree.left === undefined) {
+    return NonEmpty.make(undefined, pivot, tree);
+  }
 
   let { key, left, right, value } = tree;
   for (;;) {
     if (key < pivot) {
-      if (right instanceof Empty) {
-        return [new NonEmpty(left, key, value, right), right];
+      if (right === undefined) {
+        return NonEmpty.make(
+          NonEmpty.make(left, key, undefined, value),
+          pivot,
+          undefined,
+        );
       }
       if (right.key > pivot) {
         // avoid endless loop
-        if (right.left instanceof Empty) {
-          return [new NonEmpty(left, key, value, right.left), right];
+        if (right.left === undefined) {
+          return NonEmpty.make(
+            NonEmpty.make(left, key, undefined, value),
+            pivot,
+            right,
+          );
         }
-        left = new NonEmpty(left, key, value, right.left.left);
+        left = NonEmpty.make(left, key, right.left.left, value);
         key = right.left.key;
         value = right.left.value;
         right = right.withLeft(right.left.right);
         continue;
       }
-      left = new NonEmpty(left, key, value, right.left);
+      left = NonEmpty.make(left, key, right.left, value);
       key = right.key;
       value = right.value;
       right = right.right;
       continue;
     }
     if (key > pivot) {
-      if (left instanceof Empty) {
-        return [left, new NonEmpty(left, key, value, right)];
+      if (left === undefined) {
+        return NonEmpty.make(
+          undefined,
+          pivot,
+          NonEmpty.make(undefined, key, right, value),
+        );
       }
       if (left.key < pivot) {
         // avoid endless loop
-        if (left.right instanceof Empty) {
-          return [left, new NonEmpty(left.right, key, value, right)];
+        if (left.right === undefined) {
+          return NonEmpty.make(
+            left,
+            pivot,
+            NonEmpty.make(undefined, key, right, value),
+          );
         }
-        right = new NonEmpty(left.right.right, key, value, right);
+        right = NonEmpty.make(left.right.right, key, right, value);
         key = left.right.key;
         value = left.right.value;
         left = left.withRight(left.right.left);
         continue;
       }
-      right = new NonEmpty(left.right, key, value, right);
+      right = NonEmpty.make(left.right, key, right, value);
       key = left.key;
       value = left.value;
       left = left.left;
       continue;
     }
     // if (key === pivot)
-    return [left, right];
+    return NonEmpty.make(left, pivot, right, value);
   }
 }
 
-function deleteMin<A>(tree: NonEmpty<A>): [string, A, Tree<A>] {
-  const path = [];
-  while (tree.left instanceof NonEmpty) {
-    path.push(tree);
-    tree = tree.left;
-  }
-  const { key, value } = tree;
-  let left = tree.right;
-  while (path.length > 0) {
-    left = (path.pop() as NonEmpty<A>).withLeft(left);
-  }
-  return [key, value, left];
-}
-
-function merge<A, B>(left: Tree<A>, right: Tree<B>): Tree<A | B> {
-  if (right instanceof Empty) return left;
-  if (left instanceof Empty) return right;
-  const [small, big] = partition(right.key, left);
+function merge<A>(left: Tree<A>, right: Tree<A>): Tree<A> {
+  if (right === undefined) return left;
+  left = partition(right.key, left);
+  if (left === undefined) return right;
   return right.withLeftRight(
-    merge(small, right.left),
-    merge(big, right.right),
+    merge(left.left, right.left),
+    merge(left.right, right.right),
   );
 }
 
 function* entries<A>(tree: Tree<A>): Generator<[string, A]> {
-  if (tree instanceof Empty) return;
+  if (tree === undefined) return;
   yield* entries(tree.left);
-  yield [tree.key, tree.value];
+  if (tree.value !== undefined) yield [tree.key, tree.value];
   yield* entries(tree.right);
 }
 
 export class SplayMap<A> {
   static empty<A>(): SplayMap<A> {
-    return new SplayMap(Empty.INSTANCE);
+    return new SplayMap(undefined);
   }
   private constructor(
     private tree: Tree<A>,
   ) {}
   delete(key: string): SplayMap<A> {
-    if (this.tree instanceof Empty) return this;
-    const [small, big] = partition(key, this.tree);
-    if (big instanceof Empty) {
-      return new SplayMap(small);
+    this.tree = partition(key, this.tree);
+    if (this.tree === undefined || this.tree.value === undefined) {
+      return this;
     }
-    const [_key, _value, right] = deleteMin(big);
-    return new SplayMap(new NonEmpty(small, _key, _value, right));
+    return new SplayMap(NonEmpty.make(this.tree.left, key, this.tree.right));
   }
   insert<B>(key: string, value: B): SplayMap<A | B> {
-    if (this.tree instanceof Empty) {
-      return new SplayMap(new NonEmpty(this.tree, key, value, this.tree));
+    this.tree = partition(key, this.tree);
+    if (this.tree !== undefined) {
+      return new SplayMap(
+        NonEmpty.make<A | B>(this.tree.left, key, this.tree.right, value),
+      );
     }
-    const [small, big] = partition(key, this.tree);
-    return new SplayMap(new NonEmpty<A | B>(small, key, value, big));
+    return new SplayMap(
+      NonEmpty.make<A | B>(undefined, key, undefined, value),
+    );
   }
   select(key: string): A | undefined {
-    if (this.tree instanceof Empty) return undefined;
-    const t = this.tree = rotate(this.tree, key);
-    if (t.key === key) return t.value;
+    this.tree = partition(key, this.tree);
+    if (this.tree !== undefined) {
+      return this.tree.value;
+    }
   }
-  merge<B>(that: SplayMap<B>): SplayMap<A | B> {
+  merge(that: SplayMap<A>): SplayMap<A> {
     return new SplayMap(merge(this.tree, that.tree));
   }
   *entries() {
