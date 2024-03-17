@@ -1,6 +1,21 @@
 # Scryptic
 
-## 2024-03-15
+## 2024-03-17
+
+### refactoring splay map
+
+I add 'rotate' for the select case, because I didn't like how the work
+on rotating the tree was dicarded. Then I found a way to partition with recursion,
+to which I modified rotate as well.
+
+Partition removes the element at the pivot, to support inserts and deletes.
+This in not desirable for select.
+
+I think I can solve this with tombstones: empty entries where keys are not found,
+which are removed when one of their children gets empty. Rotation otherwise requires the
+tombstones ot rortate into the tree with the rest.
+
+## 2024-03-16
 
 ### todo
 
