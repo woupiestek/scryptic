@@ -1,5 +1,21 @@
 # Scryptic
 
+## 2024-03-18
+
+### optimisations
+
+Reminder of the goals here:
+
+- constant propagation
+- dead code elimination
+- global value numbering
+- register allocation
+
+### Tries for global value numbering
+
+Instead of using hashcodes, use number assigned to data memebers to tell if a
+value occurs more than ones.
+
 ## 2024-03-17
 
 ### refactoring splay map
@@ -21,6 +37,12 @@ I could not quite get what I want if tombstones are required to have non empty
 children. Should only the twice empy case be avoided then?
 
 A, but then the null object started acting up, so I needed to kill that one too.
+
+### analysis
+
+SSA doesn't really do what I expect. I just want to solve the program by
+inlining variables. This does not even require special handling of if
+statements, we can just keep if expressions around.
 
 ## 2024-03-16
 

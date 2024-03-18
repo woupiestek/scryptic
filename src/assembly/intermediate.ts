@@ -1,4 +1,5 @@
-import { TokenType } from "./lexer.ts";
+import { SplayMap } from "../splay.ts";
+import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
   Binary,
@@ -470,4 +471,258 @@ export function stringifyDGraph(graphs: DGraph[]) {
     }
   }
   return results.join("\n");
+}
+
+enum ValueType {
+  Call,
+  Comparison,
+  GetField,
+  Literal,
+  Log,
+  New,
+  SetField,
+  Variable,
+}
+
+type _Value = Value | undefined;
+
+type Data =
+  | [ValueType.GetField, _Value, _Value, string]
+  | [ValueType.Call, _Value, _Value, ..._Value[]]
+  | [ValueType.Comparison, _Value, TokenType, _Value]
+  | [ValueType.Literal, boolean | string]
+  | [ValueType.Log, _Value]
+  | [ValueType.New, string]
+  | [ValueType.SetField, _Value, _Value, string, _Value]
+  | [ValueType.Variable, string];
+
+export class Value {
+  constructor(
+    readonly key: number,
+    readonly token: Token,
+    readonly data: Data,
+  ) {}
+  toString(): string {
+    if (this.data === undefined) return "undefined";
+    return tupleString(...this.data.map((key) => {
+      switch (typeof key) {
+        case "string":
+          return JSON.stringify(key);
+        case "number":
+          return ValueType[key];
+        case "boolean":
+        case "undefined":
+          return key;
+        case "object":
+          return (key as Value).toString();
+        default:
+          throw new Error("Problem node " + key);
+      }
+    }));
+  }
+}
+class Trie {
+  value?: Value;
+  children: { [_: number | string]: Trie } = {};
+}
+class Store {
+  trie: Trie = { children: {} };
+  key = 1;
+  static #reduce(
+    key: string | boolean | TokenType | _Value | ValueType,
+  ): string | number {
+    switch (typeof key) {
+      case "string":
+      case "number":
+        return key;
+      case "boolean":
+        return key ? 0 : 1;
+      case "object":
+        return (key as Value).key;
+      case "undefined":
+        return 0;
+      default:
+        throw new Error("Problem node " + key);
+    }
+  }
+  value(token: Token, data: Data): Value {
+    let t = this.trie;
+    for (const key of data) {
+      t = t.children[Store.#reduce(key)] ||= new Trie();
+    }
+    return t.value ||= { data, key: this.key++, token };
+  }
+}
+
+export class Optimizer {
+  store = new Store();
+  scope: VarDeclaration[] = [];
+  static #VALUE = "<value>";
+  static #WORLD = "<world>";
+
+  static #error(token: Token, message: string): Error {
+    return new Error(
+      `Problem at ${
+        TokenType[token.type]
+      }(${token.line},${token.column}): '${message}'`,
+    );
+  }
+
+  assign(node: Binary, values: SplayMap<Value>): SplayMap<Value> {
+    switch (node.left.token.type) {
+      case TokenType.DOT: {
+        const { object, field } = node.left as Access;
+        values = this.expression(object, values);
+        const x = values.select(Optimizer.#VALUE);
+        values = this.expression(node.right, values);
+        const y = values.select(Optimizer.#VALUE);
+        const z = this.store.value(node.token, [
+          ValueType.SetField,
+          values.select(Optimizer.#WORLD),
+          x,
+          field,
+          y,
+        ]);
+        return values.insert(Optimizer.#WORLD, z);
+      }
+      case TokenType.IDENTIFIER: {
+        const { name } = node.left as Variable;
+        if (!this.scope.some((varDecl) => varDecl.key.name === name)) {
+          throw Optimizer.#error(node.left.token, "Undeclared variable");
+        }
+        values = this.expression(node.right, values);
+        const y = values.select(Optimizer.#VALUE);
+        return y ? values.insert(name, y) : values;
+      }
+      case TokenType.VAR: {
+        const varDecl = node.left as VarDeclaration;
+        const { name } = varDecl.key;
+        const other = this.scope.find((varDecl) => varDecl.key.name === name);
+        if (other !== undefined) {
+          throw Optimizer.#error(
+            node.left.token,
+            `Variable already declared at (${other.token.line},${other.token.column})`,
+          );
+        }
+        this.scope.push(varDecl);
+        values = this.expression(node.right, values);
+        const y = values.select(Optimizer.#VALUE);
+        return y ? values.insert(name, y) : values;
+      }
+      default:
+        throw Optimizer.#error(node.token, "Impossible assignment");
+    }
+  }
+
+  expression(node: Statement, values: SplayMap<Value>): SplayMap<Value> {
+    switch (node.token.type) {
+      // case TokenType.AND:
+      case TokenType.BE:
+        return this.assign(node as Binary, values);
+      case TokenType.DOT: {
+        const { object, field } = node as Access;
+        values = this.expression(object, values);
+        const dot = this.store.value(
+          node.token,
+          [
+            ValueType.GetField,
+            values.select(Optimizer.#WORLD),
+            values.select(Optimizer.#VALUE),
+            field,
+          ],
+        );
+        return values.insert(Optimizer.#VALUE, dot);
+      }
+      case TokenType.FALSE:
+      case TokenType.STRING:
+      case TokenType.TRUE: {
+        const { value } = node as Literal;
+        const y = this.store.value(node.token, [ValueType.Literal, value]);
+        return values.insert(Optimizer.#VALUE, y);
+      }
+      case TokenType.IDENTIFIER: {
+        const { name } = node as Variable;
+        if (!this.scope.some((varDecl) => varDecl.key.name === name)) {
+          throw Optimizer.#error(node.token, "Undeclared variable");
+        }
+        const value = values.select(name);
+        if (value === undefined) {
+          throw Optimizer.#error(node.token, "Unassigned variable");
+        }
+        return values.insert(Optimizer.#VALUE, value);
+      }
+      case TokenType.IS_NOT:
+      case TokenType.IS:
+      case TokenType.LESS:
+      case TokenType.MORE:
+      case TokenType.NOT_LESS:
+      case TokenType.NOT_MORE: {
+        const { token, left, right } = node as Binary;
+        values = this.expression(left, values);
+        const x = values.select(Optimizer.#VALUE);
+        values = this.expression(right, values);
+        const y = values.select(Optimizer.#VALUE);
+        // todo: constant propagation
+        const z = this.store.value(token, [
+          ValueType.Comparison,
+          x,
+          node.token.type,
+          y,
+        ]);
+        return values.insert(Optimizer.#VALUE, z);
+      }
+      case TokenType.LOG: {
+        const { token, value } = node as Log;
+        values = this.expression(value, values);
+        const w = this.store.value(token, [
+          ValueType.Log,
+          values.select(Optimizer.#VALUE),
+        ]);
+        return values.insert(Optimizer.#WORLD, w);
+      }
+      case TokenType.NEW: {
+        const { token, klaz } = node as New;
+        return values.insert(
+          Optimizer.#VALUE,
+          this.store.value(token, [ValueType.New, klaz]),
+        );
+      }
+      // case TokenType.NOT:
+      // case TokenType.OR:
+      case TokenType.PAREN_LEFT: {
+        const { token, operator, operands } = node as Call;
+
+        values = this.expression(operator, values);
+        const f: _Value = values.select(Optimizer.#VALUE);
+        const x: _Value[] = [];
+        for (const operand of operands) {
+          values = this.expression(operand, values);
+          x.push(values.select(Optimizer.#VALUE));
+        }
+        const y = this.store.value(token, [
+          ValueType.Call,
+          values.select(Optimizer.#WORLD) as _Value,
+          f,
+          ...x,
+        ]);
+        return values.insert(Optimizer.#VALUE, y).insert(Optimizer.#WORLD, y);
+      }
+      // case TokenType.THIS:
+      case TokenType.VAR: {
+        const varDecl = node as VarDeclaration;
+        const { name } = varDecl.key;
+        const other = this.scope.find((varDecl) => varDecl.key.name === name);
+        if (other !== undefined) {
+          throw Optimizer.#error(
+            node.token,
+            `Variable already declared at (${other.token.line},${other.token.column})`,
+          );
+        }
+        this.scope.push(varDecl);
+        return values.delete(name).delete(Optimizer.#VALUE);
+      }
+      default:
+        throw Optimizer.#error(node.token, "expression expected");
+    }
+  }
 }

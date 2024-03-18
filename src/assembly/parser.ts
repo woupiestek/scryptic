@@ -22,7 +22,6 @@ export class New implements Node {
   constructor(
     readonly token: Token,
     readonly klaz: string,
-    // readonly operands: Expression[],
   ) {}
 }
 

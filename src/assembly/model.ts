@@ -32,7 +32,6 @@ export enum Kind {
   Phi,
   SetField,
   Then,
-  This,
 }
 export type Value = number;
 
@@ -50,8 +49,7 @@ type Data =
   | [Kind.New, string]
   | [Kind.Phi, Value[]]
   | [Kind.SetField, Value, string, Value]
-  | [Kind.Then, Value]
-  | [Kind.This];
+  | [Kind.Then, Value];
 export class Entry {
   constructor(
     readonly token: Token,
@@ -216,7 +214,8 @@ export class Model {
           ),
         );
       }
-      case TokenType.IDENTIFIER: {
+      case TokenType.IDENTIFIER:
+      case TokenType.THIS: {
         const value = values.select((expression as Variable).name);
         if (value === undefined) {
           throw Model.#error(expression.token, "Undeclared variable");
@@ -280,11 +279,6 @@ export class Model {
         ], Model.world(w));
         return Model.set(Model.set(w, KEYS.world, value), KEYS.value, value);
       }
-      case TokenType.THIS:
-        return Model.lift(values.insert(
-          KEYS.value,
-          this.#enter(expression.token, [Kind.This]),
-        ));
       case TokenType.VAR: {
         const { key: { name } } = expression as VarDeclaration;
         const check = values.select(name);
