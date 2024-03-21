@@ -136,21 +136,15 @@ export class SplayMap<A> {
     private tree: Tree<A>,
   ) {}
   delete(key: string): SplayMap<A> {
+    return this.insert(key);
+  }
+  insert<B>(key: string, value?: B): SplayMap<A | B> {
     this.tree = partition(key, this.tree);
-    if (this.tree === undefined || this.tree.value === undefined) {
+    if (this.tree?.value === value) {
       return this;
     }
-    return new SplayMap(NonEmpty.make(this.tree.left, key, this.tree.right));
-  }
-  insert<B>(key: string, value: B): SplayMap<A | B> {
-    this.tree = partition(key, this.tree);
-    if (this.tree !== undefined) {
-      return new SplayMap(
-        NonEmpty.make<A | B>(this.tree.left, key, this.tree.right, value),
-      );
-    }
     return new SplayMap(
-      NonEmpty.make<A | B>(undefined, key, undefined, value),
+      NonEmpty.make<A | B>(this.tree?.left, key, this.tree?.right, value),
     );
   }
   select(key: string): A | undefined {

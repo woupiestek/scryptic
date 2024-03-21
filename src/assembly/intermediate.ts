@@ -473,6 +473,8 @@ export function stringifyDGraph(graphs: DGraph[]) {
   return results.join("\n");
 }
 
+// new stuff
+
 enum ValueType {
   Call,
   Comparison,
@@ -480,20 +482,22 @@ enum ValueType {
   Literal,
   Log,
   New,
+  Not,
   SetField,
   Variable,
 }
 
-type _Value = Value | undefined;
+type ValueQ = Value | undefined;
 
 type Data =
-  | [ValueType.GetField, _Value, _Value, string]
-  | [ValueType.Call, _Value, _Value, ..._Value[]]
-  | [ValueType.Comparison, _Value, TokenType, _Value]
+  | [ValueType.GetField, ValueQ, ValueQ, string]
+  | [ValueType.Call, ValueQ, ValueQ, ...ValueQ[]]
+  | [ValueType.Comparison, ValueQ, TokenType, ValueQ]
   | [ValueType.Literal, boolean | string]
-  | [ValueType.Log, _Value]
+  | [ValueType.Log, ValueQ, ValueQ]
   | [ValueType.New, string]
-  | [ValueType.SetField, _Value, _Value, string, _Value]
+  | [ValueType.Not, ValueQ]
+  | [ValueType.SetField, ValueQ, ValueQ, string, ValueQ]
   | [ValueType.Variable, string];
 
 export class Value {
@@ -529,7 +533,7 @@ class Store {
   trie: Trie = { children: {} };
   key = 1;
   static #reduce(
-    key: string | boolean | TokenType | _Value | ValueType,
+    key: string | boolean | TokenType | ValueQ | ValueType,
   ): string | number {
     switch (typeof key) {
       case "string":
@@ -554,9 +558,15 @@ class Store {
   }
 }
 
+type Label =
+  | [GraphType.BLOCK, Label, SplayMap<Value>]
+  | [GraphType.IF, Value, Label, Label]
+  | [GraphType.RETURN, ValueQ, ValueQ];
+
 export class Optimizer {
   store = new Store();
   scope: VarDeclaration[] = [];
+  static #NEXT = "<next>";
   static #VALUE = "<value>";
   static #WORLD = "<world>";
 
@@ -568,31 +578,43 @@ export class Optimizer {
     );
   }
 
-  assign(node: Binary, values: SplayMap<Value>): SplayMap<Value> {
+  assign(
+    node: Binary,
+    next: (_: SplayMap<Value>) => Label,
+  ): (_: SplayMap<Value>) => Label {
     switch (node.left.token.type) {
       case TokenType.DOT: {
         const { object, field } = node.left as Access;
-        values = this.expression(object, values);
-        const x = values.select(Optimizer.#VALUE);
-        values = this.expression(node.right, values);
-        const y = values.select(Optimizer.#VALUE);
-        const z = this.store.value(node.token, [
-          ValueType.SetField,
-          values.select(Optimizer.#WORLD),
-          x,
-          field,
-          y,
-        ]);
-        return values.insert(Optimizer.#WORLD, z);
+        return this.expression(object, (values) => {
+          const x = values.select(Optimizer.#VALUE);
+          return this.expression(
+            node.right,
+            (values) =>
+              next(
+                values.insert(
+                  Optimizer.#WORLD,
+                  this.store.value(node.token, [
+                    ValueType.SetField,
+                    values.select(Optimizer.#WORLD),
+                    x,
+                    field,
+                    values.select(Optimizer.#VALUE),
+                  ]),
+                ),
+              ),
+          )(values);
+        });
       }
       case TokenType.IDENTIFIER: {
         const { name } = node.left as Variable;
         if (!this.scope.some((varDecl) => varDecl.key.name === name)) {
           throw Optimizer.#error(node.left.token, "Undeclared variable");
         }
-        values = this.expression(node.right, values);
-        const y = values.select(Optimizer.#VALUE);
-        return y ? values.insert(name, y) : values;
+        return this.expression(
+          node.right,
+          (values) =>
+            next(values.insert(name, values.select(Optimizer.#VALUE))),
+        );
       }
       case TokenType.VAR: {
         const varDecl = node.left as VarDeclaration;
@@ -605,40 +627,25 @@ export class Optimizer {
           );
         }
         this.scope.push(varDecl);
-        values = this.expression(node.right, values);
-        const y = values.select(Optimizer.#VALUE);
-        return y ? values.insert(name, y) : values;
+        return this.expression(
+          node.right,
+          (values) =>
+            next(values.insert(name, values.select(Optimizer.#VALUE))),
+        );
       }
       default:
         throw Optimizer.#error(node.token, "Impossible assignment");
     }
   }
 
-  expression(node: Statement, values: SplayMap<Value>): SplayMap<Value> {
+  // there is no such thing
+  simpleExpression(node: Expression, values: SplayMap<Value>): ValueQ {
     switch (node.token.type) {
-      // case TokenType.AND:
-      case TokenType.BE:
-        return this.assign(node as Binary, values);
-      case TokenType.DOT: {
-        const { object, field } = node as Access;
-        values = this.expression(object, values);
-        const dot = this.store.value(
-          node.token,
-          [
-            ValueType.GetField,
-            values.select(Optimizer.#WORLD),
-            values.select(Optimizer.#VALUE),
-            field,
-          ],
-        );
-        return values.insert(Optimizer.#VALUE, dot);
-      }
       case TokenType.FALSE:
       case TokenType.STRING:
       case TokenType.TRUE: {
         const { value } = node as Literal;
-        const y = this.store.value(node.token, [ValueType.Literal, value]);
-        return values.insert(Optimizer.#VALUE, y);
+        return this.store.value(node.token, [ValueType.Literal, value]);
       }
       case TokenType.IDENTIFIER: {
         const { name } = node as Variable;
@@ -649,64 +656,18 @@ export class Optimizer {
         if (value === undefined) {
           throw Optimizer.#error(node.token, "Unassigned variable");
         }
-        return values.insert(Optimizer.#VALUE, value);
-      }
-      case TokenType.IS_NOT:
-      case TokenType.IS:
-      case TokenType.LESS:
-      case TokenType.MORE:
-      case TokenType.NOT_LESS:
-      case TokenType.NOT_MORE: {
-        const { token, left, right } = node as Binary;
-        values = this.expression(left, values);
-        const x = values.select(Optimizer.#VALUE);
-        values = this.expression(right, values);
-        const y = values.select(Optimizer.#VALUE);
-        // todo: constant propagation
-        const z = this.store.value(token, [
-          ValueType.Comparison,
-          x,
-          node.token.type,
-          y,
-        ]);
-        return values.insert(Optimizer.#VALUE, z);
-      }
-      case TokenType.LOG: {
-        const { token, value } = node as Log;
-        values = this.expression(value, values);
-        const w = this.store.value(token, [
-          ValueType.Log,
-          values.select(Optimizer.#VALUE),
-        ]);
-        return values.insert(Optimizer.#WORLD, w);
+        return value;
       }
       case TokenType.NEW: {
         const { token, klaz } = node as New;
-        return values.insert(
-          Optimizer.#VALUE,
-          this.store.value(token, [ValueType.New, klaz]),
-        );
+        return this.store.value(token, [ValueType.New, klaz]);
       }
-      // case TokenType.NOT:
-      // case TokenType.OR:
-      case TokenType.PAREN_LEFT: {
-        const { token, operator, operands } = node as Call;
-
-        values = this.expression(operator, values);
-        const f: _Value = values.select(Optimizer.#VALUE);
-        const x: _Value[] = [];
-        for (const operand of operands) {
-          values = this.expression(operand, values);
-          x.push(values.select(Optimizer.#VALUE));
-        }
-        const y = this.store.value(token, [
-          ValueType.Call,
-          values.select(Optimizer.#WORLD) as _Value,
-          f,
-          ...x,
+      case TokenType.NOT:
+        // todo: constant propoagation
+        return this.store.value(node.token, [
+          ValueType.Not,
+          values.select(Optimizer.#VALUE),
         ]);
-        return values.insert(Optimizer.#VALUE, y).insert(Optimizer.#WORLD, y);
-      }
       // case TokenType.THIS:
       case TokenType.VAR: {
         const varDecl = node as VarDeclaration;
@@ -719,10 +680,286 @@ export class Optimizer {
           );
         }
         this.scope.push(varDecl);
-        return values.delete(name).delete(Optimizer.#VALUE);
+        return undefined;
       }
       default:
         throw Optimizer.#error(node.token, "expression expected");
+    }
+  }
+
+  expression(
+    node: Expression,
+    next: (_: SplayMap<Value>) => Label,
+  ): (_: SplayMap<Value>) => Label {
+    switch (node.token.type) {
+      case TokenType.AND: {
+        const { left, right } = node as Binary;
+        return this.ifThenElse(
+          left,
+          this.expression(right, next),
+          this.expression(new Literal(left.token, false), next),
+        );
+      }
+      case TokenType.BE:
+        return this.assign(node as Binary, next);
+      case TokenType.DOT: {
+        const { object, field } = node as Access;
+        return this.expression(object, (values) => {
+          const dot = this.store.value(
+            node.token,
+            [
+              ValueType.GetField,
+              values.select(Optimizer.#WORLD),
+              values.select(Optimizer.#VALUE),
+              field,
+            ],
+          );
+          return next(values.insert(Optimizer.#VALUE, dot));
+        });
+      }
+      case TokenType.IS_NOT:
+      case TokenType.IS:
+      case TokenType.LESS:
+      case TokenType.MORE:
+      case TokenType.NOT_LESS:
+      case TokenType.NOT_MORE: {
+        const { token, left, right } = node as Binary;
+        return this.expression(left, (v) => {
+          return this.expression(right, (w) => {
+            // todo: constant propagation
+            return next(w.insert(
+              Optimizer.#VALUE,
+              this.store.value(token, [
+                ValueType.Comparison,
+                v.select(Optimizer.#VALUE),
+                node.token.type,
+                w.select(Optimizer.#VALUE),
+              ]),
+            ));
+          })(v);
+        });
+      }
+      case TokenType.LOG: {
+        const { token, value } = node as Log;
+        return this.expression(value, (values) =>
+          next(values.insert(
+            Optimizer.#WORLD,
+            this.store.value(token, [
+              ValueType.Log,
+              values.select(Optimizer.#WORLD),
+              values.select(Optimizer.#VALUE),
+            ]),
+          )));
+      }
+      case TokenType.OR: {
+        const { left, right } = node as Binary;
+        return this.ifThenElse(
+          left,
+          this.expression(new Literal(left.token, true), next),
+          this.expression(right, next),
+        );
+      }
+      case TokenType.PAREN_LEFT: {
+        const { token, operator, operands } = node as Call;
+        return this.expression(operator, (v) => {
+          const f: ValueQ = v.select(Optimizer.#VALUE);
+          const x: ValueQ[] = [];
+          let n = (w: SplayMap<Value>) => {
+            const y = this.store.value(token, [
+              ValueType.Call,
+              w.select(Optimizer.#WORLD) as ValueQ,
+              f,
+              ...x,
+            ]);
+            return next(
+              w.insert(Optimizer.#VALUE, y).insert(Optimizer.#WORLD, y),
+            );
+          };
+          for (let i = operands.length - 1; i >= 0; i--) {
+            n = this.expression(operands[i], (v) => {
+              x.push(v.select(Optimizer.#VALUE));
+              return n(v);
+            });
+          }
+          return n(v);
+        });
+      }
+      default:
+        return (v: SplayMap<Value>) =>
+          next(v.insert(Optimizer.#VALUE, this.simpleExpression(node, v)));
+    }
+  }
+
+  _jump(
+    token: Token,
+    jump: Jump | undefined,
+    labels: SplayMap<(_: SplayMap<Value>) => Label>,
+  ): (_: SplayMap<Value>) => Label {
+    if (!jump) {
+      const l = labels.select(Optimizer.#NEXT);
+      if (l) return l;
+      throw Optimizer.#error(token, "nowhere to go from here");
+    }
+    switch (jump.token.type) {
+      case TokenType.BREAK: {
+        const { label } = jump as Break;
+        const l = labels.select(label ? `<break ${label}>` : "<break>");
+        if (l) return l;
+        throw Optimizer.#error(jump.token, `Unresolved label ${label}`);
+      }
+      case TokenType.CONTINUE: {
+        const { label } = jump as Continue;
+        const l = labels.select(label ? `<continue ${label}>` : "<continue>");
+        if (l) return l;
+        throw Optimizer.#error(jump.token, `Unresolved label ${label}`);
+      }
+      case TokenType.RETURN: {
+        const { expression } = jump as Return;
+        if (expression) {
+          return this.expression(expression, (values) => [
+            GraphType.RETURN,
+            values.select(Optimizer.#WORLD),
+            values.select(Optimizer.#VALUE),
+          ]);
+        } else {
+          return (values) => [
+            GraphType.RETURN,
+            values.select(Optimizer.#WORLD),
+            undefined,
+          ];
+        }
+      }
+    }
+    throw Optimizer.#error(token, "nowhere to go from here");
+  }
+
+  block(
+    block: Block,
+    labels: SplayMap<(_: SplayMap<Value>) => Label>,
+  ): (_: SplayMap<Value>) => Label {
+    const scopeDepth = this.scope.length;
+    let label = this._jump(block.token, block.jump, labels);
+    for (let i = block.statements.length - 1; i >= 0; i--) {
+      label = this.statement(
+        block.statements[i],
+        labels.insert(Optimizer.#NEXT, label),
+      );
+    }
+    this.scope.length = scopeDepth;
+    return label;
+  }
+
+  ifThenElse(
+    condition: Expression,
+    thenBranch: (_: SplayMap<Value>) => Label,
+    elseBranch: (_: SplayMap<Value>) => Label,
+  ): (_: SplayMap<Value>) => Label {
+    switch (condition.token.type) {
+      case TokenType.AND: {
+        const { left, right } = condition as Binary;
+        return this.ifThenElse(
+          left,
+          this.ifThenElse(right, thenBranch, elseBranch),
+          elseBranch,
+        );
+      }
+      case TokenType.BE: {
+        const { token, left, right } = condition as Binary;
+        return this.ifThenElse(
+          right,
+          this.assign(
+            new Binary(token, left, new Literal(token, true)),
+            thenBranch,
+          ),
+          this.assign(
+            new Binary(token, left, new Literal(token, false)),
+            elseBranch,
+          ),
+        );
+      }
+      case TokenType.FALSE:
+        return elseBranch;
+      case TokenType.LOG: {
+        const { token, value } = condition as Log;
+        return this.ifThenElse(
+          value,
+          this.expression(
+            new Log(token, new Literal(token, true)),
+            thenBranch,
+          ),
+          this.expression(
+            new Log(token, new Literal(token, false)),
+            elseBranch,
+          ),
+        );
+      }
+      case TokenType.NOT:
+        return this.ifThenElse(condition, elseBranch, thenBranch);
+      case TokenType.OR: {
+        const { left, right } = condition as Binary;
+        return this.ifThenElse(
+          left,
+          thenBranch,
+          this.ifThenElse(right, thenBranch, elseBranch),
+        );
+      }
+      case TokenType.TRUE:
+        return thenBranch;
+      default:
+        return this.expression(condition, (v: SplayMap<Value>) => {
+          const c = v.select(Optimizer.#VALUE);
+          if (!c) {
+            throw Optimizer.#error(condition.token, "bad condition expression");
+          }
+          return [
+            GraphType.IF,
+            c,
+            thenBranch(v),
+            elseBranch(v),
+          ];
+        });
+    }
+  }
+
+  statement(
+    node: Statement,
+    // usual issue that this evualates the labels too often!
+    labels: SplayMap<(_: SplayMap<Value>) => Label>,
+  ): (_: SplayMap<Value>) => Label {
+    // jump target
+    const next = labels.select(Optimizer.#NEXT);
+    if (!next) throw Optimizer.#error(node.token, "nowhere to go");
+    switch (node.token.type) {
+      case TokenType.BRACE_LEFT: {
+        return this.block(node as Block, labels);
+      }
+      case TokenType.IF: {
+        const { condition, onTrue, onFalse } = node as IfStatement;
+        // potential issue: 'labels' used twice
+        const thenBranch = this.block(onTrue, labels);
+        const elseBranch = onFalse ? this.block(onFalse, labels) : next;
+        return this.ifThenElse(condition, thenBranch, elseBranch);
+      }
+      case TokenType.WHILE: {
+        const { condition, onTrue, label } = node as WhileStatement;
+        // workaround
+        const trick = { labels };
+        const body = (v: SplayMap<Value>) =>
+          this.block(onTrue, trick.labels)(v);
+        // jump target
+        const head = this.ifThenElse(condition, body, next);
+        trick.labels = labels
+          .insert("<break>", next)
+          .insert("<continue>", head);
+        if (label) {
+          trick.labels = labels
+            .insert(`<break ${label}>`, next)
+            .insert(`<continue ${label}>`, head);
+        }
+        return head;
+      }
+      default:
+        return this.expression(node as Expression, next);
     }
   }
 }
