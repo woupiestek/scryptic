@@ -1,5 +1,23 @@
 # Scryptic
 
+## 2024-03-21
+
+### status
+
+After working in model on a system where changes are propagated forward, I added
+a CPS style transform in intermediate.
+
+### ideas
+
+- Use numbers as keys more often
+- Formally use CPS
+
+In the latest version, I am starting to see that phonies are needed for the
+start of a loop, but the rest? If the rest optional, or does that imply some
+inlining?
+
+Of course, I use a block argument variant now.
+
 ## 2024-03-18
 
 ### optimisations
