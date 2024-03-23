@@ -1,20 +1,29 @@
 import { Block, Parser } from "./parser.ts";
-import {
-  dGraphs,
-  Grapher,
-  GraphType,
-  stringifyDGraph,
-} from "./intermediate.ts";
+import { GraphType, Label, Optimizer } from "./intermediate.ts";
+import { SplayMap } from "../splay.ts";
 
+function columnnumbers(length: number) {
+  return "col:5   " +
+    Array.from({ length: ((length / 5) | 0) - 1 }).map((_, i) => 5 * (i + 2))
+      .join("   ");
+}
 function run(input: string) {
-  console.log("#####", input, "#####");
+  console.log(columnnumbers(input.length));
+  console.log(input);
   const parseResult = new Parser(input).script();
-  console.log(
-    stringifyDGraph(dGraphs(new Grapher().statementsToGraph(
-      parseResult.filter((it) => it instanceof Block),
-      [GraphType.RETURN],
-    ))),
-  );
+  const optimizer = new Optimizer();
+  const label = optimizer.statements(
+    parseResult.filter((it) => it instanceof Block),
+    [],
+    SplayMap.empty(),
+  ).complete((gt) => [
+    GraphType.RETURN,
+    gt.values.select("<world>"),
+    undefined,
+  ]);
+
+  console.log(optimizer.store.list());
+  console.log(Label.stringify(label));
 }
 
 run('log "Hello, World!"');
@@ -93,12 +102,6 @@ run(
 run(
   'var x; var y = new A(); x = y.m = "test"; if x == "test" { log "right!" } else { log "wrong!" }',
 );
-run('var x = "wrong!"; while x != "right!" { x = "right!" } log x');
-
-run('var x = "wrong!"; while true { x = "right!"; break } log x');
-run(
-  'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x',
-);
 
 run(
   '(var x = new A()).y = "right!"; log(x.y)',
@@ -118,3 +121,13 @@ run('class A { new(x){ this.x = x } } log(new A("right!").x)');
 run(
   'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x',
 );
+
+run('var x = "wrong!"; while true { x = "right!"; break } log x');
+
+// stack overflow
+run(
+  'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x',
+);
+
+// stack overflow
+run('var x = "wrong!"; while x != "right!" { x = "right!" } log x');

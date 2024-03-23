@@ -162,7 +162,7 @@ export class SplayMap<A> {
   toString() {
     const ps: string[] = [];
     for (const [k, v] of entries(this.tree)) {
-      ps.push(`${k}: ${v?.toString() || v}`);
+      ps.push(`${k}: ${v ? v.toString() : v}`);
     }
     return `{${ps.join(", ")}}`;
   }

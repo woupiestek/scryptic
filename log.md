@@ -1,5 +1,26 @@
 # Scryptic
 
+## 2024-03-22
+
+### Use numbers as keys more often
+
+Is the splay map still the best choice?
+
+### special trees
+
+I imagine an insert case that looks at more options:
+
+- `index === this.index` update here
+- `index < this.index` go left
+- `index > this.index && index <= 2*this.index` go right
+- `index > 2*this.index` become root
+
+So balance comes from an extra constraint that uses the absolute positions of
+numbers on the number line. something is off about this.
+
+Each number has a preferred depth, and this should determine rebalancing
+decisions
+
 ## 2024-03-21
 
 ### status
@@ -10,7 +31,7 @@ a CPS style transform in intermediate.
 ### ideas
 
 - Use numbers as keys more often
-- Formally use CPS
+- ~~Formally use CPS~~
 
 In the latest version, I am starting to see that phonies are needed for the
 start of a loop, but the rest? If the rest optional, or does that imply some
