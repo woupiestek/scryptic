@@ -1,5 +1,5 @@
 import { Block, Parser } from "./parser.ts";
-import { GraphType, Label, Optimizer } from "./intermediate.ts";
+import { Label, LabelType, Optimizer } from "./intermediate.ts";
 import { SplayMap } from "../splay.ts";
 
 function columnnumbers(length: number) {
@@ -17,7 +17,7 @@ function run(input: string) {
     [],
     SplayMap.empty(),
   ).complete((gt) => [
-    GraphType.RETURN,
+    LabelType.RETURN,
     gt.values.select("<world>"),
     undefined,
   ]);

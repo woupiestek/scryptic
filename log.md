@@ -21,6 +21,15 @@ numbers on the number line. something is off about this.
 Each number has a preferred depth, and this should determine rebalancing
 decisions
 
+### intermediate showing stuff
+
+I needed to tweak the structure to deal with loops, understanding is growing.
+
+- constant propagation
+- dead code elimination
+- global value numbering
+- register allocation
+
 ## 2024-03-21
 
 ### status

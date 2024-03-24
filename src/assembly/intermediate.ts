@@ -1,5 +1,4 @@
 import { SplayMap } from "../splay.ts";
-import { Op } from "./class.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
@@ -509,15 +508,15 @@ export class Value {
   ) {}
   toString(): string {
     if (this.data === undefined) return "undefined";
-    return tupleString(...this.data.map((it) => {
+    return tupleString(...this.data.map((it, i) => {
       switch (typeof it) {
         case "string":
           return JSON.stringify(it);
         case "number":
-          return ValueType[it];
+          return i ? TokenType[it] : ValueType[it];
         case "boolean":
         case "undefined":
-          return it;
+          return "" + it;
         case "object":
           // since values can reference themselves...
           return (it as Value).key;
@@ -578,27 +577,42 @@ class Store {
   }
 }
 
+export enum LabelType {
+  DEFINE,
+  ERROR,
+  GOTO,
+  IF,
+  RETURN,
+}
+
 export type Label =
-  | [GraphType.BLOCK, Label, SplayMap<Value>]
-  | [GraphType.IF, Value, Label, Label]
-  | [GraphType.RETURN, ValueQ, ValueQ]
-  | [-1, Token, string]; // error
+  | [LabelType.DEFINE, string, Label, Label]
+  | [LabelType.GOTO, string, SplayMap<Value>]
+  | [LabelType.IF, Value, Label, Label]
+  | [LabelType.RETURN, ValueQ, ValueQ]
+  | [LabelType.ERROR, Token, string]; // error
 
 export const Label = {
   stringify(label: Label): string {
     switch (label[0]) {
-      case -1:
-        return `Error at ${TokenType[label[1].type]}(${label[1].line},${
+      case LabelType.DEFINE:
+        return `def ${label[1]} {${Label.stringify(label[2])}} ${
+          Label.stringify(label[3])
+        }]`;
+      case LabelType.ERROR:
+        return `¡Error at ${TokenType[label[1].type]}(${label[1].line},${
           label[1].column
-        }): ${label[2]}`;
-      case GraphType.BLOCK:
-        return `{${Label.stringify(label[1])}}[${label[2].toString()}]`;
-      case GraphType.IF:
-        return `if ${label[1].toString()} then ${
-          Label.stringify(label[2])
-        } else ${Label.stringify(label[3])}`;
-      case GraphType.RETURN:
-        return `return ${label[1]?.toString()} ${label[2]?.toString()};`;
+        }): ${label[2]}!`;
+      case LabelType.GOTO:
+        return `${label[1]}(${
+          [...label[2].entries()].map(([k, v]) => `${k}: ${v.key}`).join(", ")
+        })`;
+      case LabelType.IF:
+        return `if ${label[1].key} then ${Label.stringify(label[2])} else ${
+          Label.stringify(label[3])
+        }`;
+      case LabelType.RETURN:
+        return `return ${label[1]?.key || -1} ${label[2]?.key || -1};`;
     }
   },
 };
@@ -623,7 +637,7 @@ export class Optimizer {
   static #WORLD = "<world>";
 
   static #error<A>(token: Token, message: string): CPS<A> {
-    return new CPS((_) => [-1, token, message]);
+    return new CPS((_) => [LabelType.ERROR, token, message]);
   }
 
   assign(
@@ -917,14 +931,14 @@ export class Optimizer {
         if (expression) {
           return new CPS((_) =>
             this.expression(expression, scope, values).complete((values) => [
-              GraphType.RETURN,
+              LabelType.RETURN,
               values.select(Optimizer.#WORLD),
               values.select(Optimizer.#VALUE),
             ])
           );
         } else {
           return new CPS((_) => [
-            GraphType.RETURN,
+            LabelType.RETURN,
             values.select(Optimizer.#WORLD),
             undefined,
           ]);
@@ -1055,7 +1069,7 @@ export class Optimizer {
               );
             }
             return new CPS((next) => [
-              GraphType.IF,
+              LabelType.IF,
               c,
               next({ on: true, values: v }),
               next({ on: false, values: v }),
@@ -1099,34 +1113,40 @@ export class Optimizer {
       }
       case TokenType.WHILE: {
         const { condition, onTrue, label } = node as WhileStatement;
-        const phonies = this.#phonies(scope);
-        const next = Optimizer.#next(phonies);
+        const _label = label ||
+          ["WHILE", node.token.line, node.token.column].join("_");
         // this is where the phonies seem necessary
         const head: CPS<{
           target: string;
           values: SplayMap<Value>;
-        }> = this.ifThenElse(condition, scope, phonies).mu(
+        }> = this.ifThenElse(condition, scope, this.#phonies(scope)).mu(
           (it) => {
-            if (!it.on) return Optimizer.#apply(next, it.values);
+            if (!it.on) return Optimizer.#next(it.values);
             return this.block(onTrue, scope, it.values).mu((goto) => {
               if (
                 goto.target === Optimizer.#NEXT ||
                 goto.target === "<continue>" ||
                 (label && goto.target === `<continue ${label}>`)
               ) {
-                return Optimizer.#apply(head, goto.values);
+                return new CPS((_) => [LabelType.GOTO, _label, goto.values]);
               }
               if (
                 goto.target === "<break>" ||
                 (label && goto.target === `<break ${label}>`)
               ) {
-                return Optimizer.#apply(next, goto.values);
+                return Optimizer.#next(goto.values);
               }
               return CPS.eta(goto);
             });
           },
         );
-        return Optimizer.#apply(head, values);
+        return new CPS((
+          next,
+        ) => [LabelType.DEFINE, _label, head.complete(next), [
+          LabelType.GOTO,
+          _label,
+          values,
+        ]]);
       }
       default:
         return this.expression(node as Expression, scope, values).map((
@@ -1143,20 +1163,5 @@ export class Optimizer {
     values: SplayMap<Value>;
   }> {
     return CPS.eta({ target: Optimizer.#NEXT, values });
-  }
-
-  static #apply(
-    cps: CPS<{
-      target: string;
-      values: SplayMap<Value>;
-    }>,
-    values: SplayMap<Value>,
-  ): CPS<{
-    target: string;
-    values: SplayMap<Value>;
-  }> {
-    return new CPS(
-      (next) => [GraphType.BLOCK, cps.complete(next), values],
-    );
   }
 }
