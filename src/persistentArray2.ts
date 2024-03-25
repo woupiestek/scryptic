@@ -23,57 +23,28 @@ export class Node<A> {
     return undefined;
   }
 
-  // keep it simpler with recursion
-  // act wierdly anyway: values lost or out of order
-  #partition(pivot: number): [Node<A>?, Node<A>?] {
-    const { index, value, left, right } = this;
-    if (index < pivot) {
-      if (!right) {
-        return [this, undefined];
-      }
-      const [l, r] = right.#partition(pivot);
-      return [new Node(index, value, left, l), r];
-    }
-    if (index > pivot) {
-      if (!left) {
-        return [
-          undefined,
-          new Node(index - pivot - 1, value, undefined, right),
-        ];
-      }
-      const [l, r] = left.#partition(pivot);
-      return [l, new Node(index - pivot - 1, value, r, right)];
-    }
-    return [left, right];
-  }
-
   set(index: number, value: A): Node<A> {
     if (index > 2 * this.index) {
       return new Node(index, value, this);
     }
-    if (index < this.index) {
-      if (!this.left) {
-        return new Node(
-          this.index,
-          this.value,
-          Node.singleton(index, value),
-          this.right,
-        );
-      }
-      const left = this.left.set(index, value);
-      if (left === this.left) return this;
-      return new Node(this.index, this.value, left, this.right);
+    if (index > this.index) {
+      const j = index - this.index - 1;
+      const right = this.right
+        ? this.right.set(j, value)
+        : Node.singleton(j, value);
+      if (right === this.right) return this;
+      return new Node(this.index, this.value, this.left, right);
     }
     if (index === this.index) {
       if (value === this.value) return this;
       return new Node(index, value, this.left, this.right);
     }
-    const j = index - this.index - 1;
-    const right = this.right
-      ? this.right.set(j, value)
-      : Node.singleton(j, value);
-    if (right === this.right) return this;
-    return new Node(this.index, this.value, this.left, right);
+    // how to balance this?
+    const left = this.left
+      ? this.left.set(index, value)
+      : Node.singleton(index, value);
+    if (left === this.left) return this;
+    return new Node(this.index, this.value, left, this.right);
   }
 
   #deleteRoot(): Node<A> | undefined {
