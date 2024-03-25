@@ -1,6 +1,6 @@
 import { Block, Parser } from "./parser.ts";
 import { Label, LabelType, Optimizer } from "./intermediate.ts";
-import { SplayMap } from "../splay.ts";
+import { NumberTrie } from "../numberTrie.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
@@ -14,14 +14,12 @@ function run(input: string) {
   const optimizer = new Optimizer();
   const label = optimizer.statements(
     parseResult.filter((it) => it instanceof Block),
-    [],
-    SplayMap.empty(),
+    NumberTrie.empty(),
   ).complete((gt) => [
     LabelType.RETURN,
-    gt.values.select("<world>"),
+    gt.values.get(0),
     undefined,
   ]);
-
   console.log(optimizer.store.list());
   console.log(Label.stringify(label));
 }

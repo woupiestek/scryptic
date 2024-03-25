@@ -2,6 +2,29 @@
 
 ## 2024-03-22
 
+### the right structure
+
+The `NumberTrie` is based on seeing a binary tree as a trie for binary numbers.
+I think I am using skew binaries, but I don't see the link clearly yet. To keep
+the nodes in canonical order, we start with the most siginicant digit, and work
+our way down to the less siginificant ones.
+
+The skew binary link suggests an optimisation where every node has two slots for
+values, one at the index and one at twice the index. There are multiple
+representation sof each number, but this is the canonical one, and in requires
+that the nodes hold up to two values. Missing nodes and values happen anyway,
+now they are more often at the leaves.
+
+It might be worth having specialized classes for level 1 nodes, As just holding
+3 values, all optional, but not empty at the same time. Only form 3 on the left
+and right things become proper nodes.
+
+### trying it
+
+Zero nodes are clearly a special case.
+
+## 2024-03-22
+
 ### Use numbers as keys more often
 
 Is the splay map still the best choice?

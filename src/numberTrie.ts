@@ -2,52 +2,68 @@ class Node<A> {
   private constructor(
     readonly index: number,
     private readonly value?: A,
-    private readonly left?: Node<A>,
-    private readonly right?: Node<A>,
+    private readonly zero?: Node<A>,
+    private readonly one?: Node<A>,
+    private readonly two?: A,
   ) {}
 
   get(index: number): A | undefined {
     if (index > 2 * this.index) return;
-    if (index > this.index) return this.right?.get(index - this.index - 1);
+    if (index === 2 * this.index && index !== 0) return this.two;
+    if (index > this.index) return this.one?.get(index - this.index - 1);
     if (index === this.index) {
       return this.value;
     }
-    return this.left?.get(index);
+    return this.zero?.get(index);
   }
 
-  static #set<A>(index: number, value: A, left?: Node<A>): Node<A> {
+  static #set<A, B>(index: number, value: A, left?: Node<B>): Node<A | B> {
     let j = left ? 2 * left.index + 1 : 0;
     while (2 * j < index) {
       j = 2 * j + 1;
     }
     if (j === index) {
-      return new Node(index, value, left);
+      return new Node<A | B>(j, value, left);
+    }
+    if (2 * j === index && index !== 0) {
+      return new Node<A | B>(j, undefined, left, undefined, value);
     }
     return new Node(j, undefined, left, Node.#set(index - j - 1, value));
   }
 
-  set(index: number, value: A): Node<A> {
+  set<B>(index: number, value: B): Node<A | B> {
     if (index > 2 * this.index) {
       return Node.#set(index, value, this);
+    }
+    if (index === 2 * this.index && index !== 0) {
+      return new Node<A | B>(
+        this.index,
+        this.value,
+        this.zero,
+        this.one,
+        value,
+      );
     }
     if (index > this.index) {
       const j = index - this.index - 1;
       return new Node(
         this.index,
         this.value,
-        this.left,
-        this.right?.set(j, value) ||
+        this.zero,
+        this.one?.set(j, value) ||
           Node.#set(j, value),
+        this.two,
       );
     }
     if (index === this.index) {
-      return new Node(this.index, value, this.left, this.right);
+      return new Node<A | B>(this.index, value, this.zero, this.one, this.two);
     }
     return new Node(
       this.index,
       this.value,
-      this.left?.set(index, value) || Node.#set(index, value),
-      this.right,
+      this.zero?.set(index, value) || Node.#set(index, value),
+      this.one,
+      this.two,
     );
   }
 
@@ -55,29 +71,42 @@ class Node<A> {
     if (index > 2 * this.index) {
       return this;
     }
-    if (index > this.index) {
-      if (this.right) {
+    if (index === 2 * this.index && index !== 0) {
+      if (this.zero || this.one || this.value !== undefined) {
         return new Node(
           this.index,
           this.value,
-          this.left,
-          this.right.#delete(index - this.index - 1),
+          this.zero,
+          this.one,
+        );
+      }
+      return undefined;
+    }
+    if (index > this.index) {
+      if (this.one) {
+        return new Node(
+          this.index,
+          this.value,
+          this.zero,
+          this.one.#delete(index - this.index - 1),
+          this.two,
         );
       }
       return this;
     }
     if (index === this.index) {
-      if (this.left || this.right) {
-        return new Node(this.index, undefined, this.left, this.right);
+      if (this.zero || this.one || this.two !== undefined) {
+        return new Node(this.index, undefined, this.zero, this.one, this.two);
       }
       return undefined;
     }
-    if (this.left) {
+    if (this.zero) {
       return new Node(
         this.index,
         this.value,
-        this.left.#delete(index),
-        this.right,
+        this.zero.#delete(index),
+        this.one,
+        this.two,
       );
     }
     return this;
@@ -92,15 +121,16 @@ class Node<A> {
   }
 
   *entries(offset = 0): Generator<[number, A]> {
-    if (this.left) yield* this.left.entries(offset);
+    if (this.zero) yield* this.zero.entries(offset);
     if (this.value !== undefined) yield [offset + this.index, this.value];
-    if (this.right) yield* this.right.entries(offset + this.index + 1);
+    if (this.one) yield* this.one.entries(offset + this.index + 1);
+    if (this.two !== undefined) yield [offset + 2 * this.index, this.two];
   }
 
   toString() {
     const pairs = [];
     for (const [k, v] of this.entries()) {
-      pairs.push(k + ": " + v);
+      pairs.push(k + ": " + v?.toString());
     }
     return "{" + pairs.join(", ") + "}";
   }
@@ -109,14 +139,14 @@ class Node<A> {
 class Empty {
   private constructor() {}
   static instance = new this();
-  get(_: number) {}
-  set<A>(index: number, value: A) {
+  get(_: number): undefined {}
+  set<A>(index: number, value: A): NumberTrie<A> {
     return Node.singleton(index, value);
   }
-  delete<A>(_: number): NumberTrie<A> {
+  delete(_: number): NumberTrie<never> {
     return this;
   }
-  *entries<A>(_ = 0): Generator<[number, A]> {}
+  *entries(_ = 0): Generator<[number, never]> {}
   toString() {
     return "{}";
   }

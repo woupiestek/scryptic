@@ -10,7 +10,7 @@ Deno.test(function simpleCase() {
   const actual = [...array.entries()];
   assertEquals(actual, expected);
   for (let i = 0; i < 31; i++) {
-    assertEquals(array.get(i),i);
+    assertEquals(array.get(i), i);
   }
 });
 
@@ -23,7 +23,7 @@ Deno.test(function reverseOrder() {
   const actual = [...array.entries()];
   assertEquals(actual, expected);
   for (let i = 0; i < 31; i++) {
-    assertEquals(array.get(i),i);
+    assertEquals(array.get(i), i);
   }
 });
 
@@ -42,7 +42,7 @@ Deno.test(function randomOrder() {
   const actual = [...array.entries()];
   assertEquals(actual, expected);
   for (let i = 0; i < 31; i++) {
-    assertEquals(array.get(i),i);
+    assertEquals(array.get(i), i);
   }
 });
 
@@ -60,6 +60,6 @@ Deno.test(function deleteEveryThird() {
   const actual = [...array.entries()];
   assertEquals(actual, expected);
   for (let i = 0; i < 31; i++) {
-    assertEquals(array.get(i),i%3===0?undefined:i);
+    assertEquals(array.get(i), i % 3 === 0 ? undefined : i);
   }
 });
