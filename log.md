@@ -1,10 +1,76 @@
 # Scryptic
 
+## 2024-03-27
+
+### another trie
+
+Can we do the same with skew binaries? Does it help?
+
+- first skip 0, start countering at 1, and drop the first digit, so 1 is the
+  empty list
+- 2 is 2, so we cannot drop the first digit for skew binaries. does that settle
+  it? Maybe lean in: first digit is 1 or 2, so encode that as 0 or 1. Deal with
+  trailing 20... by using a list of trees. Sound complicated, and not
+  particularly useful.
+
+Think again:
+
+- Some nodes can have two values (one, two)
+- Some nodes can only have one (one)
+- Binary nodes have (zero:Binary, one:Binary,...) no value?
+- Ternary nodes (zero:Ternary, one:Binary, two:Binary) no value?
+
+1 2 01 11 21 02 001 101 201 011 111 211 021 002 0001
+
+I.e. find values after 1 or 2 find '2' only after 0. There are two types of
+nodes after all.
+
+The decomposition of a number into skew digits... is not as simple as looking at
+the last digit anymore.
+
+Perhaps the problem is getting to the first 1 or 2.
+
+Skew binaries times 2:
+
+### other binary tree
+
+This could work with offsets:
+
+```
+        0
+   1          2
+ 3   4     5     6
+7 8 9 10 11 12 13 14
+```
+
+But if we don't store the indices in the nodes, we'd need delete, get and set to
+carry an extra parameter to keep track of the required offsets. The interleaving
+traversal function does an amazing job on the old tree.
+
+### other ideas
+
+Starting from the other end
+
+1 10 11 100 101 110 111
+
+0 1 10 11 100 101 110
+
+How to tell where a number belongs?
+
+Time to aprecitate the datastrures I've build.
+
+### back to optimizations
+
+- constant propagation
+- dead code elimination
+- global value numbering
+- register allocation
+
 ## 2024-03-26
 
 ### skew binaries
 
-I finnaly understood how skew binaries and trees are related. The idea is to
+I finally understood how skew binaries and trees are related. The idea is to
 alwasy skip trailing zeros. For the 2's that just means jumping straight to the
 elements. For 0's and 1's, that means special leaf nodes. Doing thing this way,
 makes the offset computation easier.

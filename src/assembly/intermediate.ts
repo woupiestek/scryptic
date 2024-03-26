@@ -1,4 +1,4 @@
-import { NumberTrie } from "../numberTrie.ts";
+import { NumberTrie } from "../numberTrie2.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
