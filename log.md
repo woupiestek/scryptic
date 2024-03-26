@@ -1,6 +1,15 @@
 # Scryptic
 
-## 2024-03-22
+## 2024-03-26
+
+### skew binaries
+
+I finnaly understood how skew binaries and trees are related. The idea is to
+alwasy skip trailing zeros. For the 2's that just means jumping straight to the
+elements. For 0's and 1's, that means special leaf nodes. Doing thing this way,
+makes the offset computation easier.
+
+## 2024-03-25
 
 ### the right structure
 

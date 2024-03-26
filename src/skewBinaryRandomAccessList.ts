@@ -12,7 +12,7 @@ class Node<A> {
     if (index <= this.left?.size) {
       return this.left?.get(index - 1);
     }
-    return this.right?.get(index - 1);
+    return this.right?.get(index - 1); // is this correct?
   }
 }
 

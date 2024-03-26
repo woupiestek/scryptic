@@ -1,130 +1,123 @@
+class Leaf<A> {
+  readonly index = 0;
+  constructor(
+    private readonly value: A,
+  ) {}
+  get(index: number) {
+    return index === 0 ? this.value : undefined;
+  }
+  set<B>(index: number, value: B): NonEmpty<A | B> {
+    if (index === 0) {
+      if (value === this.value as A | B) return this;
+      return new Leaf(value);
+    }
+    return __set<A | B>(index, value, this);
+  }
+  __delete(index: number): Leaf<A> | undefined {
+    if (index === 0) return;
+    return this;
+  }
+  delete(index: number): NumberTrie<A> {
+    return this.__delete(index) || Empty.instance;
+  }
+  *entries(offset = 0): Generator<[number, A]> {
+    yield [offset, this.value];
+  }
+  toString() {
+    return "{" + this.value?.toString() + "}";
+  }
+}
+
+// assume if zero then index > zero.index
+function __set<A>(index: number, value: A, zero?: NonEmpty<A>): NonEmpty<A> {
+  if (index === 0) return new Leaf(value);
+  let j = zero ? 2 * (zero.index + 1) : 0;
+  while (j < index) {
+    j = 2 * (j + 1);
+  }
+  if (j === index) {
+    return new Node(j, zero, undefined, value);
+  }
+  return new Node(j, zero, __set(index - j / 2, value));
+}
+
 class Node<A> {
-  private constructor(
-    readonly index: number,
+  constructor(
+    readonly index: number, // 2, 6, 14, 30, 62, 126, 254, ...
+    private readonly zero?: Node<A> | Leaf<A>,
+    private readonly one?: Node<A> | Leaf<A>,
     private readonly value?: A,
-    private readonly zero?: Node<A>,
-    private readonly one?: Node<A>,
-    private readonly two?: A,
   ) {}
 
   get(index: number): A | undefined {
-    if (index > 2 * this.index) return;
-    if (index === 2 * this.index && index !== 0) return this.two;
-    if (index > this.index) return this.one?.get(index - this.index - 1);
-    if (index === this.index) {
-      return this.value;
-    }
+    if (index > this.index) return;
+    if (index === this.index) return this.value;
+    if (index >= this.index / 2) return this.one?.get(index - this.index / 2);
     return this.zero?.get(index);
   }
 
-  static #set<A, B>(index: number, value: A, left?: Node<B>): Node<A | B> {
-    let j = left ? 2 * left.index + 1 : 0;
-    while (2 * j < index) {
-      j = 2 * j + 1;
-    }
-    if (j === index) {
-      return new Node<A | B>(j, value, left);
-    }
-    if (2 * j === index && index !== 0) {
-      return new Node<A | B>(j, undefined, left, undefined, value);
-    }
-    return new Node(j, undefined, left, Node.#set(index - j - 1, value));
-  }
-
-  set<B>(index: number, value: B): Node<A | B> {
-    if (index > 2 * this.index) {
-      return Node.#set(index, value, this);
-    }
-    if (index === 2 * this.index && index !== 0) {
-      return new Node<A | B>(
-        this.index,
-        this.value,
-        this.zero,
-        this.one,
-        value,
-      );
-    }
+  set<B>(index: number, value: B): NonEmpty<A | B> {
     if (index > this.index) {
-      const j = index - this.index - 1;
-      return new Node(
-        this.index,
-        this.value,
-        this.zero,
-        this.one?.set(j, value) ||
-          Node.#set(j, value),
-        this.two,
-      );
+      return __set<A | B>(index, value, this);
     }
     if (index === this.index) {
-      return new Node<A | B>(this.index, value, this.zero, this.one, this.two);
+      if (value === this.value) return this;
+      return new Node<A | B>(this.index, this.zero, this.one, value);
     }
-    return new Node(
-      this.index,
-      this.value,
-      this.zero?.set(index, value) || Node.#set(index, value),
-      this.one,
-      this.two,
-    );
+    if (index >= this.index / 2) {
+      const j = index - this.index / 2;
+      const one = this.one?.set(j, value) || __set<A | B>(j, value, this.one);
+      if (one === this.one) return this;
+      return new Node<A | B>(
+        this.index,
+        this.zero,
+        one,
+        this.value,
+      );
+    }
+    const zero = this.zero?.set(index, value) ||
+      __set<A | B>(index, value, this.zero);
+    if (zero === this.zero) return this;
+    return new Node(this.index, zero, this.one, this.value);
   }
 
-  #delete(index: number): Node<A> | undefined {
-    if (index > 2 * this.index) {
+  __delete(index: number): NonEmpty<A> | undefined {
+    if (index > this.index) {
       return this;
     }
-    if (index === 2 * this.index && index !== 0) {
-      if (this.zero || this.one || this.value !== undefined) {
+    if (index === this.index) {
+      if (this.zero || this.one) {
         return new Node(
           this.index,
-          this.value,
           this.zero,
           this.one,
         );
       }
       return undefined;
     }
-    if (index > this.index) {
-      if (this.one) {
-        return new Node(
-          this.index,
-          this.value,
-          this.zero,
-          this.one.#delete(index - this.index - 1),
-          this.two,
-        );
-      }
-      return this;
-    }
-    if (index === this.index) {
-      if (this.zero || this.one || this.two !== undefined) {
-        return new Node(this.index, undefined, this.zero, this.one, this.two);
-      }
-      return undefined;
-    }
-    if (this.zero) {
+    if (index >= this.index / 2) {
+      const one = this.one?.__delete(index - this.index / 2);
+      if (one === this.one) return this;
       return new Node(
         this.index,
+        this.zero,
+        one,
         this.value,
-        this.zero.#delete(index),
-        this.one,
-        this.two,
       );
     }
-    return this;
+    const zero = this.zero?.__delete(index);
+    if (zero === this.zero) return this;
+    return new Node(this.index, zero, this.one, this.value);
   }
 
   delete(index: number): NumberTrie<A> {
-    return this.#delete(index) || Empty.instance;
-  }
-
-  static singleton<A>(index: number, value: A): Node<A> {
-    return Node.#set(index, value);
+    return this.__delete(index) || Empty.instance;
   }
 
   *entries(offset = 0): Generator<[number, A]> {
     if (this.zero) yield* this.zero.entries(offset);
+    if (this.one) yield* this.one.entries(offset + this.index / 2);
     if (this.value !== undefined) yield [offset + this.index, this.value];
-    if (this.one) yield* this.one.entries(offset + this.index + 1);
-    if (this.two !== undefined) yield [offset + 2 * this.index, this.two];
   }
 
   toString() {
@@ -141,7 +134,7 @@ class Empty {
   static instance = new this();
   get(_: number): undefined {}
   set<A>(index: number, value: A): NumberTrie<A> {
-    return Node.singleton(index, value);
+    return __set(index, value);
   }
   delete(_: number): NumberTrie<never> {
     return this;
@@ -152,7 +145,8 @@ class Empty {
   }
 }
 
-export type NumberTrie<A> = Node<A> | Empty;
+type NonEmpty<A> = Leaf<A> | Node<A>;
+export type NumberTrie<A> = Empty | NonEmpty<A>;
 export const NumberTrie = {
   empty<A>() {
     return Empty.instance as NumberTrie<A>;
