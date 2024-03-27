@@ -498,7 +498,7 @@ type Data =
   | [ValueType.Literal, boolean | string]
   | [ValueType.Log, ValueQ, ValueQ]
   | [ValueType.New, string]
-  | [ValueType.Not, ValueQ]
+  | [ValueType.Not, Value]
   | [ValueType.Phi, number]
   | [ValueType.SetField, ValueQ, ValueQ, string, ValueQ];
 
@@ -643,7 +643,6 @@ export class CPS<A> {
 }
 
 export class Optimizer {
-  static #TOKEN = new Token(TokenType.ERROR, 0, 0, 0, 0);
   store = new Store();
   #NEXT = this.store.string("<next>");
   #VALUE = this.store.string("<value>");
@@ -758,16 +757,53 @@ export class Optimizer {
         const { token, klaz } = node as New;
         return this.store.value(token, [ValueType.New, klaz]);
       }
-      case TokenType.NOT:
-        // todo: constant propoagation
-        return this.store.value(node.token, [
-          ValueType.Not,
-          values.get(this.#VALUE),
-        ]);
-      // case TokenType.THIS:
-
       default:
         return "expression expected";
+    }
+  }
+
+  negate(token: Token, value?: Value): Value {
+    if (value === undefined) throw Optimizer.#error(token, `Cannot negate`);
+    switch (value.data[0]) {
+      case ValueType.Call:
+      case ValueType.GetField:
+      case ValueType.Phi:
+        return this.store.value(token, [ValueType.Not, value]);
+      case ValueType.Comparison: {
+        let type: TokenType;
+        switch (value.data[2]) {
+          case TokenType.IS_NOT:
+            type = TokenType.IS;
+            break;
+          case TokenType.IS:
+            type = TokenType.IS_NOT;
+            break;
+          case TokenType.LESS:
+            type = TokenType.NOT_LESS;
+            break;
+          case TokenType.MORE:
+            type = TokenType.NOT_MORE;
+            break;
+          case TokenType.NOT_LESS:
+            type = TokenType.LESS;
+            break;
+          case TokenType.NOT_MORE:
+            type = TokenType.MORE;
+            break;
+          default:
+            throw Optimizer.#error(token, "bad comparison");
+        }
+        return this.compare(token, value.data[1], type, value.data[3]);
+      }
+      case ValueType.Literal:
+        if (typeof value.data[1] === "string") {
+          throw Optimizer.#error(token, "cannot negate string");
+        }
+        return this.store.literal(token, !value.data[1]);
+      case ValueType.Not:
+        return value.data[1];
+      default:
+        throw Optimizer.#error(token, "Cannot negate " + value.toString());
     }
   }
 
@@ -826,15 +862,14 @@ export class Optimizer {
         const { token, left, right } = node as Binary;
         return this.expression(left, values).mu((v) =>
           this.expression(right, v).map((w) =>
-            // todo: constant propagation
             w.set(
               this.#VALUE,
-              this.store.value(token, [
-                ValueType.Comparison,
+              this.compare(
+                token,
                 v.get(this.#VALUE),
                 node.token.type,
                 w.get(this.#VALUE),
-              ]),
+              ),
             )
           )
         );
@@ -852,6 +887,13 @@ export class Optimizer {
           )
         );
       }
+      case TokenType.NOT: {
+        const { expression } = node as Not;
+        return this.expression(expression, values).map((v) =>
+          v.set(this.#VALUE, this.negate(expression.token, v.get(this.#VALUE)))
+        );
+      }
+      // case TokenType.THIS:
       case TokenType.OR: {
         const { left, right } = node as Binary;
         return this.ifThenElse(left, values).mu((l) =>
@@ -926,6 +968,72 @@ export class Optimizer {
         );
       }
     }
+  }
+
+  compare(
+    token: Token,
+    left: Value | undefined,
+    comparison: TokenType,
+    right: Value | undefined,
+  ): Value {
+    if (!left || !right) {
+      throw Optimizer.#error(token, "bad comparison");
+    }
+    switch (left.data[0]) {
+      case ValueType.Call:
+      case ValueType.GetField:
+      case ValueType.Phi:
+        return this.store.value(token, [
+          ValueType.Comparison,
+          left,
+          comparison,
+          right,
+        ]);
+      case ValueType.Literal:
+        switch (right.data[0]) {
+          case ValueType.Call:
+          case ValueType.GetField:
+          case ValueType.Phi:
+            return this.store.value(token, [
+              ValueType.Comparison,
+              left,
+              comparison,
+              right,
+            ]);
+          case ValueType.Literal: {
+            let literal: boolean;
+            switch (comparison) {
+              case TokenType.IS_NOT:
+                literal = left.data[1] !== right.data[1];
+                break;
+              case TokenType.IS:
+                literal = left.data[1] === right.data[1];
+                break;
+              case TokenType.LESS:
+                literal = left.data[1] < right.data[1];
+                break;
+              case TokenType.MORE:
+                literal = left.data[1] > right.data[1];
+                break;
+              case TokenType.NOT_LESS:
+                literal = left.data[1] >= right.data[1];
+                break;
+              case TokenType.NOT_MORE:
+                literal = left.data[1] <= right.data[1];
+                break;
+              default:
+                throw Optimizer.#error(token, "band comparison");
+            }
+            return this.store.literal(token, literal);
+          }
+          default:
+            break;
+        }
+        throw Optimizer.#error(token, "bad comparison right hand side");
+      default:
+        break;
+    }
+    throw Optimizer.#error(token, "bad comparison left hand side");
   }
 
   _jump(
