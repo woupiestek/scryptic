@@ -644,9 +644,9 @@ export class CPS<A> {
 
 export class Optimizer {
   store = new Store();
-  #NEXT = this.store.string("<next>");
-  #VALUE = this.store.string("<value>");
-  #WORLD = this.store.string("<world>");
+  __next = this.store.string("<next>");
+  __value = this.store.string("<value>");
+  __world = this.store.string("<world>");
 
   static #error<A>(token: Token, message: string): CPS<A> {
     return new CPS((_) => [LabelType.ERROR, token, message]);
@@ -661,20 +661,20 @@ export class Optimizer {
         const { object, field } = node.left as Access;
         return this.expression(object, values).mu(
           (v1) => {
-            const x = v1.get(this.#VALUE);
+            const x = v1.get(this.__value);
             return this.expression(
               node.right,
               v1,
             ).map(
               (v2) =>
                 v2.set(
-                  this.#WORLD,
+                  this.__world,
                   this.store.value(node.token, [
                     ValueType.SetField,
-                    v2.get(this.#WORLD),
+                    v2.get(this.__world),
                     x,
                     field,
-                    v2.get(this.#VALUE),
+                    v2.get(this.__value),
                   ]),
                 ),
             );
@@ -692,7 +692,7 @@ export class Optimizer {
           values,
         ).map(
           (values) => {
-            const value = values.get(this.#VALUE);
+            const value = values.get(this.__value);
             return value
               ? values.set(2 + index, value)
               : values.delete(2 + index);
@@ -719,7 +719,7 @@ export class Optimizer {
           values,
         ).map(
           (values) => {
-            const value = values.get(this.#VALUE);
+            const value = values.get(this.__value);
             return value ? values.set(index, value) : values.delete(index);
           },
         );
@@ -814,7 +814,7 @@ export class Optimizer {
   ): CPS<NumberTrie<Value>> {
     return CPS.eta(
       values.set(
-        this.#VALUE,
+        this.__value,
         this.store.literal(token, value),
       ),
     );
@@ -845,12 +845,12 @@ export class Optimizer {
             node.token,
             [
               ValueType.GetField,
-              values.get(this.#WORLD),
-              values.get(this.#VALUE),
+              values.get(this.__world),
+              values.get(this.__value),
               field,
             ],
           );
-          return values.set(this.#VALUE, dot);
+          return values.set(this.__value, dot);
         });
       }
       case TokenType.IS_NOT:
@@ -863,12 +863,12 @@ export class Optimizer {
         return this.expression(left, values).mu((v) =>
           this.expression(right, v).map((w) =>
             w.set(
-              this.#VALUE,
+              this.__value,
               this.compare(
                 token,
-                v.get(this.#VALUE),
+                v.get(this.__value),
                 node.token.type,
-                w.get(this.#VALUE),
+                w.get(this.__value),
               ),
             )
           )
@@ -878,11 +878,11 @@ export class Optimizer {
         const { token, value } = node as Log;
         return this.expression(value, values).map((values) =>
           values.set(
-            this.#WORLD,
+            this.__world,
             this.store.value(token, [
               ValueType.Log,
-              values.get(this.#WORLD),
-              values.get(this.#VALUE),
+              values.get(this.__world),
+              values.get(this.__value),
             ]),
           )
         );
@@ -890,7 +890,10 @@ export class Optimizer {
       case TokenType.NOT: {
         const { expression } = node as Not;
         return this.expression(expression, values).map((v) =>
-          v.set(this.#VALUE, this.negate(expression.token, v.get(this.#VALUE)))
+          v.set(
+            this.__value,
+            this.negate(expression.token, v.get(this.__value)),
+          )
         );
       }
       // case TokenType.THIS:
@@ -905,26 +908,26 @@ export class Optimizer {
       case TokenType.PAREN_LEFT: {
         const { token, operator, operands } = node as Call;
         return this.expression(operator, values).mu((v) => {
-          const f: ValueQ = v.get(this.#VALUE);
+          const f: ValueQ = v.get(this.__value);
           if (operands.length === 0) {
             const y = this.store.value(token, [
               ValueType.Call,
-              v.get(this.#WORLD) as ValueQ,
+              v.get(this.__world) as ValueQ,
               f,
             ]);
             return CPS.eta(
-              v.set(this.#VALUE, y).set(this.#WORLD, y),
+              v.set(this.__value, y).set(this.__world, y),
             );
           }
           const x: ValueQ[] = [];
           let a = this.expression(operands[0], v).map((v) => {
-            x[0] = v.get(this.#VALUE);
+            x[0] = v.get(this.__value);
             return v;
           });
           for (let i = 1; i < operands.length; i++) {
             a = a.mu((v) =>
               this.expression(operands[i], v).map((v) => {
-                x[i] = v.get(this.#VALUE);
+                x[i] = v.get(this.__value);
                 return v;
               })
             );
@@ -932,11 +935,11 @@ export class Optimizer {
           return a.map((w) => {
             const y = this.store.value(token, [
               ValueType.Call,
-              w.get(this.#WORLD) as ValueQ,
+              w.get(this.__world) as ValueQ,
               f,
               ...x,
             ]);
-            return w.set(this.#VALUE, y).set(this.#WORLD, y);
+            return w.set(this.__value, y).set(this.__world, y);
           });
         });
       }
@@ -955,7 +958,7 @@ export class Optimizer {
           values.set(
             index,
             this.store.value(varDecl.token, [ValueType.Declared]),
-          ).delete(this.#VALUE),
+          ).delete(this.__value),
         );
       }
       default: {
@@ -964,7 +967,7 @@ export class Optimizer {
           return Optimizer.#error(node.token, v);
         }
         return CPS.eta(
-          v ? values.set(this.#VALUE, v) : values.delete(this.#VALUE),
+          v ? values.set(this.__value, v) : values.delete(this.__value),
         );
       }
     }
@@ -1045,7 +1048,7 @@ export class Optimizer {
     values: NumberTrie<Value>;
   }> {
     if (!jump) {
-      return CPS.eta({ target: this.#NEXT, values });
+      return this.#next(values);
     }
     switch (jump.token.type) {
       case TokenType.BREAK: {
@@ -1070,14 +1073,14 @@ export class Optimizer {
           return new CPS((_) =>
             this.expression(expression, values).complete((values) => [
               LabelType.RETURN,
-              values.get(this.#WORLD),
-              values.get(this.#VALUE),
+              values.get(this.__world),
+              values.get(this.__value),
             ])
           );
         } else {
           return new CPS((_) => [
             LabelType.RETURN,
-            values.get(this.#WORLD),
+            values.get(this.__world),
             undefined,
           ]);
         }
@@ -1094,12 +1097,12 @@ export class Optimizer {
     values: NumberTrie<Value>;
   }> {
     if (statements.length === 0) {
-      return CPS.eta({ target: this.#NEXT, values });
+      return this.#next(values);
     }
     let y = this.statement(statements[0], values);
     for (let i = 1; i < statements.length; i++) {
       y = y.mu((goto) => {
-        if (goto.target === this.#NEXT) {
+        if (goto.target === this.__next) {
           return this.statement(statements[i], goto.values);
         }
         return CPS.eta(goto);
@@ -1116,7 +1119,7 @@ export class Optimizer {
     values: NumberTrie<Value>;
   }> {
     return (this.statements(block.statements, values).mu((goto) => {
-      if (goto.target === this.#NEXT) {
+      if (goto.target === this.__next) {
         return this._jump(block.token, block.jump, goto.values);
       }
       return CPS.eta(goto);
@@ -1131,6 +1134,8 @@ export class Optimizer {
     });
   }
 
+  // fully evaluate condition,
+  // then do this
   ifThenElse(
     condition: Expression,
     values: NumberTrie<Value>,
@@ -1193,11 +1198,21 @@ export class Optimizer {
       default:
         return this.expression(condition, values).mu(
           (v: NumberTrie<Value>) => {
-            const c = v.get(this.#VALUE);
+            const c = v.get(this.__value);
             if (!c) {
               return Optimizer.#error(
                 condition.token,
-                "bad condition expression",
+                "condition without value",
+              );
+            }
+            if (c.data[0] === ValueType.Literal) {
+              const on = c.data[1];
+              if (typeof on === "boolean") {
+                return CPS.eta({ on, values: v });
+              }
+              throw Optimizer.#error(
+                condition.token,
+                "condition not boolean",
               );
             }
             return new CPS((next) => [
@@ -1256,7 +1271,7 @@ export class Optimizer {
             if (!it.on) return this.#next(it.values);
             return this.block(onTrue, it.values).mu((goto) => {
               if (
-                goto.target === this.#NEXT ||
+                goto.target === this.__next ||
                 goto.target === this.store.string("<continue>") ||
                 (label &&
                   goto.target === this.store.string(`<continue ${label}>`))
@@ -1285,7 +1300,7 @@ export class Optimizer {
         return this.expression(node as Expression, values).map((
           values,
         ) => ({
-          target: this.#NEXT,
+          target: this.__next,
           values,
         }));
     }
@@ -1295,6 +1310,6 @@ export class Optimizer {
     target: number;
     values: NumberTrie<Value>;
   }> {
-    return CPS.eta({ target: this.#NEXT, values });
+    return CPS.eta({ target: this.__next, values });
   }
 }

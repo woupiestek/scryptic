@@ -17,7 +17,7 @@ function run(input: string) {
     NumberTrie.empty(),
   ).complete((gt) => [
     LabelType.RETURN,
-    gt.values.get(0),
+    gt.values.get(optimizer.__world),
     undefined,
   ]);
   console.log(optimizer.store.list());
