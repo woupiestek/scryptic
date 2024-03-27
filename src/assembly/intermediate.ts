@@ -213,7 +213,7 @@ export class Grapher {
         case IfStatement: {
           const cont = this.statementsToGraph(statements.slice(i + 1), graph);
           const { condition, onTrue, onFalse } = statements[i] as IfStatement;
-          graph = this.ifThenElse(
+          graph = this.__bool(
             condition,
             this.blockToGraph(onTrue, cont),
             onFalse === undefined ? cont : this.blockToGraph(onFalse, cont),
@@ -226,7 +226,7 @@ export class Grapher {
           const key: Graph = [
             GraphType.RETURN,
           ];
-          const head = this.ifThenElse(condition, key, cont);
+          const head = this.__bool(condition, key, cont);
           this.#labels.push({ label, break: cont, continue: head });
           const value = this.blockToGraph(onTrue, cont);
           this.#labels.pop();
@@ -245,7 +245,7 @@ export class Grapher {
     return graph;
   }
 
-  ifThenElse(
+  __bool(
     condition: Expression,
     thenBranch: Graph,
     elseBranch: Graph,
@@ -253,9 +253,9 @@ export class Grapher {
     switch (condition.token.type) {
       case TokenType.AND: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(
+        return this.__bool(
           left,
-          this.ifThenElse(right, thenBranch, elseBranch),
+          this.__bool(right, thenBranch, elseBranch),
           elseBranch,
         );
       }
@@ -279,10 +279,10 @@ export class Grapher {
       }
       case TokenType.OR: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(
+        return this.__bool(
           left,
           thenBranch,
-          this.ifThenElse(right, thenBranch, elseBranch),
+          this.__bool(right, thenBranch, elseBranch),
         );
       }
       case TokenType.TRUE:
@@ -630,53 +630,72 @@ export const Label = {
 };
 
 export class CPS<A> {
-  constructor(readonly complete: (next: (_: A) => Label) => Label) {}
+  constructor(
+    readonly complete: (
+      values: NumberTrie<Value>,
+      next: (vs: NumberTrie<Value>, a: A) => Label,
+    ) => Label,
+  ) {}
   mu<B>(f: (_: A) => CPS<B>): CPS<B> {
-    return new CPS((next) => this.complete((a) => f(a).complete(next)));
+    return new CPS((values, next) =>
+      this.complete(values, (vs, a) => f(a).complete(vs, next))
+    );
   }
   static eta<A>(a: A): CPS<A> {
-    return new CPS((next) => next(a));
+    return new CPS((vs, next) => next(vs, a));
   }
   map<B>(f: (_: A) => B): CPS<B> {
-    return new CPS((next) => this.complete((a) => next(f(a))));
+    return new CPS((values, next) =>
+      this.complete(values, (vs, a) => next(vs, f(a)))
+    );
+  }
+  static get(index: number): CPS<Value | undefined> {
+    return new CPS((values, next) => next(values, values.get(index)));
+  }
+  static set(index: number, value?: Value): CPS<Value | undefined> {
+    return new CPS((values, next) =>
+      next(
+        value === undefined ? values.delete(index) : values.set(index, value),
+        value,
+      )
+    );
   }
 }
 
 export class Optimizer {
   store = new Store();
   __next = this.store.string("<next>");
-  __value = this.store.string("<value>");
   __world = this.store.string("<world>");
 
   static #error<A>(token: Token, message: string): CPS<A> {
     return new CPS((_) => [LabelType.ERROR, token, message]);
   }
 
+  updateWorld(f: (_?: Value) => Value): CPS<Value | undefined> {
+    return CPS.get(this.__world).mu((w) => CPS.set(this.__world, f(w)));
+  }
+
   assign(
     node: Binary,
-    values: NumberTrie<Value>,
-  ): CPS<NumberTrie<Value>> {
+  ): CPS<Value | undefined> {
     switch (node.left.token.type) {
       case TokenType.DOT: {
         const { object, field } = node.left as Access;
-        return this.expression(object, values).mu(
-          (v1) => {
-            const x = v1.get(this.__value);
+        return this.expression(object).mu(
+          (x) => {
             return this.expression(
               node.right,
-              v1,
-            ).map(
-              (v2) =>
-                v2.set(
-                  this.__world,
+            ).mu(
+              (y) =>
+                this.updateWorld((w) =>
                   this.store.value(node.token, [
                     ValueType.SetField,
-                    v2.get(this.__world),
+                    w,
                     x,
                     field,
-                    v2.get(this.__value),
-                  ]),
-                ),
+                    y,
+                  ])
+                ).map((_) => y),
             );
           },
         );
@@ -689,40 +708,21 @@ export class Optimizer {
         }
         return this.expression(
           node.right,
-          values,
-        ).map(
-          (values) => {
-            const value = values.get(this.__value);
-            return value
-              ? values.set(2 + index, value)
-              : values.delete(2 + index);
-          },
-        );
+        ).mu((it) => CPS.set(index, it));
       }
       case TokenType.VAR: {
         const varDecl = node.left as VarDeclaration;
         const { token, name } = varDecl.key;
         const index = this.store.string(name);
-        const other = values.get(index);
-        if (other !== undefined) {
-          return Optimizer.#error(
-            node.left.token,
-            `Variable already declared at (${other.token.line},${other.token.column})`,
-          );
-        }
-        values = values.set(
-          index,
-          this.store.value(token, [ValueType.Declared]),
-        );
-        return this.expression(
-          node.right,
-          values,
-        ).map(
-          (values) => {
-            const value = values.get(this.__value);
-            return value ? values.set(index, value) : values.delete(index);
-          },
-        );
+        return CPS.get(index).mu((other) => {
+          if (other !== undefined) {
+            return Optimizer.#error(
+              token,
+              `Variable already declared at (${other.token.line},${other.token.column})`,
+            );
+          }
+          return this.expression(node.right).mu((it) => CPS.set(index, it));
+        });
       }
       default:
         return Optimizer.#error(node.token, "Impossible assignment");
@@ -810,48 +810,39 @@ export class Optimizer {
   bool(
     token: Token,
     value: boolean,
-    values: NumberTrie<Value>,
-  ): CPS<NumberTrie<Value>> {
+  ): CPS<Value> {
     return CPS.eta(
-      values.set(
-        this.__value,
-        this.store.literal(token, value),
-      ),
+      this.store.literal(token, value),
     );
   }
 
   expression(
     node: Expression,
-    values: NumberTrie<Value>,
-  ): CPS<NumberTrie<Value>> {
+  ): CPS<Value | undefined> {
     switch (node.token.type) {
       case TokenType.AND: {
         const { left, right } = node as Binary;
-        return this.ifThenElse(
-          left,
-          values,
-        ).mu((l) =>
-          l.on
-            ? this.expression(right, l.values)
-            : this.bool(left.token, false, l.values)
+        return this.__bool(left).mu((l) =>
+          l ? this.expression(right) : this.bool(left.token, false)
         );
       }
       case TokenType.BE:
-        return this.assign(node as Binary, values);
+        return this.assign(node as Binary);
       case TokenType.DOT: {
         const { object, field } = node as Access;
-        return this.expression(object, values).map((values) => {
-          const dot = this.store.value(
-            node.token,
-            [
-              ValueType.GetField,
-              values.get(this.__world),
-              values.get(this.__value),
-              field,
-            ],
-          );
-          return values.set(this.__value, dot);
-        });
+        return this.expression(object).mu((value) =>
+          CPS.get(this.__world).map((w) =>
+            this.store.value(
+              node.token,
+              [
+                ValueType.GetField,
+                w,
+                value,
+                field,
+              ],
+            )
+          )
+        );
       }
       case TokenType.IS_NOT:
       case TokenType.IS:
@@ -860,116 +851,84 @@ export class Optimizer {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE: {
         const { token, left, right } = node as Binary;
-        return this.expression(left, values).mu((v) =>
-          this.expression(right, v).map((w) =>
-            w.set(
-              this.__value,
-              this.compare(
-                token,
-                v.get(this.__value),
-                node.token.type,
-                w.get(this.__value),
-              ),
-            )
+        return this.expression(left).mu((l) =>
+          this.expression(right).map((r) =>
+            this.compare(token, l, node.token.type, r)
           )
         );
       }
       case TokenType.LOG: {
         const { token, value } = node as Log;
-        return this.expression(value, values).map((values) =>
-          values.set(
-            this.__world,
-            this.store.value(token, [
-              ValueType.Log,
-              values.get(this.__world),
-              values.get(this.__value),
-            ]),
+        return this.expression(value).mu((v) =>
+          this.updateWorld((w) =>
+            this.store.value(token, [ValueType.Log, w, v])
           )
         );
       }
       case TokenType.NOT: {
         const { expression } = node as Not;
-        return this.expression(expression, values).map((v) =>
-          v.set(
-            this.__value,
-            this.negate(expression.token, v.get(this.__value)),
-          )
+        return this.expression(expression).map((v) =>
+          this.negate(expression.token, v)
         );
       }
       // case TokenType.THIS:
       case TokenType.OR: {
         const { left, right } = node as Binary;
-        return this.ifThenElse(left, values).mu((l) =>
-          l.on
-            ? this.bool(left.token, true, l.values)
-            : this.expression(right, l.values)
+        return this.__bool(left).mu((l) =>
+          l ? this.bool(left.token, true) : this.expression(right)
         );
       }
       case TokenType.PAREN_LEFT: {
         const { token, operator, operands } = node as Call;
-        return this.expression(operator, values).mu((v) => {
-          const f: ValueQ = v.get(this.__value);
+        return this.expression(operator).mu((f) => {
           if (operands.length === 0) {
-            const y = this.store.value(token, [
-              ValueType.Call,
-              v.get(this.__world) as ValueQ,
-              f,
-            ]);
-            return CPS.eta(
-              v.set(this.__value, y).set(this.__world, y),
+            return this.updateWorld((w) =>
+              this.store.value(token, [ValueType.Call, w, f])
             );
           }
           const x: ValueQ[] = [];
-          let a = this.expression(operands[0], v).map((v) => {
-            x[0] = v.get(this.__value);
-            return v;
+          let a = this.expression(operands[0]).map((v) => {
+            x[0] = v;
           });
           for (let i = 1; i < operands.length; i++) {
-            a = a.mu((v) =>
-              this.expression(operands[i], v).map((v) => {
-                x[i] = v.get(this.__value);
-                return v;
+            a = a.mu((_) =>
+              this.expression(operands[i]).map((v) => {
+                x[i] = v;
               })
             );
           }
-          return a.map((w) => {
-            const y = this.store.value(token, [
-              ValueType.Call,
-              w.get(this.__world) as ValueQ,
-              f,
-              ...x,
-            ]);
-            return w.set(this.__value, y).set(this.__world, y);
-          });
+          return a.mu((_) =>
+            this.updateWorld((w) =>
+              this.store.value(token, [ValueType.Call, w, f, ...x])
+            )
+          );
         });
       }
       case TokenType.VAR: {
         const varDecl = node as VarDeclaration;
         const { name } = varDecl.key;
         const index = this.store.string(name);
-        const value = values.get(index);
-        if (value) {
-          return Optimizer.#error(
-            varDecl.token,
-            `Variable already existed at (${value.token.line},${value.token.column})`,
-          );
-        }
-        return CPS.eta(
-          values.set(
+        return CPS.get(index).mu((value) => {
+          if (value) {
+            return Optimizer.#error(
+              varDecl.token,
+              `Variable already existed at (${value.token.line},${value.token.column})`,
+            );
+          }
+          return CPS.set(
             index,
             this.store.value(varDecl.token, [ValueType.Declared]),
-          ).delete(this.__value),
-        );
+          ).map((_) => undefined);
+        });
       }
-      default: {
-        const v = this.simpleExpression(node, values);
-        if (typeof v === "string") {
-          return Optimizer.#error(node.token, v);
-        }
-        return CPS.eta(
-          v ? values.set(this.__value, v) : values.delete(this.__value),
-        );
-      }
+      default:
+        return new CPS((values, next) => {
+          const v = this.simpleExpression(node, values);
+          if (typeof v === "string") {
+            return [LabelType.ERROR, node.token, v];
+          }
+          return next(values, v);
+        });
     }
   }
 
@@ -1042,48 +1001,35 @@ export class Optimizer {
   _jump(
     token: Token,
     jump: Jump | undefined,
-    values: NumberTrie<Value>,
-  ): CPS<{
-    target: number;
-    values: NumberTrie<Value>;
-  }> {
+  ): CPS<number> {
     if (!jump) {
-      return this.#next(values);
+      return CPS.eta(this.__next);
     }
     switch (jump.token.type) {
       case TokenType.BREAK: {
         const { label } = jump as Break;
-        return CPS.eta({
-          target: this.store.string(label ? `<break ${label}>` : "<break>"),
-          values,
-        });
+        return CPS.eta(
+          this.store.string(label ? `<break ${label}>` : "<break>"),
+        );
       }
       case TokenType.CONTINUE: {
         const { label } = jump as Continue;
-        return CPS.eta({
-          target: this.store.string(
-            label ? `<continue ${label}>` : "<continue>",
-          ),
-          values,
-        });
+        return CPS.eta(this.store.string(
+          label ? `<continue ${label}>` : "<continue>",
+        ));
       }
       case TokenType.RETURN: {
         const { expression } = jump as Return;
         if (expression) {
-          return new CPS((_) =>
-            this.expression(expression, values).complete((values) => [
-              LabelType.RETURN,
-              values.get(this.__world),
-              values.get(this.__value),
-            ])
+          return this.expression(expression).mu((v) =>
+            CPS.get(this.__world).mu((w) =>
+              new CPS(() => [LabelType.RETURN, w, v])
+            )
           );
-        } else {
-          return new CPS((_) => [
-            LabelType.RETURN,
-            values.get(this.__world),
-            undefined,
-          ]);
         }
+        return CPS.get(this.__world).mu((w) =>
+          new CPS((_) => [LabelType.RETURN, w, undefined])
+        );
       }
     }
     return Optimizer.#error(token, "nowhere to go from here");
@@ -1091,19 +1037,15 @@ export class Optimizer {
 
   statements(
     statements: Statement[],
-    values: NumberTrie<Value>,
-  ): CPS<{
-    target: number;
-    values: NumberTrie<Value>;
-  }> {
+  ): CPS<number> {
     if (statements.length === 0) {
-      return this.#next(values);
+      return CPS.eta(this.__next);
     }
-    let y = this.statement(statements[0], values);
+    let y = this.statement(statements[0]);
     for (let i = 1; i < statements.length; i++) {
       y = y.mu((goto) => {
-        if (goto.target === this.__next) {
-          return this.statement(statements[i], goto.values);
+        if (goto === this.__next) {
+          return this.statement(statements[i]);
         }
         return CPS.eta(goto);
       });
@@ -1113,92 +1055,74 @@ export class Optimizer {
 
   block(
     block: Block,
-    values: NumberTrie<Value>,
-  ): CPS<{
-    target: number;
-    values: NumberTrie<Value>;
-  }> {
-    return (this.statements(block.statements, values).mu((goto) => {
-      if (goto.target === this.__next) {
-        return this._jump(block.token, block.jump, goto.values);
-      }
-      return CPS.eta(goto);
-    })).map((goto) => {
-      // scoping
-      let gv = goto.values;
-      for (const [k, _] of goto.values.entries()) {
-        if (!values.get(k)) gv = gv.delete(k);
-      }
-      goto.values = gv;
-      return goto;
-    });
+  ): CPS<number> {
+    // extra steps needed to reset the scope...
+    return new CPS<Set<number>>((values, next) =>
+      next(values, new Set([...values.entries()].map(([k, _]) => k)))
+    ).mu((scope) =>
+      (this.statements(block.statements).mu((goto) => {
+        if (goto === this.__next) {
+          return this._jump(block.token, block.jump);
+        }
+        return CPS.eta(goto);
+      })).mu((goto) =>
+        new CPS((values, next) => {
+          let vs = values;
+          for (const [k, _] of values.entries()) {
+            if (scope.has(k) || this.__world === k) continue;
+            vs = vs.delete(k);
+          }
+          return next(vs, goto);
+        })
+      )
+    );
   }
 
   // fully evaluate condition,
   // then do this
-  ifThenElse(
+  __bool(
     condition: Expression,
-    values: NumberTrie<Value>,
-  ): CPS<{ on: boolean; values: NumberTrie<Value> }> {
+  ): CPS<boolean> {
     switch (condition.token.type) {
       case TokenType.AND: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(
-          left,
-          values,
-        ).mu((l) => l.on ? this.ifThenElse(right, l.values) : CPS.eta(l));
+        return this.__bool(left).mu((l) =>
+          l ? this.__bool(right) : CPS.eta(false)
+        );
       }
       case TokenType.BE: {
         const { token, left, right } = condition as Binary;
-        return this.ifThenElse(
-          right,
-          values,
-        ).mu((r) =>
+        return this.__bool(right).mu((r) =>
           this.assign(
-            new Binary(token, left, new Literal(token, r.on)),
-            r.values,
-          ).map((v) => ({ on: r.on, values: v }))
+            new Binary(token, left, new Literal(token, r)),
+          ).map((_) => r)
         );
       }
       case TokenType.FALSE:
-        return CPS.eta({ on: false, values });
+        return CPS.eta(false);
       case TokenType.LOG: {
         const { token, value } = condition as Log;
-        return this.ifThenElse(
-          value,
-          values,
-        ).mu((v) =>
+        return this.__bool(value).mu((v) =>
           this.expression(
-            new Log(token, new Literal(token, v.on)),
-            v.values,
-          ).map((w) => ({ on: v.on, values: w }))
+            new Log(token, new Literal(token, v)),
+          ).map((_) => v)
         );
       }
       case TokenType.NOT: {
         const { expression } = condition as Not;
-        return this.ifThenElse(expression, values).map((
-          { on, values },
-        ) => ({
-          on: !on,
-          values,
-        }));
+        return this.__bool(expression).map((on) => !on);
       }
       case TokenType.OR: {
         const { left, right } = condition as Binary;
-        return this.ifThenElse(
-          left,
-          values,
-        ).mu((l) => {
-          if (l.on) return CPS.eta(l);
-          return this.ifThenElse(right, l.values);
-        });
+        return this.__bool(left).mu((l) =>
+          l ? CPS.eta(true) : this.__bool(right)
+        );
       }
       case TokenType.TRUE:
-        return CPS.eta({ on: false, values });
+        return CPS.eta(true);
       default:
-        return this.expression(condition, values).mu(
-          (v: NumberTrie<Value>) => {
-            const c = v.get(this.__value);
+        return this.expression(condition).mu(
+          (c) => {
             if (!c) {
               return Optimizer.#error(
                 condition.token,
@@ -1208,25 +1132,25 @@ export class Optimizer {
             if (c.data[0] === ValueType.Literal) {
               const on = c.data[1];
               if (typeof on === "boolean") {
-                return CPS.eta({ on, values: v });
+                return CPS.eta(on);
               }
               throw Optimizer.#error(
                 condition.token,
                 "condition not boolean",
               );
             }
-            return new CPS((next) => [
+            return new CPS((values, next) => [
               LabelType.IF,
               c,
-              next({ on: true, values: v }),
-              next({ on: false, values: v }),
+              next(values, true),
+              next(values, false),
             ]);
           },
         );
     }
   }
 
-  #phonies(values: NumberTrie<Value>) {
+  #abstract: CPS<void> = new CPS((values, next) => {
     let phonies = NumberTrie.empty<Value>();
     for (const [k, v] of values.entries()) {
       if (v.data[0] === ValueType.Declared) {
@@ -1235,27 +1159,27 @@ export class Optimizer {
         phonies = phonies.set(k, this.store.value(v.token, [ValueType.Phi, k]));
       }
     }
-    return phonies;
+    return next(phonies);
+  });
+
+  #goto<A>(_label: string): CPS<A> {
+    return new CPS((values, _) => [LabelType.GOTO, _label, values]);
   }
 
   statement(
     node: Statement,
-    values: NumberTrie<Value>,
-  ): CPS<{
-    target: number;
-    values: NumberTrie<Value>;
-  }> {
+  ): CPS<number> {
     // jump target
     switch (node.token.type) {
       case TokenType.BRACE_LEFT: {
-        return this.block(node as Block, values);
+        return this.block(node as Block);
       }
       case TokenType.IF: {
         const { condition, onTrue, onFalse } = node as IfStatement;
-        return this.ifThenElse(condition, values).mu((it) => {
-          if (it.on) return this.block(onTrue, it.values);
-          if (onFalse) return this.block(onFalse, it.values);
-          return this.#next(it.values);
+        return this.__bool(condition).mu((it) => {
+          if (it) return this.block(onTrue);
+          if (onFalse) return this.block(onFalse);
+          return CPS.eta(this.__next);
         });
       }
       case TokenType.WHILE: {
@@ -1263,53 +1187,41 @@ export class Optimizer {
         const _label = label ||
           ["WHILE", node.token.line, node.token.column].join("_");
         // this is where the phonies seem necessary
-        const head: CPS<{
-          target: number;
-          values: NumberTrie<Value>;
-        }> = this.ifThenElse(condition, this.#phonies(values)).mu(
-          (it) => {
-            if (!it.on) return this.#next(it.values);
-            return this.block(onTrue, it.values).mu((goto) => {
-              if (
-                goto.target === this.__next ||
-                goto.target === this.store.string("<continue>") ||
-                (label &&
-                  goto.target === this.store.string(`<continue ${label}>`))
-              ) {
-                return new CPS((_) => [LabelType.GOTO, _label, goto.values]);
-              }
-              if (
-                goto.target === this.store.string("<break>") ||
-                (label && goto.target === this.store.string(`<break ${label}>`))
-              ) {
-                return this.#next(goto.values);
-              }
-              return CPS.eta(goto);
-            });
-          },
+        const head: CPS<number> = this.#abstract.mu((_) =>
+          this.__bool(condition).mu(
+            (it) => {
+              if (!it) return CPS.eta(this.__next);
+              return this.block(onTrue).mu((goto) => {
+                if (
+                  goto === this.__next ||
+                  goto === this.store.string("<continue>") ||
+                  (label &&
+                    goto === this.store.string(`<continue ${label}>`))
+                ) {
+                  return this.#goto(_label);
+                }
+                if (
+                  goto === this.store.string("<break>") ||
+                  (label && goto === this.store.string(`<break ${label}>`))
+                ) {
+                  return CPS.eta(this.__next);
+                }
+                return CPS.eta(goto);
+              });
+            },
+          )
         );
         return new CPS((
+          values,
           next,
-        ) => [LabelType.DEFINE, _label, head.complete(next), [
+        ) => [LabelType.DEFINE, _label, head.complete(values, next), [
           LabelType.GOTO,
           _label,
           values,
         ]]);
       }
       default:
-        return this.expression(node as Expression, values).map((
-          values,
-        ) => ({
-          target: this.__next,
-          values,
-        }));
+        return this.expression(node as Expression).map((_) => this.__next);
     }
-  }
-
-  #next(values: NumberTrie<Value>): CPS<{
-    target: number;
-    values: NumberTrie<Value>;
-  }> {
-    return CPS.eta({ target: this.__next, values });
   }
 }

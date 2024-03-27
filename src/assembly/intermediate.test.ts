@@ -14,10 +14,9 @@ function run(input: string) {
   const optimizer = new Optimizer();
   const label = optimizer.statements(
     parseResult.filter((it) => it instanceof Block),
-    NumberTrie.empty(),
-  ).complete((gt) => [
+  ).complete(NumberTrie.empty(), (vs, _) => [
     LabelType.RETURN,
-    gt.values.get(optimizer.__world),
+    vs.get(optimizer.__world),
     undefined,
   ]);
   console.log(optimizer.store.list());
