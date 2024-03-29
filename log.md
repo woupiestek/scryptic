@@ -1,5 +1,15 @@
 # Scryptic
 
+## 2024-03-28
+
+### the big trie
+
+For global value numbering.
+
+With the reverse trie this time?
+
+The difficulty is finding the digit after the first one.
+
 ## 2024-03-27
 
 ### another trie

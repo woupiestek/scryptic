@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { NumberTrie } from "./numberTrie.ts";
 
 Deno.test(function simpleCase() {
-  let array = NumberTrie.empty();
+  let array = NumberTrie.empty<number>();
   for (let i = 0; i < 31; i++) {
     array = array.set(i, i);
   }
@@ -15,7 +15,7 @@ Deno.test(function simpleCase() {
 });
 
 Deno.test(function reverseOrder() {
-  let array = NumberTrie.empty();
+  let array = NumberTrie.empty<number>();
   for (let i = 30; i >= 0; i--) {
     array = array.set(i, i);
   }
@@ -28,12 +28,12 @@ Deno.test(function reverseOrder() {
 });
 
 Deno.test(function randomOrder() {
-  let array = NumberTrie.empty();
+  let array = NumberTrie.empty<number>();
   const entries = Array.from({ length: 31 }).map((_, i) => i);
   while (entries.length > 0) {
     const i = Math.floor(entries.length * Math.random());
     array = array.set(entries[i], entries[i]);
-    const e = entries.pop();
+    const e = entries.pop() as number;
     if (i < entries.length) {
       entries[i] = e;
     }
@@ -47,7 +47,7 @@ Deno.test(function randomOrder() {
 });
 
 Deno.test(function deleteEveryThird() {
-  let array = NumberTrie.empty();
+  let array = NumberTrie.empty<number>();
   for (let i = 0; i < 31; i++) {
     array = array.set(i, i);
   }

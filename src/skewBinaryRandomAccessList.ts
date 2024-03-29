@@ -9,10 +9,10 @@ class Node<A> {
   get(index: number): A | undefined {
     if (index === 0) return this.value;
     if (!this.left) return;
-    if (index <= this.left?.size) {
+    if (index <= this.size / 2) {
       return this.left?.get(index - 1);
     }
-    return this.right?.get(index - 1); // is this correct?
+    return this.right?.get(index - 1 - this.size / 2);
   }
 }
 
