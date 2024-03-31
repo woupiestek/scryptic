@@ -1,5 +1,26 @@
 # Scryptic
 
+## 2024-03-31
+
+### more datastructures
+
+Is zeroless skew binary an option?
+
+The first quetion though is about this parity heap thing: each node keeps a
+greatest number and two optional child nodes for even and odd elements, a
+division made for balance.
+
+The current coltuoon moves values around insetad of nodes, because changing the
+depth of a node is hard.
+
+```
+*   *   *   *
+ \ /     \ /
+  *       *
+    \   /
+      *
+```
+
 ## 2024-03-28
 
 ### the big trie

@@ -2,14 +2,14 @@ export class NumberTrie<A> {
   constructor(
     private value?: A,
     private one?: NumberTrie<A>,
-    private zero?: NumberTrie<A>,
+    private two?: NumberTrie<A>,
   ) {}
   get(index: number): A | undefined {
     if (index === 0) return this.value;
     if (index & 1) {
       return this.one?.get((index - 1) / 2);
     }
-    return this.zero?.get(index / 2 - 1);
+    return this.two?.get(index / 2 - 1);
   }
   static singleton<A>(index: number, value: A): NumberTrie<A> {
     if (index === 0) return new NumberTrie(value);
@@ -38,11 +38,11 @@ export class NumberTrie<A> {
       this.one = NumberTrie.singleton((index - 1) / 2, value);
       return;
     }
-    if (this.zero) {
-      this.zero.set(index / 2 - 1, value);
+    if (this.two) {
+      this.two.set(index / 2 - 1, value);
       return;
     }
-    this.zero = NumberTrie.singleton(index / 2 - 1, value);
+    this.two = NumberTrie.singleton(index / 2 - 1, value);
   }
   delete(index: number): void {
     if (index === 0) {
@@ -54,8 +54,8 @@ export class NumberTrie<A> {
       this.one.delete((index - 1) / 2);
       return;
     }
-    if (!this.zero) return;
-    this.zero.delete(index / 2 - 1);
+    if (!this.two) return;
+    this.two.delete(index / 2 - 1);
   }
 
   //         0
@@ -78,7 +78,7 @@ export class NumberTrie<A> {
 
   *__values(): Generator<A | undefined> {
     yield this.value;
-    yield* interleave(this.one?.__values(), this.zero?.__values());
+    yield* interleave(this.one?.__values(), this.two?.__values());
   }
 
   toString() {

@@ -2,14 +2,14 @@ class Node<A> {
   constructor(
     private readonly value?: A,
     private one?: Node<A>,
-    private zero?: Node<A>,
+    private two?: Node<A>,
   ) {}
   get(index: number): A | undefined {
     if (index === 0) return this.value;
     if (index & 1) {
       return this.one?.get((index - 1) / 2);
     }
-    return this.zero?.get(index / 2 - 1);
+    return this.two?.get(index / 2 - 1);
   }
   static singleton<A>(index: number, value: A): Node<A> {
     if (index === 0) return new Node(value);
@@ -25,24 +25,24 @@ class Node<A> {
   set<B>(index: number, value: B): Node<A | B> {
     if (index === 0) {
       if (value === this.value) return this;
-      return new Node<A | B>(value, this.one, this.zero);
+      return new Node<A | B>(value, this.one, this.two);
     }
     if (index & 1) {
       if (this.one) {
         const one = this.one.set((index - 1) / 2, value);
         if (one === this.one) return this;
-        return new Node(this.value, one, this.zero);
+        return new Node(this.value, one, this.two);
       }
       return new Node(
         this.value,
         Node.singleton<A | B>((index - 1) / 2, value),
-        this.zero,
+        this.two,
       );
     }
-    if (this.zero) {
-      const zero = this.zero.set(index / 2 - 1, value);
-      if (zero === this.zero) return this;
-      return new Node(this.value, this.one, zero);
+    if (this.two) {
+      const two = this.two.set(index / 2 - 1, value);
+      if (two === this.two) return this;
+      return new Node(this.value, this.one, two);
     }
     return new Node(
       this.value,
@@ -55,8 +55,8 @@ class Node<A> {
   }
   #delete(index: number): Node<A> | undefined {
     if (index === 0) {
-      if (this.one || this.zero) {
-        return new Node(undefined, this.one, this.zero);
+      if (this.one || this.two) {
+        return new Node(undefined, this.one, this.two);
       }
       return;
     }
@@ -64,16 +64,16 @@ class Node<A> {
       if (!this.one) return this;
       const one = this.one.#delete((index - 1) / 2);
       if (one === this.one) return this;
-      if (this.value !== undefined || one || this.zero) {
-        return new Node(this.value, one, this.zero);
+      if (this.value !== undefined || one || this.two) {
+        return new Node(this.value, one, this.two);
       }
       return;
     }
-    if (!this.zero) return this;
-    const zero = this.zero.#delete(index / 2 - 1);
-    if (zero === this.zero) return this;
-    if (this.value !== undefined || this.one || zero) {
-      return new Node(this.value, this.one, zero);
+    if (!this.two) return this;
+    const two = this.two.#delete(index / 2 - 1);
+    if (two === this.two) return this;
+    if (this.value !== undefined || this.one || two) {
+      return new Node(this.value, this.one, two);
     }
     return;
   }
@@ -108,7 +108,7 @@ class Node<A> {
   __stream(): Stream<A> {
     return {
       head: this.value,
-      tail: () => interleave(this.one?.__stream(), this.zero?.__stream()),
+      tail: () => interleave(this.one?.__stream(), this.two?.__stream()),
     };
   }
 }
