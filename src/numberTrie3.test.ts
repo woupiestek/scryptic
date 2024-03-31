@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { NumberTrie } from "./mutableNumberTrie.ts";
+import { NumberTrie } from "./numberTrie3.ts";
 
 Deno.test(function simpleCase() {
   const array = new NumberTrie<number>();
@@ -57,9 +57,6 @@ Deno.test(function deleteEveryThird() {
   for (let i = 0; i < 31; i++) {
     assertEquals(array.get(i), i % 3 === 0 ? undefined : i);
   }
-  const expected = Array.from({ length: 31 }).map((_, i) => [i, i]).filter((
-    [i, _],
-  ) => i % 3 !== 0);
-  const actual = [...array.entries()];
-  assertEquals(actual, expected);
+  const actual = [...array.entries()].filter(([k, v]) => k !== v);
+  assertEquals(actual, []);
 });

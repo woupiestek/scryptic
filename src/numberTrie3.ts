@@ -9,16 +9,26 @@ const Node = {
   get<A>(node: Node<A>, index: number): A | undefined {
     if (index > node.index) return;
     if (index === node.index) return node.value;
+    const j = index >>> 1;
     if (index & 1) {
       if (node.odd) {
-        return this.get(node.odd, index >>> 1);
+        return this.get(node.odd, j);
       }
-      return;
-    }
-    if (node.even) {
-      return this.get(node.even, index >>> 1);
+    } else if (node.even) {
+      return this.get(node.even, j);
     }
     return;
+  },
+  setLess<A>(node: Node<A>, index: number, value: A): Node<A> {
+    const j = index >>> 1;
+    if (index & 1) {
+      if (node.odd) {
+        node.odd = this.set(node.odd, j, value);
+      } else node.odd = { index: j, value };
+    } else if (node.even) {
+      node.even = this.set(node.even, j, value);
+    } else node.even = { index: j, value };
+    return node;
   },
   set<A>(node: Node<A>, index: number, value: A): Node<A> {
     if (index > node.index) {
@@ -26,88 +36,116 @@ const Node = {
       const v = node.value;
       node.index = index;
       node.value = value;
-      Node.set(node, i, v);
+      return this.setLess(node, i, v);
     }
     if (index === node.index) {
       node.value = value;
-    } else if (index & 1) {
-      if (node.odd) {
-        node.odd = this.set(node.odd, index >>> 1, value);
-      } else {
-        node.odd = { index: index >>> 1, value };
-      }
-    } else if (node.even) {
-      node.even = this.set(node.even, index >>> 1, value);
-    } else node.even = { index: index >>> 1, value };
-    return node;
+      return node;
+    }
+    return this.setLess(node, index, value);
   },
   deleteRoot<A>(node: Node<A>): Node<A> | undefined {
     if (node.even && (!node.odd || node.even.index > node.odd.index)) {
       node.index = node.even.index << 1;
-      node.value = node.even.value; // can this be avoided?
-      node.even = Node.deleteRoot(node.even);
+      node.value = node.even.value;
+      node.even = this.deleteRoot(node.even);
       return node;
     }
     if (node.odd) {
       node.index = (node.odd.index << 1) + 1;
-      node.value = node.odd.value; // can this be avoided?
-      node.odd = Node.deleteRoot(node.odd);
+      node.value = node.odd.value;
+      node.odd = this.deleteRoot(node.odd);
       return node;
     }
     return;
   },
   delete<A>(node: Node<A>, index: number): Node<A> | undefined {
     if (index > node.index) return node;
-    if (index == node.index) {
+    if (index === node.index) {
       return this.deleteRoot(node);
     }
+    const j = index >>> 1;
     if (index & 1) {
       if (node.odd) {
-        node.odd = this.delete(node.odd, index >>> 1);
+        node.odd = this.delete(node.odd, j);
       }
     } else if (node.even) {
-      node.even = this.delete(node.even, index >>> 1);
+      node.even = this.delete(node.even, j);
     }
     return node;
   },
-  // it is a helper function, so could it not have a more helpful return type?
-  // tail = () => {index:number, value:A, tail:tail}?
-  *entries<A>(
-    node: Node<A>,
-    shift = 0,
-    offset = 0,
-  ): Generator<[number, A]> {
-    if (node.even) {
-      if (node.odd) {
-        const even = Node.entries(node.even, shift + 1, offset << 2);
-        const odd = Node.entries(node.odd, shift + 1, (offset << 1) + 1);
-        let e = even.next();
-        let o = odd.next();
-        for (;;) {
-          if (e.value[0] < o.value[0]) {
-            yield e.value;
-            if (e.done) {
-              yield o.value;
-              yield* odd;
-              yield [(node.index << shift) + offset, node.value];
-              return;
-            }
-            e = even.next();
-            continue;
-          }
-          yield o.value;
-          if (o.done) {
-            yield e.value;
-            yield* even;
-            return;
-          }
-          o = odd.next();
-        }
-      }
-      yield* Node.entries(node.even, shift + 1, offset << 1);
-    } else if (node.odd) {
-      yield* Node.entries(node.odd, shift + 1, (offset << 1) + 1);
-    }
-    yield [(node.index << shift) + offset, node.value];
+  merge<A>(a?: Node<A>, b?: Node<A>): Node<A> | undefined {
+    if (!a) return b;
+    if (!b) return a;
+    a.even = this.merge(a.even, b.even);
+    a.odd = this.merge(a.odd, b.odd);
+    return this.set(a, b.index, b.value);
+  },
+  stream<A>(node?: Node<A>, factor = 1, offset = 0): _Stream<A> | undefined {
+    if (!node) return;
+    return append(
+      (node.index * factor) + offset,
+      node.value,
+      merge(
+        this.stream(node.even, factor * 2, offset),
+        this.stream(node.odd, factor * 2, offset + factor),
+      ),
+    );
   },
 };
+type _Stream<A> = {
+  index: number;
+  value: A;
+  tail: () => _Stream<A> | undefined;
+};
+function merge<A>(a?: _Stream<A>, b?: _Stream<A>): _Stream<A> | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  if (a.index < b.index) {
+    const tail = a.tail;
+    a.tail = () => merge(tail(), b);
+    return a;
+  }
+  const tail = b.tail;
+  b.tail = () => merge(a, tail());
+  return b;
+}
+function append<A>(index: number, value: A, stream?: _Stream<A>): _Stream<A> {
+  if (!stream) {
+    return { index, value, tail: () => undefined };
+  }
+  const tail = stream.tail;
+  stream.tail = () => append(index, value, tail());
+  return stream;
+}
+
+export class NumberTrie<A> {
+  private node?: Node<A>;
+  get(index: number): A | undefined {
+    if (!this.node) return;
+    return Node.get(this.node, index);
+  }
+  set(index: number, value: A): void {
+    if (!this.node) {
+      this.node = { index, value };
+    } else {
+      this.node = Node.set(this.node, index, value);
+    }
+  }
+  delete(index: number): void {
+    if (!this.node) return;
+    this.node = Node.delete(this.node, index);
+  }
+  *entries(): Generator<[number, A]> {
+    let stream = Node.stream(this.node);
+    while (stream) {
+      yield [stream.index, stream.value];
+      stream = stream.tail();
+    }
+  }
+  toString(): string {
+    return "{" +
+      [...this.entries()].map(([k, v]) => k + ": " + v?.toString()).join(", ") +
+      "}";
+  }
+}
