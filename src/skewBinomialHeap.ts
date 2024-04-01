@@ -91,6 +91,7 @@ export class HeapNode<A> {
         this.tail.tail,
       );
     }
+    return new HeapNode(new Node(0, value), this);
   }
 
   #removeLeastNode(): [Node<A>, HeapNode<A>?] {

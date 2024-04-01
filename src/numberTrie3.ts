@@ -1,5 +1,5 @@
 type Node<A> = {
-  index: number; // max index;
+  index: number; // min index;
   value: A;
   even?: Node<A>;
   odd?: Node<A>;
@@ -7,7 +7,7 @@ type Node<A> = {
 
 const Node = {
   get<A>(node: Node<A>, index: number): A | undefined {
-    if (index > node.index) return;
+    if (index < node.index) return;
     if (index === node.index) return node.value;
     const j = index >>> 1;
     if (index & 1) {
@@ -19,7 +19,7 @@ const Node = {
     }
     return;
   },
-  setLess<A>(node: Node<A>, index: number, value: A): Node<A> {
+  setMore<A>(node: Node<A>, index: number, value: A): Node<A> {
     const j = index >>> 1;
     if (index & 1) {
       if (node.odd) {
@@ -31,21 +31,21 @@ const Node = {
     return node;
   },
   set<A>(node: Node<A>, index: number, value: A): Node<A> {
-    if (index > node.index) {
+    if (index < node.index) {
       const i = node.index;
       const v = node.value;
       node.index = index;
       node.value = value;
-      return this.setLess(node, i, v);
+      return this.setMore(node, i, v);
     }
     if (index === node.index) {
       node.value = value;
       return node;
     }
-    return this.setLess(node, index, value);
+    return this.setMore(node, index, value);
   },
   deleteRoot<A>(node: Node<A>): Node<A> | undefined {
-    if (node.even && (!node.odd || node.even.index > node.odd.index)) {
+    if (node.even && (!node.odd || node.even.index <= node.odd.index)) {
       node.index = node.even.index << 1;
       node.value = node.even.value;
       node.even = this.deleteRoot(node.even);
@@ -60,7 +60,7 @@ const Node = {
     return;
   },
   delete<A>(node: Node<A>, index: number): Node<A> | undefined {
-    if (index > node.index) return node;
+    if (index < node.index) return node;
     if (index === node.index) {
       return this.deleteRoot(node);
     }
@@ -83,14 +83,16 @@ const Node = {
   },
   stream<A>(node?: Node<A>, factor = 1, offset = 0): _Stream<A> | undefined {
     if (!node) return;
-    return append(
-      (node.index * factor) + offset,
-      node.value,
-      merge(
-        this.stream(node.even, factor * 2, offset),
-        this.stream(node.odd, factor * 2, offset + factor),
-      ),
-    );
+    const f2 = factor * 2;
+    return {
+      index: (node.index * factor) + offset,
+      value: node.value,
+      tail: () =>
+        merge(
+          this.stream(node.even, f2, offset),
+          this.stream(node.odd, f2, offset + factor),
+        ),
+    };
   },
 };
 type _Stream<A> = {
@@ -109,14 +111,6 @@ function merge<A>(a?: _Stream<A>, b?: _Stream<A>): _Stream<A> | undefined {
   const tail = b.tail;
   b.tail = () => merge(a, tail());
   return b;
-}
-function append<A>(index: number, value: A, stream?: _Stream<A>): _Stream<A> {
-  if (!stream) {
-    return { index, value, tail: () => undefined };
-  }
-  const tail = stream.tail;
-  stream.tail = () => append(index, value, tail());
-  return stream;
 }
 
 export class NumberTrie<A> {
