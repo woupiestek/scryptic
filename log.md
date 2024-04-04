@@ -1,5 +1,27 @@
 # Scryptic
 
+## 2024-04-03
+
+### back to ssa and dominace frontiers and such
+
+Current structure is `(A -> V{} -> L) -> V{} -> L`. So there are label objects,
+but generally numbers that refer to struct are used to point them out.
+Effectively, there is no way out of an if or while statement, the continuation
+gets inlined, whetehr that is efficient or not.
+
+Posibilities:
+
+- the return type could be `L{}` or `L[]`, a record of mutually recursive
+  labels.
+- delay inlining where you catch it.
+
+The trouble is telling which labels are called more than once.
+
+### changes
+
+Now just get to the point that blocks are created again. Let's figure out how to
+only generate the necessary cases later.
+
 ## 2024-03-31
 
 ### more datastructures
