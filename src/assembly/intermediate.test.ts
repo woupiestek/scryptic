@@ -1,5 +1,5 @@
 import { Block, Parser } from "./parser.ts";
-import { Label, LabelType, Optimizer } from "./intermediate.ts";
+import { LabelType, Optimizer } from "./intermediate.ts";
 import { NumberTrie } from "../numberTrie2.ts";
 
 function columnnumbers(length: number) {
@@ -14,13 +14,15 @@ function run(input: string) {
   const optimizer = new Optimizer();
   const label = optimizer.statements(
     parseResult.filter((it) => it instanceof Block),
-  ).complete(NumberTrie.empty(), (vs, _) => [
-    LabelType.RETURN,
-    vs.get(optimizer.__world),
-    undefined,
-  ]);
+  ).complete(NumberTrie.empty(), (vs, _) =>
+    optimizer.store.target([
+      LabelType.RETURN,
+      vs.get(optimizer.__world),
+      undefined,
+    ]));
   console.log(optimizer.store.list());
-  console.log(Label.stringify(label));
+  console.log(label.toString());
+  console.log(optimizer.store.targetString());
 }
 
 run('log "Hello, World!"');

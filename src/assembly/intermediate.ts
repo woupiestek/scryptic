@@ -107,8 +107,19 @@ function at<A>(
   }
   return trie;
 }
+
+function hash(keys: number[]): number {
+  let hash = 2166136261;
+  for (let i = 0; i < keys.length; i++) {
+    hash ^= keys[i];
+    hash *= 16777619;
+  }
+  return hash | 0;
+}
+
 class Store {
   strings: Trie<number> = new Trie();
+  targets: Trie<Target> = new Trie();
   values: Trie<Value> = new Trie();
   __key = 3;
   __index(
@@ -137,6 +148,52 @@ class Store {
     return (at(this.strings, data.length, (i) => data.charCodeAt(i))).value ||=
       this.#stringKey++;
   }
+
+  __targetIndex(
+    di:
+      | number
+      | Token
+      | Target
+      | NumberTrie<Value>
+      | Value
+      | string
+      | undefined,
+  ): number {
+    switch (typeof di) {
+      case "undefined":
+        return -1;
+      case "number":
+        return di;
+      case "object":
+        if (di instanceof Target || di instanceof Value) {
+          return di.key;
+        }
+        // hashing?
+        // collision risk, so maybe reconsider?
+        if (di instanceof Token) {
+          return hash([di.type, di.from, di.to, di.line, di.column]);
+        }
+        return hash(
+          [...(di as NumberTrie<Value>).entries()].flatMap((
+            [k, v],
+          ) => [k, v.key]),
+        );
+      case "string":
+        return hash([...di].map((it) => it.charCodeAt(0)));
+      default:
+        return -1;
+    }
+  }
+  #targetKey = 0;
+  target(data: TData): Target {
+    return (at(this.targets, data.length, (i) => this.__targetIndex(data[i])))
+      .value ||= new Target(this.#targetKey++, data);
+  }
+
+  reserve() {
+    return this.#targetKey++;
+  }
+
   value(token: Token, data: Data): Value {
     return (at(this.values, data.length, (i) => this.__index(data[i])))
       .value ||= new Value(this.__key++, token, data);
@@ -155,6 +212,20 @@ class Store {
       [_, trie] = tries.pop() as [number, Trie<Value>];
     }
   }
+  targetString() {
+    let list = NumberTrie.empty();
+    const tries = [];
+    let _ = 0;
+    let trie = this.targets;
+    for (;;) {
+      if (trie.value) {
+        list = list.set(trie.value.key, trie.value.toString());
+      }
+      tries.push(...trie.children.entries());
+      if (tries.length === 0) return list.toString();
+      [_, trie] = tries.pop() as [number, Trie<Target>];
+    }
+  }
 }
 
 export enum LabelType {
@@ -165,44 +236,50 @@ export enum LabelType {
   RETURN,
 }
 
-export type Label =
-  | [LabelType.DEFINE, string, Label, Label]
-  | [LabelType.GOTO, string, NumberTrie<Value>]
-  | [LabelType.IF, Value, Label, Label]
-  | [LabelType.RETURN, ValueQ, ValueQ]
-  | [LabelType.ERROR, Token, string]; // error
+type TData =
+  | [LabelType.ERROR, Token, string]
+  | [LabelType.GOTO, number, NumberTrie<Value>]
+  | [LabelType.IF, Value, Target, Target]
+  | [LabelType.RETURN, ValueQ, ValueQ];
 
-export const Label = {
-  stringify(label: Label): string {
-    switch (label[0]) {
-      case LabelType.DEFINE:
-        return `def ${label[1]} {${Label.stringify(label[2])}} ${
-          Label.stringify(label[3])
-        }`;
+export class Target {
+  constructor(
+    readonly key: number,
+    readonly data: TData,
+  ) {}
+
+  copy(key: number): Target {
+    return new Target(key, this.data);
+  }
+
+  toString(): string {
+    switch (this.data[0]) {
       case LabelType.ERROR:
-        return `¡Error at ${TokenType[label[1].type]}(${label[1].line},${
-          label[1].column
-        }): ${label[2]}!`;
+        return `¡Error at ${TokenType[this.data[1].type]}(${
+          this.data[1].line
+        },${this.data[1].column}): ${this.data[2]}!`;
       case LabelType.GOTO:
-        return `${label[1]}(${
-          [...label[2].entries()].map(([k, v]) => `${k}: ${v.key}`).join(", ")
+        return `${this.data[1]}(${
+          [...this.data[2].entries()].map(([k, v]) => `${k}: ${v.key}`).join(
+            ", ",
+          )
         })`;
       case LabelType.IF:
-        return `if ${label[1].key} then ${Label.stringify(label[2])} else ${
-          Label.stringify(label[3])
+        return `if ${this.data[1].key} then ${this.data[2].toString()} else ${
+          this.data[3].toString()
         }`;
       case LabelType.RETURN:
-        return `return ${label[1]?.key || -1} ${label[2]?.key || -1};`;
+        return `return ${this.data[1]?.key || -1} ${this.data[2]?.key || -1};`;
     }
-  },
-};
+  }
+}
 
 export class CPS<A> {
   constructor(
     readonly complete: (
       values: NumberTrie<Value>,
-      next: (vs: NumberTrie<Value>, a: A) => Label,
-    ) => Label,
+      next: (vs: NumberTrie<Value>, a: A) => Target,
+    ) => Target,
   ) {}
   bind<B>(f: (_: A) => CPS<B>): CPS<B> {
     return new CPS((values, next) =>
@@ -240,8 +317,8 @@ export class Optimizer {
   __next = this.store.string("<next>");
   __world = this.store.string("<world>");
 
-  static #error<A>(token: Token, message: string): CPS<A> {
-    return new CPS(() => [LabelType.ERROR, token, message]);
+  #error<A>(token: Token, message: string): CPS<A> {
+    return new CPS(() => this.store.target([LabelType.ERROR, token, message]));
   }
 
   updateWorld(f: (_?: Value) => Value): CPS<Value> {
@@ -279,7 +356,7 @@ export class Optimizer {
         return CPS.get(index).bind((v) => {
           // still no good
           if (!v) {
-            return Optimizer.#error(
+            return this.#error(
               node.left.token,
               "Assigning undeclared variable " + name,
             );
@@ -293,7 +370,7 @@ export class Optimizer {
         const index = this.store.string(name);
         return CPS.get(index).bind((other) => {
           if (other !== undefined) {
-            return Optimizer.#error(
+            return this.#error(
               token,
               `Variable ${name} already declared at (${other.token.line},${other.token.column})`,
             );
@@ -302,12 +379,12 @@ export class Optimizer {
         });
       }
       default:
-        return Optimizer.#error(node.token, "Impossible assignment");
+        return this.#error(node.token, "Impossible assignment");
     }
   }
 
   negate(token: Token, value?: Value): Value {
-    if (value === undefined) throw Optimizer.#error(token, `Cannot negate`);
+    if (value === undefined) throw this.#error(token, `Cannot negate`);
     switch (value.data[0]) {
       case ValueType.Call:
       case ValueType.GetField:
@@ -335,19 +412,19 @@ export class Optimizer {
             type = TokenType.MORE;
             break;
           default:
-            throw Optimizer.#error(token, "bad comparison");
+            throw this.#error(token, "bad comparison");
         }
         return this.compare(token, value.data[1], type, value.data[3]);
       }
       case ValueType.Literal:
         if (typeof value.data[1] === "string") {
-          throw Optimizer.#error(token, "cannot negate string");
+          throw this.#error(token, "cannot negate string");
         }
         return this.store.literal(token, !value.data[1]);
       case ValueType.Not:
         return value.data[1];
       default:
-        throw Optimizer.#error(token, "Cannot negate " + value.toString());
+        throw this.#error(token, "Cannot negate " + value.toString());
     }
   }
 
@@ -399,13 +476,13 @@ export class Optimizer {
         const index = this.store.string(name);
         return CPS.get(index).bind((value) => {
           if (value === undefined) {
-            return Optimizer.#error(
+            return this.#error(
               node.token,
               "Reading undeclared variable " + name,
             );
           }
           if (value.data[0] === ValueType.Declared) {
-            return Optimizer.#error(
+            return this.#error(
               node.token,
               "Reading unassigned variable " + name,
             );
@@ -483,7 +560,7 @@ export class Optimizer {
         const index = this.store.string(name);
         return CPS.get(index).bind((value) => {
           if (value) {
-            return Optimizer.#error(
+            return this.#error(
               varDecl.token,
               `Variable ${name} already existed at (${value.token.line},${value.token.column})`,
             );
@@ -495,7 +572,7 @@ export class Optimizer {
         });
       }
       default:
-        return Optimizer.#error(node.token, "expression expected");
+        return this.#error(node.token, "expression expected");
     }
   }
 
@@ -506,7 +583,7 @@ export class Optimizer {
     right: Value | undefined,
   ): Value {
     if (!left || !right) {
-      throw Optimizer.#error(token, "bad comparison");
+      throw this.#error(token, "bad comparison");
     }
     switch (left.data[0]) {
       case ValueType.Call:
@@ -551,18 +628,18 @@ export class Optimizer {
                 literal = left.data[1] <= right.data[1];
                 break;
               default:
-                throw Optimizer.#error(token, "bad comparison");
+                throw this.#error(token, "bad comparison");
             }
             return this.store.literal(token, literal);
           }
           default:
             break;
         }
-        throw Optimizer.#error(token, "bad comparison right hand side");
+        throw this.#error(token, "bad comparison right hand side");
       default:
         break;
     }
-    throw Optimizer.#error(token, "bad comparison left hand side");
+    throw this.#error(token, "bad comparison left hand side");
   }
 
   _jump(
@@ -590,16 +667,16 @@ export class Optimizer {
         if (expression) {
           return this.expression(expression).bind((v) =>
             CPS.get(this.__world).bind((w) =>
-              new CPS(() => [LabelType.RETURN, w, v])
+              new CPS(() => this.store.target([LabelType.RETURN, w, v]))
             )
           );
         }
         return CPS.get(this.__world).bind((w) =>
-          new CPS(() => [LabelType.RETURN, w, undefined])
+          new CPS(() => this.store.target([LabelType.RETURN, w, undefined]))
         );
       }
     }
-    return Optimizer.#error(token, "nowhere to go from here");
+    return this.#error(token, "nowhere to go from here");
   }
 
   statements(
@@ -691,7 +768,7 @@ export class Optimizer {
         return this.expression(condition).bind(
           (c) => {
             if (!c) {
-              return Optimizer.#error(
+              return this.#error(
                 condition.token,
                 "condition without value",
               );
@@ -701,17 +778,19 @@ export class Optimizer {
               if (typeof on === "boolean") {
                 return CPS.unit(on);
               }
-              throw Optimizer.#error(
+              throw this.#error(
                 condition.token,
                 "condition not boolean",
               );
             }
-            return new CPS((values, next) => [
-              LabelType.IF,
-              c,
-              next(values, true),
-              next(values, false),
-            ]);
+            return new CPS((values, next) =>
+              this.store.target([
+                LabelType.IF,
+                c,
+                next(values, true),
+                next(values, false),
+              ])
+            );
           },
         );
     }
@@ -729,8 +808,10 @@ export class Optimizer {
     return phonies;
   }
 
-  #goto<A>(label: string): CPS<A> {
-    return new CPS((values, _) => [LabelType.GOTO, label, values]);
+  #goto<A>(label: number): CPS<A> {
+    return new CPS((values, _) =>
+      this.store.target([LabelType.GOTO, label, values])
+    );
   }
 
   statement(
@@ -742,71 +823,57 @@ export class Optimizer {
         return this.block(node as Block);
       }
       case TokenType.IF: {
-        const _next = ["IF", node.token.line, node.token.column].join("_");
+        //const _next = this.#label++;
         const { condition, onTrue, onFalse } = node as IfStatement;
-        const body: CPS<number> = this.__bool(condition).bind((it) => {
-          if (it) return this.block(onTrue);
-          if (onFalse) return this.block(onFalse);
-          return CPS.unit(this.__next);
-        }).bind((goto) => {
-          if (goto === this.__next) return this.#goto(_next);
-          return CPS.unit(goto);
-        });
-        return new CPS((values, next) => {
-          return [
-            LabelType.DEFINE,
-            _next,
-            next(this.#phonies(values), this.__next),
-            body.complete(values, next),
-          ];
-        });
+        const body: (target: number) => CPS<number> = (target) =>
+          this.__bool(condition).bind((it) => {
+            if (it) return this.block(onTrue);
+            if (onFalse) return this.block(onFalse);
+            return CPS.unit(this.__next);
+          }).bind((goto) => {
+            if (goto === this.__next) return this.#goto(target);
+            return CPS.unit(goto);
+          });
+        // now what?
+        return new CPS((values, next) =>
+          body(next(this.#phonies(values), this.__next).key)
+            .complete(values, next)
+        );
       }
       case TokenType.WHILE: {
         const { condition, onTrue, label } = node as WhileStatement;
-        const _head = label ||
-          ["WHILE", node.token.line, node.token.column, 0].join("_");
-        const _next = ["WHILE", node.token.line, node.token.column, 1].join(
-          "_",
-        );
-        const head: CPS<number> = this.__bool(condition).bind(
-          (it) => it ? this.block(onTrue) : CPS.unit(this.__break),
-        ).bind((goto) => {
-          if (label) {
-            switch (goto) {
-              case this.store.string(`<continue ${label}>`):
-                return this.#goto(_head);
-              case this.store.string(`<break ${label}>`):
-                return this.#goto(_next);
-              default:
-                break;
+        const _head = this.store.reserve();
+        const head: (_next: number) => CPS<number> = (_next) =>
+          this.__bool(condition).bind(
+            (it) => it ? this.block(onTrue) : CPS.unit(this.__break),
+          ).bind((goto) => {
+            if (label) {
+              switch (goto) {
+                case this.store.string(`<continue ${label}>`):
+                  return this.#goto(_head);
+                case this.store.string(`<break ${label}>`):
+                  return this.#goto(_next);
+                default:
+                  break;
+              }
             }
-          }
-          switch (goto) {
-            case this.__break:
-              return this.#goto(_next);
-            case this.__continue:
-            case this.__next:
-              return this.#goto(_head);
-            default:
-              return CPS.unit(goto);
-          }
-        });
+            switch (goto) {
+              case this.__break:
+                return this.#goto(_next);
+              case this.__continue:
+              case this.__next:
+                return this.#goto(_head);
+              default:
+                return CPS.unit(goto);
+            }
+          });
         return new CPS((
           values,
           next,
         ) => {
           const phonies = this.#phonies(values);
-          return [
-            LabelType.DEFINE,
-            _next,
-            next(phonies, this.__next),
-            [
-              LabelType.DEFINE,
-              _head,
-              head.complete(phonies, next),
-              [LabelType.GOTO, _head, values],
-            ],
-          ];
+          return head(next(phonies, this.__next).key).complete(phonies, next)
+            .copy(_head);
         });
       }
       default:
