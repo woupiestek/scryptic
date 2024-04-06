@@ -1,6 +1,7 @@
 import { Block, Parser } from "./parser.ts";
-import { LabelType, Optimizer, Target } from "./intermediate.ts";
+import { LabelType, Optimizer, Target, Value } from "./intermediate.ts";
 import { NumberTrie } from "../numberTrie2.ts";
+import { Table } from "../table.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
@@ -22,7 +23,9 @@ function run(input: string) {
     ]));
   console.log(label.toString());
   console.log(optimizer.store.targetString());
-  console.log(optimizer.store.list());
+  const values = new Table<Value>();
+  optimizer.collectTarget(label, values);
+  console.log(values.toString());
 }
 
 run('log "Hello, World!"');

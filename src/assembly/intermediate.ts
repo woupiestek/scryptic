@@ -1,5 +1,5 @@
 import { NumberTrie } from "../numberTrie2.ts";
-import { Map } from "../table.ts";
+import { Table } from "../table.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
@@ -87,7 +87,7 @@ export class Value {
 }
 class Trie<A> {
   value?: A;
-  children: Map<Trie<A>> = new Map();
+  children: Table<Trie<A>> = new Table();
 }
 function at<A>(
   trie: Trie<A>,
@@ -110,7 +110,7 @@ function at<A>(
 
 class Store {
   strings: Trie<number> = new Trie();
-  targets: NumberTrie<Target> = NumberTrie.empty<Target>();
+  targets: Table<Target> = new Table();
   values: Trie<Value> = new Trie();
   __key = 3;
   __index(
@@ -142,7 +142,7 @@ class Store {
 
   #targetKey = 0;
   target(key: number, target: Target) {
-    this.targets = this.targets.set(key, target);
+    this.targets.set(key, target);
   }
   reserve() {
     return this.#targetKey++;
@@ -153,13 +153,13 @@ class Store {
       .value ||= new Value(this.__key++, token, data);
   }
   list() {
-    let list = NumberTrie.empty();
+    const list = new Table();
     const tries = [];
     let _ = 0;
     let trie = this.values;
     for (;;) {
       if (trie.value) {
-        list = list.set(trie.value.key, trie.value.toString());
+        list.set(trie.value.key, trie.value.toString());
       }
       tries.push(...trie.children.entries());
       if (tries.length === 0) return list.toString();
@@ -813,6 +813,49 @@ export class Optimizer {
       }
       default:
         return this.expression(node as Expression).map((_) => this.__next);
+    }
+  }
+
+  collectTarget(
+    target: Target,
+    values: Table<Value>,
+    keys: Set<number> = new Set(),
+  ) {
+    switch (target.data[0]) {
+      case LabelType.ERROR:
+        break;
+      case LabelType.GOTO: {
+        if (!keys.has(target.data[1])) {
+          keys.add(target.data[1]);
+          const t = this.store.targets.get(target.data[1]);
+          if (t) this.collectTarget(t, values, keys);
+        }
+        for (const [_, v] of target.data[2].entries()) {
+          this.collectValue(v, values);
+        }
+        break;
+      }
+      case LabelType.IF:
+        this.collectValue(target.data[1], values);
+        this.collectTarget(target.data[2], values, keys);
+        this.collectTarget(target.data[3], values, keys);
+        break;
+      case LabelType.RETURN:
+        if (target.data[1]) this.collectValue(target.data[1], values);
+        if (target.data[2]) this.collectValue(target.data[2], values);
+    }
+  }
+
+  collectValue(
+    value: Value,
+    values: Table<Value>,
+  ) {
+    if (values.get(value.key)) return;
+    values.set(value.key, value);
+    for (const k of value.data) {
+      if (k instanceof Value) {
+        this.collectValue(k, values);
+      }
     }
   }
 }

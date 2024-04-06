@@ -1,8 +1,8 @@
 import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { Map } from "./table.ts";
+import { Table } from "./table.ts";
 
 Deno.test(function simpleCase() {
-  const array = new Map<number>();
+  const array = new Table<number>();
   for (let i = 0; i < 55; i++) {
     array.set(i, i);
   }
@@ -15,7 +15,7 @@ Deno.test(function simpleCase() {
 });
 
 Deno.test(function reverseOrder() {
-  const array = new Map<number>();
+  const array = new Table<number>();
   for (let i = 54; i >= 0; i--) {
     array.set(i, i);
   }
@@ -28,7 +28,7 @@ Deno.test(function reverseOrder() {
 });
 
 Deno.test(function randomOrder() {
-  const array = new Map<number>();
+  const array = new Table<number>();
   const entries = Array.from({ length: 31 }).map((_, i) => i);
   while (entries.length > 0) {
     const i = Math.floor(entries.length * Math.random());
@@ -47,7 +47,7 @@ Deno.test(function randomOrder() {
 });
 
 Deno.test(function deleteEveryThird() {
-  const array = new Map<number>();
+  const array = new Table<number>();
   for (let i = 0; i < 31; i++) {
     array.set(i, i);
   }

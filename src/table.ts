@@ -1,13 +1,13 @@
-type Table<A> = { index: number; value?: A }[];
+type Entry<A> = { index: number; value?: A };
 
-export class Map<A> {
+export class Table<A> {
   #mask = 7;
-  #table: Table<A> = Array.from({ length: this.#mask + 1 });
+  #entries: Entry<A>[] = Array.from({ length: this.#mask + 1 });
   #load = 0;
   get(index: number) {
     for (let i = index & this.#mask;; i = (i + 1) & this.#mask) {
-      if (!this.#table[i]) return;
-      if (this.#table[i].index === index) return this.#table[i].value;
+      if (!this.#entries[i]) return;
+      if (this.#entries[i].index === index) return this.#entries[i].value;
     }
   }
   set(index: number, value: A) {
@@ -16,19 +16,19 @@ export class Map<A> {
     }
     for (let i = index & this.#mask;; i = (i + 1) & this.#mask) {
       let tombstone = -1;
-      if (!this.#table[i]) {
+      if (!this.#entries[i]) {
         if (tombstone > -1) {
-          this.#table[tombstone] = { index, value };
+          this.#entries[tombstone] = { index, value };
           return;
         }
-        this.#table[i] = { index, value };
+        this.#entries[i] = { index, value };
         this.#load++;
         return;
       }
-      if (this.#table[i].index === index) {
-        this.#table[i].value = value;
+      if (this.#entries[i].index === index) {
+        this.#entries[i].value = value;
         return;
-      } else if (this.#table[i].value === undefined && tombstone === -1) {
+      } else if (this.#entries[i].value === undefined && tombstone === -1) {
         tombstone = i;
       }
     }
@@ -36,8 +36,8 @@ export class Map<A> {
   #resize() {
     this.#mask = this.#mask * 2 + 1;
     this.#load = 0;
-    const table = this.#table;
-    this.#table = Array.from({ length: this.#mask + 1 });
+    const table = this.#entries;
+    this.#entries = Array.from({ length: this.#mask + 1 });
     for (const entry of table) {
       if (entry?.value !== undefined) {
         this.set(entry.index, entry.value);
@@ -46,15 +46,22 @@ export class Map<A> {
   }
   delete(index: number) {
     for (let i = index & this.#mask;; i = (i + 1) & this.#mask) {
-      if (!this.#table[i]) return;
-      if (this.#table[i].index === index) {
-        delete this.#table[index].value;
+      if (!this.#entries[i]) return;
+      if (this.#entries[i].index === index) {
+        delete this.#entries[index].value;
       }
     }
   }
   *entries(): Generator<[number, A]> {
-    for (const entry of this.#table) {
+    for (const entry of this.#entries) {
       if (entry?.value !== undefined) yield [entry.index, entry.value];
     }
+  }
+  toString() {
+    const pairs: string[] = [];
+    for (const [k, v] of this.entries()) {
+      pairs.push(k + ": " + v?.toString());
+    }
+    return "{" + pairs.join(", ") + "}";
   }
 }

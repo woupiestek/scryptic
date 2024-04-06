@@ -12,10 +12,8 @@ It is visible in the results: nothing is stored under 0.
 Perhaps if the target keys were given upfront, those could be values of the
 statements: like instead of `__break`, `__continue`, `__next`.
 
-A secondary problem could be the swithc to using has codes. it is just that
+A secondary problem could be the switch to using has codes. it is just that
 suddenly so many new types of data need to be stored.
-
-I need to look into this another day.
 
 ### calculus connection
 
