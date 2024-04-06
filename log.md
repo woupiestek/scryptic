@@ -17,6 +17,40 @@ suddenly so many new types of data need to be stored.
 
 I need to look into this another day.
 
+### calculus connection
+
+Have a data type to represent computations, instead of labels. The structure is
+no too different. The CPS is more direct, though. No more
+`(A => V* => L) => V* => L`, but `(A => C) => C`.
+
+### the problem
+
+In the graph, it seems more interesting to keep track of where values can come
+from, then where they go to. In paricular, we want to know if many places jump
+to the target, or none, or multiple. Does it make sense to create this
+inversion?
+
+The nodes of the graphs now each have a list of alternative sources, `return` is
+an endpoint, that doesn't become a source, and `if` looks like a couple of
+sources, one for `true` and one for `false`. A node may have multiple sources
+otherwise.
+
+The sources are values of sorts: they present a collection of values and a
+worlds. Otherwise the controkl folw grpah is simply inverted.
+
+So what is the advantage here?
+
+- Sources could be deduplicated...
+- No sources means unreachable code
+- No CPS, everything forward.
+
+Weird thing though: everything has one target... no, one or two depending on
+type. Hmmm.
+
+### solution
+
+I settled on a simpler refactor, that doesn trie to reduce the graph much (yet).
+
 ## 2024-04-03
 
 ### back to ssa and dominace frontiers and such

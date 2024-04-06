@@ -108,18 +108,9 @@ function at<A>(
   return trie;
 }
 
-function hash(keys: number[]): number {
-  let hash = 2166136261;
-  for (let i = 0; i < keys.length; i++) {
-    hash ^= keys[i];
-    hash *= 16777619;
-  }
-  return hash | 0;
-}
-
 class Store {
   strings: Trie<number> = new Trie();
-  targets: Trie<Target> = new Trie();
+  targets: NumberTrie<Target> = NumberTrie.empty<Target>();
   values: Trie<Value> = new Trie();
   __key = 3;
   __index(
@@ -149,47 +140,10 @@ class Store {
       this.#stringKey++;
   }
 
-  __targetIndex(
-    di:
-      | number
-      | Token
-      | Target
-      | NumberTrie<Value>
-      | Value
-      | string
-      | undefined,
-  ): number {
-    switch (typeof di) {
-      case "undefined":
-        return -1;
-      case "number":
-        return di;
-      case "object":
-        if (di instanceof Target || di instanceof Value) {
-          return di.key;
-        }
-        // hashing?
-        // collision risk, so maybe reconsider?
-        if (di instanceof Token) {
-          return hash([di.type, di.from, di.to, di.line, di.column]);
-        }
-        return hash(
-          [...(di as NumberTrie<Value>).entries()].flatMap((
-            [k, v],
-          ) => [k, v.key]),
-        );
-      case "string":
-        return hash([...di].map((it) => it.charCodeAt(0)));
-      default:
-        return -1;
-    }
-  }
   #targetKey = 0;
-  target(data: TData): Target {
-    return (at(this.targets, data.length, (i) => this.__targetIndex(data[i])))
-      .value ||= new Target(this.#targetKey++, data);
+  target(key: number, target: Target) {
+    this.targets = this.targets.set(key, target);
   }
-
   reserve() {
     return this.#targetKey++;
   }
@@ -212,19 +166,8 @@ class Store {
       [_, trie] = tries.pop() as [number, Trie<Value>];
     }
   }
-  targetString() {
-    let list = NumberTrie.empty();
-    const tries = [];
-    let _ = 0;
-    let trie = this.targets;
-    for (;;) {
-      if (trie.value) {
-        list = list.set(trie.value.key, trie.value.toString());
-      }
-      tries.push(...trie.children.entries());
-      if (tries.length === 0) return list.toString();
-      [_, trie] = tries.pop() as [number, Trie<Target>];
-    }
+  targetString(): string {
+    return this.targets.toString();
   }
 }
 
@@ -236,21 +179,14 @@ export enum LabelType {
   RETURN,
 }
 
-type TData =
-  | [LabelType.ERROR, Token, string]
-  | [LabelType.GOTO, number, NumberTrie<Value>]
-  | [LabelType.IF, Value, Target, Target]
-  | [LabelType.RETURN, ValueQ, ValueQ];
-
 export class Target {
   constructor(
-    readonly key: number,
-    readonly data: TData,
+    readonly data:
+      | [LabelType.ERROR, Token, string]
+      | [LabelType.GOTO, number, NumberTrie<Value>]
+      | [LabelType.IF, Value, Target, Target]
+      | [LabelType.RETURN, ValueQ, ValueQ],
   ) {}
-
-  copy(key: number): Target {
-    return new Target(key, this.data);
-  }
 
   toString(): string {
     switch (this.data[0]) {
@@ -318,7 +254,7 @@ export class Optimizer {
   __world = this.store.string("<world>");
 
   #error<A>(token: Token, message: string): CPS<A> {
-    return new CPS(() => this.store.target([LabelType.ERROR, token, message]));
+    return new CPS(() => new Target([LabelType.ERROR, token, message]));
   }
 
   updateWorld(f: (_?: Value) => Value): CPS<Value> {
@@ -667,12 +603,12 @@ export class Optimizer {
         if (expression) {
           return this.expression(expression).bind((v) =>
             CPS.get(this.__world).bind((w) =>
-              new CPS(() => this.store.target([LabelType.RETURN, w, v]))
+              new CPS(() => new Target([LabelType.RETURN, w, v]))
             )
           );
         }
         return CPS.get(this.__world).bind((w) =>
-          new CPS(() => this.store.target([LabelType.RETURN, w, undefined]))
+          new CPS(() => new Target([LabelType.RETURN, w, undefined]))
         );
       }
     }
@@ -784,7 +720,7 @@ export class Optimizer {
               );
             }
             return new CPS((values, next) =>
-              this.store.target([
+              new Target([
                 LabelType.IF,
                 c,
                 next(values, true),
@@ -809,9 +745,7 @@ export class Optimizer {
   }
 
   #goto<A>(label: number): CPS<A> {
-    return new CPS((values, _) =>
-      this.store.target([LabelType.GOTO, label, values])
-    );
+    return new CPS((values, _) => new Target([LabelType.GOTO, label, values]));
   }
 
   statement(
@@ -823,57 +757,58 @@ export class Optimizer {
         return this.block(node as Block);
       }
       case TokenType.IF: {
-        //const _next = this.#label++;
         const { condition, onTrue, onFalse } = node as IfStatement;
-        const body: (target: number) => CPS<number> = (target) =>
-          this.__bool(condition).bind((it) => {
-            if (it) return this.block(onTrue);
-            if (onFalse) return this.block(onFalse);
-            return CPS.unit(this.__next);
-          }).bind((goto) => {
-            if (goto === this.__next) return this.#goto(target);
-            return CPS.unit(goto);
-          });
+        const target = this.store.reserve();
+        const body: CPS<number> = this.__bool(condition).bind((it) => {
+          if (it) return this.block(onTrue);
+          if (onFalse) return this.block(onFalse);
+          return CPS.unit(this.__next);
+        }).bind((goto) => {
+          if (goto === this.__next) return this.#goto(target);
+          return CPS.unit(goto);
+        });
         // now what?
-        return new CPS((values, next) =>
-          body(next(this.#phonies(values), this.__next).key)
-            .complete(values, next)
-        );
+        return new CPS((values, next) => {
+          this.store.target(target, next(this.#phonies(values), this.__next));
+          return body
+            .complete(values, next);
+        });
       }
       case TokenType.WHILE: {
         const { condition, onTrue, label } = node as WhileStatement;
         const _head = this.store.reserve();
-        const head: (_next: number) => CPS<number> = (_next) =>
-          this.__bool(condition).bind(
-            (it) => it ? this.block(onTrue) : CPS.unit(this.__break),
-          ).bind((goto) => {
-            if (label) {
-              switch (goto) {
-                case this.store.string(`<continue ${label}>`):
-                  return this.#goto(_head);
-                case this.store.string(`<break ${label}>`):
-                  return this.#goto(_next);
-                default:
-                  break;
-              }
-            }
+        const _next = this.store.reserve();
+        const head: CPS<number> = this.__bool(condition).bind(
+          (it) => it ? this.block(onTrue) : CPS.unit(this.__break),
+        ).bind((goto) => {
+          if (label) {
             switch (goto) {
-              case this.__break:
-                return this.#goto(_next);
-              case this.__continue:
-              case this.__next:
+              case this.store.string(`<continue ${label}>`):
                 return this.#goto(_head);
+              case this.store.string(`<break ${label}>`):
+                return this.#goto(_next);
               default:
-                return CPS.unit(goto);
+                break;
             }
-          });
+          }
+          switch (goto) {
+            case this.__break:
+              return this.#goto(_next);
+            case this.__continue:
+            case this.__next:
+              return this.#goto(_head);
+            default:
+              return CPS.unit(goto);
+          }
+        });
         return new CPS((
           values,
           next,
         ) => {
           const phonies = this.#phonies(values);
-          return head(next(phonies, this.__next).key).complete(phonies, next)
-            .copy(_head);
+          this.store.target(_next, next(phonies, this.__next));
+          this.store.target(_head, head.complete(phonies, next));
+          return new Target([LabelType.GOTO, _head, values]);
         });
       }
       default:
