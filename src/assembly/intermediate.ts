@@ -1,5 +1,6 @@
 import { NumberTrie } from "../numberTrie2.ts";
 import { Table } from "../table.ts";
+import { Trie } from "../trie.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,
@@ -85,28 +86,6 @@ export class Value {
     }));
   }
 }
-class Trie<A> {
-  value?: A;
-  children: Table<Trie<A>> = new Table();
-}
-function at<A>(
-  trie: Trie<A>,
-  depth: number,
-  indices: (_: number) => number,
-): Trie<A> {
-  for (let i = 0; i < depth; i++) {
-    const index = indices(i);
-    const child = trie.children.get(index);
-    if (child) {
-      trie = child;
-      continue;
-    }
-    const t = new Trie<A>();
-    trie.children.set(index, t);
-    trie = t;
-  }
-  return trie;
-}
 
 class Store {
   strings: Trie<number> = new Trie();
@@ -136,8 +115,8 @@ class Store {
   }
   #stringKey = 0;
   string(data: string): number {
-    return (at(this.strings, data.length, (i) => data.charCodeAt(i))).value ||=
-      this.#stringKey++;
+    return this.strings.getTrie(data.length, (i) => data.charCodeAt(i))
+      .value ||= this.#stringKey++;
   }
 
   #targetKey = 0;
@@ -149,7 +128,7 @@ class Store {
   }
 
   value(token: Token, data: Data): Value {
-    return (at(this.values, data.length, (i) => this.__index(data[i])))
+    return this.values.getTrie(data.length, (i) => this.__index(data[i]))
       .value ||= new Value(this.__key++, token, data);
   }
   list() {
@@ -172,7 +151,6 @@ class Store {
 }
 
 export enum LabelType {
-  DEFINE,
   ERROR,
   GOTO,
   IF,

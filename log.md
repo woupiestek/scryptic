@@ -1,5 +1,11 @@
 # Scryptic
 
+## 2024-04-07
+
+### live variable analysis
+
+Intermediate has values, so the liveness will create a relation between those.
+
 ## 2024-04-06
 
 By treating the jump target like strings and values, they can be eliminated and
