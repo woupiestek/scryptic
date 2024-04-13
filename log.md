@@ -1,5 +1,31 @@
 # Scryptic
 
+## 2024-04-13
+
+### live variable analysis
+
+Still intended, but first...
+
+### new parser
+
+Idea: replace strngs with numbers here, have a generic node type, as tokens are
+used to discriminate anyway.
+
+Along the way, the `break`, `continue`, and `return` moved to the outside of the
+block. Why not have that in the syntax, though?
+
+- `break [label]: {...}`
+- `continue [label]: {...}`
+- `return {...} [value]`
+
+or maybe:
+
+- `{...} break [label]`
+- `{...} continue [label]`
+- `{...} return [value]`
+
+The last one make less sense for scoping reasons, if there is a return value.
+
 ## 2024-04-07
 
 ### live variable analysis

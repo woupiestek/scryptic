@@ -131,20 +131,15 @@ class Store {
     return this.values.getTrie(data.length, (i) => this.__index(data[i]))
       .value ||= new Value(this.__key++, token, data);
   }
+
   list() {
-    const list = new Table();
-    const tries = [];
-    let _ = 0;
-    let trie = this.values;
-    for (;;) {
-      if (trie.value) {
-        list.set(trie.value.key, trie.value.toString());
-      }
-      tries.push(...trie.children.entries());
-      if (tries.length === 0) return list.toString();
-      [_, trie] = tries.pop() as [number, Trie<Value>];
+    const pairs: string[] = [];
+    for (const v of this.values.values()) {
+      pairs.push(v.key + ": " + v.toString());
     }
+    return "{" + pairs.join(", ") + "}";
   }
+
   targetString(): string {
     return this.targets.toString();
   }
