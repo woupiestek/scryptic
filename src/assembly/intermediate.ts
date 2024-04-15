@@ -421,6 +421,7 @@ export class Optimizer {
         );
       }
       case TokenType.NEW: {
+        // should be treated as effectful
         const { token, klaz } = node as New;
         return CPS.unit(this.store.value(token, [ValueType.New, klaz]));
       }

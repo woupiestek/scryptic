@@ -1,10 +1,12 @@
 # Scryptic
 
-## 2024-04-13
+## 2024-04-14
 
 ### live variable analysis
 
-Still intended, but first...
+There is a collection of interdependent 'values' now, without fixed order.
+
+## 2024-04-13
 
 ### new parser
 

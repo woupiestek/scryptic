@@ -126,10 +126,8 @@ run(
 
 run('var x = "wrong!"; while true { x = "right!"; break } log x');
 
-// stack overflow
 run(
   'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x',
 );
 
-// stack overflow
 run('var x = "wrong!"; while x != "right!" { x = "right!" } log x');
