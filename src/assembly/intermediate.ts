@@ -589,22 +589,15 @@ export class Optimizer {
     return this.#error(token, "nowhere to go from here");
   }
 
-  statements(
-    statements: Statement[],
-  ): CPS<number> {
-    if (statements.length === 0) {
-      return CPS.unit(this.__next);
-    }
-    let y = this.statement(statements[0]);
-    for (let i = 1; i < statements.length; i++) {
-      y = y.bind((goto) => {
-        if (goto === this.__next) {
-          return this.statement(statements[i]);
-        }
-        return CPS.unit(goto);
-      });
-    }
-    return y;
+  statements(statements: Statement[], index = 0): CPS<number> {
+    return statements.length === index
+      ? CPS.unit(this.__next)
+      : this.statement(statements[index]).bind(
+        (goto) =>
+          goto === this.__next
+            ? this.statements(statements, index + 1)
+            : CPS.unit(goto),
+      );
   }
 
   block(
