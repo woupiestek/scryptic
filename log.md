@@ -1,5 +1,40 @@
 # Scryptic
 
+## 2024-05-04
+
+### live variable analysis
+
+This is in aid of zllocating registers: variables that need to be live at the
+same time, cannot share a register. I don't have variables, but values. How are
+these connected? Well, one can at least think of each value as a variable and a
+line in the program--the lines are just out of order. Logically, the child
+values of a value have to be live at the same time, so that is the option.
+Possible issue: perhaps sometimes two values need to be live at the same time
+indirectly...
+
+I am trying to imagine a situation, where a reordering of values could not solve
+the issue, but it would be a case where two values are indirectly used multiple
+times to compute a third, never simlutaneously, but somehow interleaved:
+Something like: `y = f(a,g(b,h(a)))`: `a` and `b` are never read at the same
+time, but must still be live at the same time.
+
+### label elimination
+
+The end result is a nested s-expression, and by assigning an index to each of
+those, and then using a trie to avoid duplication would that not result in a
+smaller expression?
+
+But when loops are involved, there is a potential vor labels to contain
+themsleves. If they actually do, then there is not issue with generating the
+label object and its id, and filling it with contents afterward. But this is
+optional, and the processs could produce a label that is already used...
+
+In something like
+`var x = ''; while(a) { if x == '' { return x; } else { C } } return x;` the
+while should be eliminated. What about elimination after the fact? The trouble
+is that that works recursively, so the is a cascade of eliminations afterward.
+Ultimately, variables just keep getting replaced.
+
 ## 2024-04-14
 
 ### live variable analysis
