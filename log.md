@@ -1,5 +1,12 @@
 # Scryptic
 
+## 2024-09-12
+
+### data orientation
+
+ASTs and IRs would mainly be lists of tags an indices. Does that make live
+easier?
+
 ## 2024-05-04
 
 ### live variable analysis
@@ -116,7 +123,8 @@ type. Hmmm.
 
 ### solution
 
-I settled on a simpler refactor, that doesn trie to reduce the graph much (yet).
+I settled on a simpler refactor, that doesn't try to reduce the graph much
+(yet).
 
 ## 2024-04-03
 

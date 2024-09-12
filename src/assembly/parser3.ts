@@ -1,0 +1,409 @@
+import { LinkedList } from "../linkedList.ts";
+import { Table } from "../table.ts";
+import { Trie } from "../trie.ts";
+import { Lexer, Token, TokenType } from "./lexer2.ts";
+
+type ListId = number & { readonly __tag: unique symbol };
+type NodeId = number & { readonly __tag: unique symbol };
+type StringId = number & { readonly __tag: unique symbol };
+
+export type Node = {
+  lhs: number;
+  op: Token;
+  rhs: number;
+};
+export class AST {
+  #nodes: Node[] = [];
+  #lists: NodeId[][] = [];
+  #stringKey = 0;
+  #strings: Trie<number> = new Trie();
+
+  addNode(lhs: number, op: Token, rhs: number): NodeId {
+    return this.#nodes.push({ lhs, op, rhs }) - 1 as NodeId;
+  }
+
+  addString(s: string) {
+    return this.#strings.getTrie(s.length, (i) => s.charCodeAt(i)).value ||=
+      this
+        .#stringKey++ as StringId;
+  }
+
+  // two operands could be len & offset
+  addList(list: NodeId[]): ListId {
+    return this.#lists.push(list) - 1 as ListId;
+  }
+
+  static #string(list: LinkedList<number>): string {
+    let s = "";
+    while (!list.isEmpty) {
+      s = String.fromCharCode(list.head) + s;
+      list = list.tail;
+    }
+    return s;
+  }
+
+  getStrings() {
+    const table = new Table<string>();
+    for (const [k, v] of this.#strings.entries()) {
+      table.set(v, AST.#string(k));
+    }
+    return table;
+  }
+}
+
+export class Parser {
+  private next: Token;
+  private lexer: Lexer;
+  private output = new AST();
+
+  constructor(private input: string) {
+    this.lexer = new Lexer(input);
+    this.next = this.lexer.next();
+  }
+
+  #pop() {
+    const token = this.next;
+    this.next = this.lexer.next();
+    return token;
+  }
+
+  #error(token: Token, msg: string) {
+    const [l, c] = this.lexer.lineAndColumn(token.from);
+    return new Error(
+      `Error at line ${l}, column ${c}, token ${TokenType[token.type]} "\u2026${
+        this.input.slice(token.from - 3, token.from + 3)
+      }\u2026": ${msg}`,
+    );
+  }
+
+  #consume(type: TokenType) {
+    const token = this.#pop();
+    if (token.type !== type) {
+      throw this.#error(token, `expected ${TokenType[type]}`);
+    }
+    return token;
+  }
+
+  static #PREFIX: ((p: Parser) => NodeId)[] = [];
+  static {
+    Parser.#PREFIX[TokenType.FALSE] = (p) => p.output.addNode(0, p.#pop(), 0);
+    Parser.#PREFIX[TokenType.IDENTIFIER] = (p) => {
+      const t = p.#pop();
+      return p.output.addNode(
+        0,
+        t,
+        p.output.addString(p.lexer.getIdentifier(t.from)),
+      );
+    };
+    Parser.#PREFIX[TokenType.LOG] = (p) =>
+      p.output.addNode(0, p.#pop(), p.#unary());
+    Parser.#PREFIX[TokenType.NEW] = (p) => {
+      const t = p.#pop();
+      return p.output.addNode(
+        0,
+        t,
+        p.output.addString(
+          p.lexer.getIdentifier(p.#consume(TokenType.IDENTIFIER).from),
+        ),
+      );
+    };
+    Parser.#PREFIX[TokenType.NOT] = (p) =>
+      p.output.addNode(0, p.#pop(), p.#unary());
+    Parser.#PREFIX[TokenType.PAREN_LEFT] = (p) => {
+      p.#pop();
+      const e = p.#expression();
+      p.#consume(TokenType.PAREN_RIGHT);
+      return e;
+    };
+    Parser.#PREFIX[TokenType.STRING] = (p) => {
+      const t = p.#pop();
+      return p.output.addNode(
+        0,
+        t,
+        p.output.addString(JSON.parse(p.lexer.getIdentifier(t.from))),
+      );
+    };
+    Parser.#PREFIX[TokenType.THIS] = (p) => {
+      const t = p.#pop();
+      return p.output.addNode(0, t, 0);
+    };
+    Parser.#PREFIX[TokenType.TRUE] = (p) => p.output.addNode(0, p.#pop(), 0);
+    Parser.#PREFIX[TokenType.VAR] = (p) =>
+      p.output.addNode(
+        0,
+        p.#pop(),
+        p.output.addString(
+          p.lexer.getIdentifier(p.#consume(TokenType.IDENTIFIER).from),
+        ),
+      );
+  }
+
+  #unary(): NodeId {
+    const prefix = Parser.#PREFIX[this.next.type];
+    if (!prefix) {
+      throw this.#error(this.next, "Expected expression");
+    }
+    return prefix(this);
+  }
+
+  static #__binary(precedence: number) {
+    return (that: Parser, left: NodeId) =>
+      that.output.addNode(left, that.#pop(), that.#binary(precedence));
+  }
+
+  #match(type: TokenType) {
+    if (this.next.type === type) {
+      this.next = this.lexer.next();
+      return true;
+    }
+    return false;
+  }
+
+  static #__call(that: Parser, operator: NodeId): NodeId {
+    const token = that.#pop();
+    const operands: NodeId[] = [];
+    while (that.next.type !== TokenType.PAREN_RIGHT) {
+      operands.push(that.#expression());
+      if (!that.#match(TokenType.COMMA)) break;
+    }
+    that.#consume(TokenType.PAREN_RIGHT);
+    return that.output.addNode(operator, token, that.output.addList(operands));
+  }
+
+  static #__access(that: Parser, expression: NodeId): NodeId {
+    return that.output.addNode(
+      expression,
+      that.#pop(),
+      that.output.addString(
+        that.lexer.getIdentifier(that.#consume(TokenType.IDENTIFIER).from),
+      ),
+    );
+  }
+
+  static #INFIX: [number, (p: Parser, e: NodeId) => NodeId][] = [];
+  static {
+    Parser.#INFIX[TokenType.AND] = [2, Parser.#__binary(2)];
+    Parser.#INFIX[TokenType.BE] = [1, Parser.#__binary(0)];
+    Parser.#INFIX[TokenType.DOT] = [4, Parser.#__access];
+    Parser.#INFIX[TokenType.IS_NOT] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.IS] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.LESS] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.MORE] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.NOT_LESS] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.NOT_MORE] = [3, Parser.#__binary(3)];
+    Parser.#INFIX[TokenType.OR] = [2, Parser.#__binary(2)];
+    Parser.#INFIX[TokenType.PAREN_LEFT] = [4, Parser.#__call];
+  }
+
+  #binary(precedence: number): NodeId {
+    let left = this.#unary();
+    for (;;) {
+      const a = Parser.#INFIX[this.next.type];
+      if (!a) return left;
+      const [b, c] = a;
+      if (b < precedence) return left;
+      left = c(this, left);
+    }
+  }
+
+  #expression(): NodeId {
+    return this.#binary(0);
+  }
+
+  #block(braceLeft: Token): NodeId {
+    const statements: NodeId[] = [];
+    for (;;) {
+      switch (this.next.type) {
+        case TokenType.BRACE_LEFT:
+          statements.push(this.#block(this.#pop()));
+          this.#consume(TokenType.BRACE_RIGHT);
+          continue;
+        case TokenType.BRACE_RIGHT:
+          return this.output.addNode(
+            0,
+            braceLeft,
+            this.output.addList(statements),
+          );
+        case TokenType.BREAK:
+        case TokenType.CONTINUE: {
+          const block = this.output.addNode(
+            0,
+            braceLeft,
+            this.output.addList(statements),
+          );
+          const token = this.next;
+          this.next = this.lexer.next();
+          // note: break & continue on the outside!
+          // throw out brace left?
+          return this.next.type === TokenType.LABEL
+            ? this.output.addNode(
+              block,
+              token,
+              this.output.addString(this.lexer.getIdentifier(this.#pop().from)),
+            )
+            : this.output.addNode(0, token, block);
+        }
+        case TokenType.END:
+          return this.output.addNode(
+            0,
+            braceLeft,
+            this.output.addList(statements),
+          );
+        case TokenType.IF: {
+          const token = this.#pop();
+          const _if = this.output.addNode(
+            this.#expression(),
+            token,
+            this.#block(this.#consume(TokenType.BRACE_LEFT)),
+          );
+          this.#consume(TokenType.BRACE_RIGHT);
+          const token2 = this.next;
+          if (this.#match(TokenType.ELSE)) {
+            this.#consume(TokenType.BRACE_RIGHT);
+            statements.push(
+              this.output.addNode(
+                _if,
+                token2,
+                this.#block(this.#consume(TokenType.BRACE_LEFT)),
+              ),
+            );
+          } else {
+            statements.push(_if);
+          }
+          continue;
+        }
+        case TokenType.LABEL: {
+          const labelToken = this.#pop();
+          const label = this.output.addString(
+            this.lexer.getIdentifier(labelToken.from),
+          );
+          const token = this.#consume(TokenType.WHILE);
+          const condition = this.#expression();
+          const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
+          this.#consume(TokenType.BRACE_RIGHT);
+          statements.push(
+            this.output.addNode(
+              label,
+              labelToken,
+              this.output.addNode(
+                condition,
+                token,
+                ifTrue,
+              ),
+            ),
+          );
+          continue;
+        }
+        case TokenType.RETURN: {
+          const token = this.next;
+          this.next = this.lexer.next();
+          const block = this.output.addNode(
+            0,
+            braceLeft,
+            this.output.addList(statements),
+          );
+          // returning on the outside too...
+          if (
+            this.next.type !== TokenType.END &&
+            this.next.type !== TokenType.BRACE_RIGHT
+          ) {
+            return this.output.addNode(
+              block,
+              token,
+              this.#expression(),
+            );
+          } else {
+            return this.output.addNode(block, token, -1);
+          }
+        }
+        case TokenType.WHILE: {
+          const token = this.#pop();
+          const condition = this.#expression();
+          const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
+          this.#consume(TokenType.BRACE_RIGHT);
+          statements.push(
+            this.output.addNode(
+              condition,
+              token,
+              ifTrue,
+            ),
+          );
+          continue;
+        }
+        default: //expression
+        {
+          statements.push(this.#expression());
+          if (this.#match(TokenType.SEMICOLON)) {
+            continue;
+          } else break;
+        }
+      }
+    }
+  }
+
+  #class(): NodeId {
+    const token = this.#pop();
+    const ident = this.#consume(TokenType.IDENTIFIER);
+    this.#consume(TokenType.BRACE_LEFT);
+    const methods: NodeId[] = [];
+    while (!this.#match(TokenType.BRACE_RIGHT)) {
+      methods.push(this.#method());
+    }
+    return this.output.addNode(
+      this.output.addString(this.lexer.getIdentifier(ident.from)),
+      token,
+      this.output.addList(methods),
+    );
+  }
+
+  #consumeOneOf(...types: TokenType[]) {
+    const token = this.#pop();
+    if (!types.includes(token.type)) {
+      throw this.#error(
+        token,
+        `expected one of ${types.map((it) => TokenType[it])}`,
+      );
+    }
+    return token;
+  }
+
+  #method(): NodeId {
+    const ident = this.#consumeOneOf(TokenType.IDENTIFIER, TokenType.NEW);
+    const pl = this.#consume(TokenType.PAREN_LEFT);
+    const operands: NodeId[] = [];
+    while (this.next.type !== TokenType.PAREN_RIGHT) {
+      // todo: check that we do this consistently
+      // are the token needed here?
+      const ident = this.#consume(TokenType.IDENTIFIER);
+      operands.push(
+        this.output.addNode(
+          0,
+          ident,
+          this.output.addString(this.lexer.getIdentifier(ident.from)),
+        ),
+      );
+      if (!this.#match(TokenType.COMMA)) break;
+    }
+    this.#consume(TokenType.PAREN_RIGHT);
+    const body = this.#block(this.#consume(TokenType.BRACE_LEFT));
+    this.#consume(TokenType.BRACE_RIGHT);
+    return this.output.addNode(
+      this.output.addString(this.lexer.getIdentifier(ident.from)),
+      // this is a problem
+      ident,
+      this.output.addNode(this.output.addList(operands), pl, body),
+    );
+  }
+
+  script(): NodeId[] {
+    const script: NodeId[] = [];
+    while (!this.#match(TokenType.END)) {
+      if (this.next.type === TokenType.CLASS) {
+        script.push(this.#class());
+      } else {
+        script.push(this.#block(new Token(TokenType.BRACE_LEFT, 0)));
+      }
+    }
+    return script;
+  }
+}
