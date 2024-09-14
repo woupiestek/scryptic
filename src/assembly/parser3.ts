@@ -159,6 +159,13 @@ export class Parser {
     return false;
   }
 
+  #popOnMatch(type: TokenType) {
+    if (this.next.type === type) {
+      return this.#pop();
+    }
+    return undefined;
+  }
+
   static #__call(that: Parser, operator: NodeId): NodeId {
     const token = that.#pop();
     const operands: NodeId[] = [];
@@ -226,22 +233,22 @@ export class Parser {
           );
         case TokenType.BREAK:
         case TokenType.CONTINUE: {
-          const block = this.output.addNode(
+          const token = this.#pop();
+          const label = this.#popOnMatch(TokenType.LABEL);
+          statements.push(
+            this.output.addNode(
+              0,
+              token,
+              label
+                ? this.output.addString(this.lexer.getIdentifier(label.from))
+                : -1,
+            ),
+          );
+          return this.output.addNode(
             0,
             braceLeft,
             this.output.addList(statements),
           );
-          const token = this.next;
-          this.next = this.lexer.next();
-          // note: break & continue on the outside!
-          // throw out brace left?
-          return this.next.type === TokenType.LABEL
-            ? this.output.addNode(
-              block,
-              token,
-              this.output.addString(this.lexer.getIdentifier(this.#pop().from)),
-            )
-            : this.output.addNode(0, token, block);
         }
         case TokenType.END:
           return this.output.addNode(
@@ -251,31 +258,23 @@ export class Parser {
           );
         case TokenType.IF: {
           const token = this.#pop();
-          const _if = this.output.addNode(
+          const args = [
             this.#expression(),
-            token,
             this.#block(this.#consume(TokenType.BRACE_LEFT)),
-          );
+          ];
           this.#consume(TokenType.BRACE_RIGHT);
-          const token2 = this.next;
           if (this.#match(TokenType.ELSE)) {
+            args.push(this.#block(this.#consume(TokenType.BRACE_LEFT)));
             this.#consume(TokenType.BRACE_RIGHT);
-            statements.push(
-              this.output.addNode(
-                _if,
-                token2,
-                this.#block(this.#consume(TokenType.BRACE_LEFT)),
-              ),
-            );
-          } else {
-            statements.push(_if);
           }
+          statements.push(
+            this.output.addNode(0, token, this.output.addList(args)),
+          );
           continue;
         }
         case TokenType.LABEL: {
-          const labelToken = this.#pop();
           const label = this.output.addString(
-            this.lexer.getIdentifier(labelToken.from),
+            this.lexer.getIdentifier((this.#pop()).from),
           );
           const token = this.#consume(TokenType.WHILE);
           const condition = this.#expression();
@@ -284,12 +283,11 @@ export class Parser {
           statements.push(
             this.output.addNode(
               label,
-              labelToken,
-              this.output.addNode(
+              token,
+              this.output.addList([
                 condition,
-                token,
                 ifTrue,
-              ),
+              ]),
             ),
           );
           continue;
@@ -297,24 +295,22 @@ export class Parser {
         case TokenType.RETURN: {
           const token = this.next;
           this.next = this.lexer.next();
-          const block = this.output.addNode(
-            0,
-            braceLeft,
-            this.output.addList(statements),
-          );
-          // returning on the outside too...
+          // optional expression
+          let value = -1;
           if (
             this.next.type !== TokenType.END &&
             this.next.type !== TokenType.BRACE_RIGHT
           ) {
-            return this.output.addNode(
-              block,
-              token,
-              this.#expression(),
-            );
-          } else {
-            return this.output.addNode(block, token, -1);
+            value = this.#expression();
           }
+          statements.push(
+            this.output.addNode(0, token, value),
+          );
+          return this.output.addNode(
+            0,
+            braceLeft,
+            this.output.addList(statements),
+          );
         }
         case TokenType.WHILE: {
           const token = this.#pop();
@@ -323,9 +319,12 @@ export class Parser {
           this.#consume(TokenType.BRACE_RIGHT);
           statements.push(
             this.output.addNode(
-              condition,
+              -1,
               token,
-              ifTrue,
+              this.output.addList([
+                condition,
+                ifTrue,
+              ]),
             ),
           );
           continue;
@@ -335,74 +334,23 @@ export class Parser {
           statements.push(this.#expression());
           if (this.#match(TokenType.SEMICOLON)) {
             continue;
-          } else break;
+          } else {
+            return this.output.addNode(
+              0,
+              braceLeft,
+              this.output.addList(statements),
+            );
+          }
         }
       }
     }
   }
 
-  #class(): NodeId {
-    const token = this.#pop();
-    const ident = this.#consume(TokenType.IDENTIFIER);
-    this.#consume(TokenType.BRACE_LEFT);
-    const methods: NodeId[] = [];
-    while (!this.#match(TokenType.BRACE_RIGHT)) {
-      methods.push(this.#method());
-    }
-    return this.output.addNode(
-      this.output.addString(this.lexer.getIdentifier(ident.from)),
-      token,
-      this.output.addList(methods),
-    );
-  }
-
-  #consumeOneOf(...types: TokenType[]) {
-    const token = this.#pop();
-    if (!types.includes(token.type)) {
-      throw this.#error(
-        token,
-        `expected one of ${types.map((it) => TokenType[it])}`,
-      );
-    }
-    return token;
-  }
-
-  #method(): NodeId {
-    const ident = this.#consumeOneOf(TokenType.IDENTIFIER, TokenType.NEW);
-    const pl = this.#consume(TokenType.PAREN_LEFT);
-    const operands: NodeId[] = [];
-    while (this.next.type !== TokenType.PAREN_RIGHT) {
-      // todo: check that we do this consistently
-      // are the token needed here?
-      const ident = this.#consume(TokenType.IDENTIFIER);
-      operands.push(
-        this.output.addNode(
-          0,
-          ident,
-          this.output.addString(this.lexer.getIdentifier(ident.from)),
-        ),
-      );
-      if (!this.#match(TokenType.COMMA)) break;
-    }
-    this.#consume(TokenType.PAREN_RIGHT);
-    const body = this.#block(this.#consume(TokenType.BRACE_LEFT));
-    this.#consume(TokenType.BRACE_RIGHT);
-    return this.output.addNode(
-      this.output.addString(this.lexer.getIdentifier(ident.from)),
-      // this is a problem
-      ident,
-      this.output.addNode(this.output.addList(operands), pl, body),
-    );
-  }
-
+  // no support for classes now
   script(): NodeId[] {
     const script: NodeId[] = [];
     while (!this.#match(TokenType.END)) {
-      if (this.next.type === TokenType.CLASS) {
-        script.push(this.#class());
-      } else {
-        script.push(this.#block(new Token(TokenType.BRACE_LEFT, 0)));
-      }
+      script.push(this.#block(new Token(TokenType.BRACE_LEFT, 0)));
     }
     return script;
   }
