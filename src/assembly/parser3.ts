@@ -1,11 +1,7 @@
-import { LinkedList } from "../linkedList.ts";
-import { Table } from "../table.ts";
-import { Trie } from "../trie.ts";
 import { Lexer, Token, TokenType } from "./lexer2.ts";
 
 type ListId = number & { readonly __tag: unique symbol };
 type NodeId = number & { readonly __tag: unique symbol };
-type StringId = number & { readonly __tag: unique symbol };
 
 export type Node = {
   lhs: number;
@@ -15,39 +11,14 @@ export type Node = {
 export class AST {
   #nodes: Node[] = [];
   #lists: NodeId[][] = [];
-  #stringKey = 0;
-  #strings: Trie<number> = new Trie();
 
   addNode(lhs: number, op: Token, rhs: number): NodeId {
     return this.#nodes.push({ lhs, op, rhs }) - 1 as NodeId;
   }
 
-  addString(s: string) {
-    return this.#strings.getTrie(s.length, (i) => s.charCodeAt(i)).value ||=
-      this
-        .#stringKey++ as StringId;
-  }
-
   // two operands could be len & offset
   addList(list: NodeId[]): ListId {
     return this.#lists.push(list) - 1 as ListId;
-  }
-
-  static #string(list: LinkedList<number>): string {
-    let s = "";
-    while (!list.isEmpty) {
-      s = String.fromCharCode(list.head) + s;
-      list = list.tail;
-    }
-    return s;
-  }
-
-  getStrings() {
-    const table = new Table<string>();
-    for (const [k, v] of this.#strings.entries()) {
-      table.set(v, AST.#string(k));
-    }
-    return table;
   }
 }
 
@@ -92,7 +63,7 @@ export class Parser {
       return p.output.addNode(
         0,
         t,
-        p.output.addString(p.lexer.getIdentifier(t.from)),
+        0,
       );
     };
     Parser.#PREFIX[TokenType.LOG] = (p) =>
@@ -102,9 +73,7 @@ export class Parser {
       return p.output.addNode(
         0,
         t,
-        p.output.addString(
-          p.lexer.getIdentifier(p.#consume(TokenType.IDENTIFIER).from),
-        ),
+        p.#consume(TokenType.IDENTIFIER).from,
       );
     };
     Parser.#PREFIX[TokenType.NOT] = (p) =>
@@ -120,7 +89,7 @@ export class Parser {
       return p.output.addNode(
         0,
         t,
-        p.output.addString(JSON.parse(p.lexer.getIdentifier(t.from))),
+        0,
       );
     };
     Parser.#PREFIX[TokenType.THIS] = (p) => {
@@ -132,9 +101,7 @@ export class Parser {
       p.output.addNode(
         0,
         p.#pop(),
-        p.output.addString(
-          p.lexer.getIdentifier(p.#consume(TokenType.IDENTIFIER).from),
-        ),
+        p.#consume(TokenType.IDENTIFIER).from,
       );
   }
 
@@ -181,9 +148,7 @@ export class Parser {
     return that.output.addNode(
       expression,
       that.#pop(),
-      that.output.addString(
-        that.lexer.getIdentifier(that.#consume(TokenType.IDENTIFIER).from),
-      ),
+      that.#consume(TokenType.IDENTIFIER).from,
     );
   }
 
@@ -239,9 +204,7 @@ export class Parser {
             this.output.addNode(
               0,
               token,
-              label
-                ? this.output.addString(this.lexer.getIdentifier(label.from))
-                : -1,
+              label ? label.from : -1,
             ),
           );
           return this.output.addNode(
@@ -273,9 +236,7 @@ export class Parser {
           continue;
         }
         case TokenType.LABEL: {
-          const label = this.output.addString(
-            this.lexer.getIdentifier((this.#pop()).from),
-          );
+          const label = this.#pop().from;
           const token = this.#consume(TokenType.WHILE);
           const condition = this.#expression();
           const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
