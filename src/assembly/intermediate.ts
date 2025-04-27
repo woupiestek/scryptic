@@ -1,6 +1,6 @@
-import { NumberTrie } from "../numberTrie2.ts";
-import { Table } from "../table.ts";
-import { Trie } from "../trie.ts";
+import { NumberTrie } from "../collections/numberTrie2.ts";
+import { Table } from "../collections/table.ts";
+import { Trie } from "../collections/trie.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,

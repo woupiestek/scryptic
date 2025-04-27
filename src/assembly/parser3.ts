@@ -8,6 +8,8 @@ export type Node = {
   op: Token;
   rhs: number;
 };
+
+// expressions and statements separated? some other subdivision?
 export class AST {
   #nodes: Node[] = [];
   #lists: NodeId[][] = [];

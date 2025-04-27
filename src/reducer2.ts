@@ -1,6 +1,6 @@
-import { LinkedList } from "./linkedList.ts";
+import { LinkedList } from "./collections/linkedList.ts";
 import { Id, Term } from "./model.ts";
-import { RedBlackTreeMap } from "./redBlack2.ts";
+import { RedBlackTreeMap } from "./collections/redBlack2.ts";
 
 type Object = RedBlackTreeMap<Result>;
 type Values = LinkedList<Object>;

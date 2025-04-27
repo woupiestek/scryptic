@@ -1,6 +1,6 @@
-import { LinkedList } from "./linkedList.ts";
+import { LinkedList } from "./collections/linkedList.ts";
 import { Parser, stringifyTerm, Term } from "./parser3.ts";
-import { RedBlackTreeMap } from "./redBlack2.ts";
+import { RedBlackTreeMap } from "./collections/redBlack2.ts";
 
 type Reducend = [Term, Values, number];
 type Values = LinkedList<RedBlackTreeMap<Reducend>>;

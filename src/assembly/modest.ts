@@ -1,4 +1,4 @@
-import { Table } from "../table.ts";
+import { Table } from "../collections/table.ts";
 import { Token, TokenType } from "./lexer.ts";
 import { Node } from "./parser2.ts";
 

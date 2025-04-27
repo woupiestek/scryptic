@@ -1,7 +1,7 @@
 import { Block, Parser } from "./parser.ts";
 import { LabelType, Optimizer, Target, Value } from "./intermediate.ts";
-import { NumberTrie } from "../numberTrie2.ts";
-import { Table } from "../table.ts";
+import { NumberTrie } from "../collections/numberTrie2.ts";
+import { Table } from "../collections/table.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +

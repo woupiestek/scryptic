@@ -1,4 +1,4 @@
-import { SplayMap } from "../splay.ts";
+import { SplayMap } from "../collections/splay.ts";
 import { Token, TokenType } from "./lexer.ts";
 import {
   Access,

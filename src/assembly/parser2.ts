@@ -1,6 +1,6 @@
-import { LinkedList } from "../linkedList.ts";
-import { Table } from "../table.ts";
-import { Trie } from "../trie.ts";
+import { LinkedList } from "../collections/linkedList.ts";
+import { Table } from "../collections/table.ts";
+import { Trie } from "../collections/trie.ts";
 import { Lexer, Token, TokenType } from "./lexer.ts";
 
 export class ParseError extends Error {

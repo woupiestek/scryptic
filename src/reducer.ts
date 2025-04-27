@@ -17,10 +17,10 @@
  * requires it.
  */
 
-import { LinkedList } from "./linkedList.ts";
+import { LinkedList } from "./collections/linkedList.ts";
 import { Id, Term } from "./model.ts";
 import { Parser } from "./parser.ts";
-import { RedBlackTreeMap } from "./redBlack2.ts";
+import { RedBlackTreeMap } from "./collections/redBlack2.ts";
 
 type Reducend = [Term, Values, number];
 type Values = LinkedList<RedBlackTreeMap<Reducend>>;
