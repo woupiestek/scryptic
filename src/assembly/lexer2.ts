@@ -72,9 +72,8 @@ export class Lexer {
         case 10:
         case 11:
         case 12:
-        case 32:
-          continue;
         case 13:
+        case 32:
           continue;
         default:
           return;
@@ -112,7 +111,7 @@ export class Lexer {
   #identifier(): Token {
     this.#identifierSymbols();
     return this.#token(
-      KEYWORDS[this.input.substring(this.from, this.current)] ||
+      KEYWORDS[this.input.substring(this.from, this.current)] ??
         TokenType.IDENTIFIER,
     );
   }

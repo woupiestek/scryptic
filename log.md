@@ -1,5 +1,41 @@
 # Scryptic
 
+## 2025-02-05
+
+### push vs pull
+
+Previous iterations pull data in from the source: the lexer has a next method to
+pull the next token. Midistuff has a push based system where lines from the
+source are 'pushed' into the transformers.
+
+If the lexer cannot pull on the source, it has to maintain a state to track
+where it is between, and itself push token events onto a reciever. This state
+machine aspect shows the complexity of the lexer.
+
+This exists for parsers as well: pushdown automatons... However, I want to
+modularize, so it would be `pushdown` in parallel.
+
+Clash `new:`. State changes at `:`, when two tokens are emitted.
+
+### subautomatons
+
+Writing the state machine shows me that: a) some aspects of the language force
+the lexer to have huge numbers of states b) there is a combinatorial explosion
+on top but c) this can be managed by dividing the state space between modules.
+
+### push and modularity
+
+The push has the obvious downside of active state management, removing itself
+from purely functional as far as possible. However, the state can not be
+analysed and managed independently, which was not option in the pull based
+solution.
+
+Pull seems about storing the state on the stack, making it implicit in function
+calls.
+
+Different modules has different needs at every stage. There may be a way for the
+parser to say: more tokens please, to only yield a result after coordination...
+
 ## 2024-09-12
 
 ### data orientation
