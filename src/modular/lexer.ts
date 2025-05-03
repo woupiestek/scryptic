@@ -487,7 +487,7 @@ export class Automaton {
     this.#start(charCode);
   }
 
-  push(charCode: number): void {
+  readCharCode(charCode: number): void {
     this.#index++;
     switch (this.#state) {
       case State.Consume:
@@ -538,7 +538,7 @@ export class Automaton {
     }
   }
 
-  pushEnd() {
+  readEnd() {
     switch (this.#state) {
       case State.Start:
         break;
@@ -558,5 +558,12 @@ export class Automaton {
     this.indices.push(++this.#index);
     this.types.push(TokenType.END);
     assert(this.indices.length === this.types.length);
+  }
+
+  readString(string: string) {
+    for (let i = 0, l = string.length; i < l; i++) {
+      this.readCharCode(string.charCodeAt(i));
+    }
+    this.readEnd();
   }
 }

@@ -43,15 +43,13 @@ const testCodes = [
   'var x = "wrong!"; while true { x = "right!"; break } log x',
   'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "right!"; continue } } log x',
   'var x = "wrong!"; while x != "right!" { x = "right!" } log x',
+  "x && y == z",
 ];
 
 for (const testCode of testCodes) {
   Deno.test(`compare lexers on '${testCode}'`, () => {
     const automaton = new Automaton();
-    for (let i = 0, l = testCode.length; i < l; i++) {
-      automaton.push(testCode.charCodeAt(i));
-    }
-    automaton.pushEnd();
+    automaton.readString(testCode);
 
     const tokens = new Tokens(testCode);
     const types = [];

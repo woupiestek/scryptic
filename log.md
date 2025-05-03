@@ -1,6 +1,36 @@
 # Scryptic
 
-## 2025-02-05
+## 2025-05-03
+
+### recursive descent push based
+
+Since there are no calls to the lexer, the stack must be frozen. Implies
+reification.
+
+I run into more problems.
+
+### binding power
+
+We could just do 'left' and 'right' precedence to get desired behavior. i.e. in
+`x (a) y (b) z` there is a fight between `(a)` and `(b)` which binds but since
+they are in different positions, they could have different binding powers in
+these positions.
+
+Left and right are still ambiguous: is left the power when in the left most
+position, or the power to bind elements to the left?
+
+What is the logic now?
+
+if precedence_a(a) >= precedence_b(b), then a wins. There is no law that says
+precedences have to rise through teh stack, because of difference between left
+and right...
+
+Let's check some examples now:
+
+`x && y = z`, p_a(&&)=2, p_b(=)=1, seems the worng way around. I shoudl just
+write the unit tests...
+
+## 2025-05-02
 
 ### push vs pull
 
@@ -35,6 +65,16 @@ calls.
 
 Different modules has different needs at every stage. There may be a way for the
 parser to say: more tokens please, to only yield a result after coordination...
+
+### considering parsing
+
+Recursive descent, but with a reified stack, so token can be pushed in one by
+one.
+
+Blocks: make them lists of other things, i.e. one list of node types, one list
+of node ids, and the last list which must break the master list into sections...
+since blocks can be nested, it might be necessary to have two tables: one for
+currently open blocks, and one for closed ones.
 
 ## 2024-09-12
 
