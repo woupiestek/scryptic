@@ -12,41 +12,41 @@ PRECEDENCE_A[TokenType.MORE] = 3;
 PRECEDENCE_A[TokenType.NOT_LESS] = 3;
 PRECEDENCE_A[TokenType.NOT_MORE] = 3;
 PRECEDENCE_A[TokenType.OR] = 2;
-PRECEDENCE_A[TokenType.PAREN_LEFT] = 4;
+PRECEDENCE_A[TokenType.PAREN_LEFT] = 0;
 
 const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
 PRECEDENCE_B[TokenType.BE] = 4;
-PRECEDENCE_B[TokenType.PAREN_LEFT] = 0;
+PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
 
 enum State {
   Consume,
-  ConsumeList,
+  ConsumeIdentifier,
   MatchBinary,
-  MatchIdentifier,
 }
 
-export class AttemptPlenty {
-  // todo: try the token id plan
+export class PrattParser {
   tokenIds: number[] = [];
   precedenceAs: number[] = [];
-  // types: TokenType[] = [];
   lhs: number[] = [];
   rhs: number[] = [];
 
-  #tokenId = 0;
+  #tokenId = -1;
 
   #store(op: TokenType) {
-    this.tokenIds.push(this.#tokenId++);
+    this.tokenIds.push(this.#tokenId);
     return this.precedenceAs.push(PRECEDENCE_A[op]) - 1;
   }
 
   #state = State.Consume;
-  #operands: number[] = [];
-  #operators: number[] = [];
-  #index = 0;
+  #tokens: number[] = [];
+  #index = -1;
+
+  #push(tokenId: number) {
+    this.#tokens[++this.#index] = tokenId;
+  }
 
   #pushOps(type: TokenType) {
-    this.#operators[this.#index++] = this.#store(type);
+    this.#push(this.#store(type));
     this.#state = State.Consume;
   }
 
@@ -61,16 +61,14 @@ export class AttemptPlenty {
   }
 
   visit(type: TokenType) {
-    // both states can cause collapses
-    if (this.#state === State.ConsumeList) {
-      if (type === TokenType.PAREN_RIGHT) {
-        this.#operands[this.#index] = -1; // push 'empty list'
-        this.#collapseOne();
+    this.#tokenId++;
+    if (this.#state === State.ConsumeIdentifier) {
+      if (type === TokenType.IDENTIFIER) {
+        this.#push(this.#store(type));
         this.#state = State.MatchBinary;
         return true;
       } else {
-        this.#state = State.Consume;
-        return this.#consume(type);
+        throw new Error("identifier required");
       }
     }
 
@@ -79,6 +77,10 @@ export class AttemptPlenty {
     }
 
     // binary or stop
+    return this.#matchBinary(type);
+  }
+
+  #matchBinary(type: TokenType) {
     switch (type) {
       case TokenType.AND:
       case TokenType.BE: // lhs should be 'assignable'
@@ -92,61 +94,80 @@ export class AttemptPlenty {
         this.#collapse(PRECEDENCE_B[type]);
         this.#pushOps(type);
         return true;
-      case TokenType.DOT: // todo: another special case...
+      case TokenType.DOT:
+        this.#collapse(PRECEDENCE_B[type]);
+        this.#pushOps(type);
+        this.#state = State.ConsumeIdentifier;
+        return true;
       case TokenType.PAREN_LEFT:
         // effectively move the parenthesis before the function
-        this.#parens.push(this.#index);
-        // this the symbol as binop
+        this.#parens.push(this.#index); // index of the function!
+        // treat the symbol as binop
         this.#pushOps(type);
         // record that this paren is a function call
-        this.#calls = this.#calls << 1 + 1;
+        this.#calls = (this.#calls << 1) + 1;
         return true;
       // these count as proper ends to expressions...
+      case TokenType.BRACE_LEFT:
       case TokenType.BRACE_RIGHT:
       case TokenType.END:
       case TokenType.SEMICOLON:
         if (this.#parens.length) {
           throw new Error(`missing '${")".repeat(this.#parens.length)}'`);
         }
-        this.#collapse(0);
+        while (this.#index > 0) {
+          this.#bindTop();
+        }
         // todo: somehow leave the expression
         return true;
-      case TokenType.COMMA:
+      case TokenType.COMMA: {
         if ((this.#calls & 1) === 0) {
           throw new Error("unexpected ','");
         }
+        const index = this.#parens[this.#parens.length - 1];
         // left the parens on the stack!
-        this.#collapse(0, this.#parens[this.#parens.length - 1] - 1);
+        while (this.#index > index) {
+          this.#bindTop();
+        }
         this.#pushOps(type);
         return true;
-        // whether valid or not depend on the
-        // kind the last matched paren_left was
-        // now what?
-      case TokenType.PAREN_RIGHT:
-        if (!this.#parens.length) {
-          throw new Error('Unmatched ")"');
+      }
+      case TokenType.PAREN_RIGHT: {
+        const index = this.#parens.pop();
+        if (index === undefined) {
+          throw new Error("missing '('");
+        } else {
+          while (this.#index > index) {
+            this.#bindTop();
+          }
         }
-        this.#collapse(0, this.#parens.pop());
         this.#calls >> 1;
         return true;
+      }
       default:
         throw new Error(`unexpected token ${TokenType[type]}`);
     }
   }
 
-  #collapseOne() {
-    const op = this.#operators[this.#index - 1];
-    this.lhs[op] = this.#operands[this.#index - 1];
-    this.rhs[op] = this.#operands[this.#index];
-    this.#operands[--this.#index] = op;
+  #bindTop() {
+    if (this.#index < 2) throw new Error("Stack underflow");
+    const op = this.#tokens[this.#index - 1];
+    this.lhs[op] = this.#tokens[this.#index - 2];
+    this.rhs[op] = this.#tokens[this.#index];
+    this.#index -= 2;
+    this.#tokens[this.#index] = op;
   }
 
-  #collapse(precedence: number, lb = 0) {
+  #collapse(precedenceB: number) {
+    // don't collapse beyond parentheses
+    // remember that these don't form nodes,
+    // so they have no place on the stack.
+    const lb = this.#parens[this.#parens.length - 1] ?? 0;
     while (
-      this.#index > lb && this.precedenceAs[this.#operators[this.#index - 1]] >=
-        precedence
+      this.#index > lb && this.precedenceAs[this.#tokens[this.#index - 1]] >=
+        precedenceB
     ) {
-      this.#collapseOne();
+      this.#bindTop();
     }
   }
 
@@ -157,49 +178,65 @@ export class AttemptPlenty {
       case TokenType.STRING:
       case TokenType.THIS:
       case TokenType.TRUE:
-        this.#operands[this.#index] = this.#store(type);
+        this.#push(this.#store(type));
         this.#state = State.MatchBinary;
         return true;
       case TokenType.LOG:
-      case TokenType.NEW:
       case TokenType.NOT:
-      case TokenType.VAR:
+        this.#push(-1);
         this.#pushOps(type);
         return true;
+      case TokenType.NEW:
+      case TokenType.VAR:
+        this.#push(-1);
+        this.#pushOps(type);
+        this.#state = State.ConsumeIdentifier;
+        return true;
       case TokenType.PAREN_LEFT:
-        this.#parens.push(this.#index);
-        // mark parens empty
+        this.#parens.push(this.#index + 1);
+        // push zero to mark not function
         this.#calls <<= 1;
         return true;
+      case TokenType.PAREN_RIGHT:
+        // empty list case
+        if ((this.#calls & 1) && this.#parens.pop() === this.#index - 1) {
+          this.#calls >> 1;
+          this.#push(-1);
+          this.#bindTop();
+          this.#state = State.MatchBinary;
+          return;
+        }
+        throw new Error("misplaced ')'");
       default:
-        throw new Error("Expression expected");
+        throw new Error(`misplaced ${TokenType[type]}: expression required`);
     }
   }
 
   #stringify(id: number): string {
     const result = [];
-    if (typeof this.lhs[id] === "number") {
-      result.push(this.#stringify(this.lhs[id]));
+    if (this.lhs[id] >= 0) {
+      result.push("(" + this.#stringify(this.lhs[id]) + ")");
     }
-    result.push(this.tokenIds[id].toString());
-    if (typeof this.rhs[id] === "number") {
-      result.push(this.#stringify(this.rhs[id])); // too soon !?
+    result.push(this.tokenIds[id]?.toString());
+    if (this.rhs[id] >= 0) {
+      result.push("(" + this.#stringify(this.rhs[id]) + ")");
     }
-    return result.length > 1 ? `(${result.join(" ")})` : result[0];
+    return result.join(" ");
   }
 
   debug() {
     const parts: string[] = [];
-    for (let i = 0; i < this.#index; i++) {
+    for (let i = 0; i + 1 <= this.#index; i += 2) {
       parts.push(
-        "(" + this.#stringify(this.#operands[i]),
-        this.#stringify(this.#operators[i]),
+        `(${this.#stringify(this.#tokens[i])} ${
+          this.#stringify(this.#tokens[i + 1])
+        }`,
       );
     }
     parts.push(
       this.#state === State.Consume
         ? "?"
-        : this.#stringify(this.#operands[this.#index]) +
+        : this.#stringify(this.#tokens[this.#index]) +
           ")".repeat(this.#index),
     );
     return parts.join(" ");

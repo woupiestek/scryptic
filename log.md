@@ -1,5 +1,31 @@
 # Scryptic
 
+## 2025-05-04
+
+### push pratt
+
+Getting the hang of the idea, but I need the tests to understand the code, and I
+cannot blame dynamic typing now. It is like: the most common mistakes are off by
+one errors, and I explicitly choose to cover those by test, instead of avoid
+them as usual.
+
+### how it works
+
+We are down to representing nodes and token by indices. So there is a stack of
+incomplete nodes ids Alongside a state to cover the top down aspect. This stack
+gradually collapses as nodes get completed and so moved to the 'node heap'... or
+heaps?
+
+Data-oriented ideas steer away form normal heaps, but perhaps it would be
+simpler to have a stack of AST objects, and use pattern matching on class for
+state management.
+
+### todo
+
+- consume identifier cases
+- error cases
+- assignments (var, ident, dot, ...)
+
 ## 2025-05-03
 
 ### recursive descent push based

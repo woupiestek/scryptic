@@ -326,13 +326,13 @@ class KeywordAutomaton {
     if (this.#excluded === this.#all) {
       return TokenType.IDENTIFIER;
     }
-    for (let i = 0, l = this.#types.length; i < l; i++) {
+    for (let i = 0, l = this.#words.length; i < l; i++) {
       const flag = 1 << i;
       if (this.#excluded & flag) continue;
       if (this.#words[i].length === this.#length) return this.#types[i];
     }
-    // this should be unreachable;
-    throw new Error(`Keyword not found ${this.#excluded} ${this.#all}`);
+    // partial match with keyword
+    return TokenType.IDENTIFIER;
   }
 }
 
