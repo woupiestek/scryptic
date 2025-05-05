@@ -23,6 +23,16 @@ comes later from adding 'events.'
 Other idea: maybe the structure of the grammar determines that of the tree
 somehow.
 
+### Fixing both ways
+
+Strategically adding extra instruction for buulding trees is one thing that
+works.
+
+There is a natural tree structure coming from how instruction are pushed and
+popped. By deliberately having more instructions pushed and popped, the tree
+structure becomes more familiar, while the parser looks more like the text book
+examples.
+
 ## 2025-05-04
 
 ### push pratt

@@ -1,3 +1,4 @@
+import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { TokenType } from "./lexer.ts";
 
 class Stack {
@@ -16,22 +17,45 @@ class Stack {
     }
   }
   pop() {
-    return this.#instructions[this.#index--];
+    const ins = this.#instructions[this.#index--];
+    return ins;
+  }
+  size() {
+    return this.#index + 1;
   }
 }
 
-enum Part {
+class ASTs {
+  #tokenIds: number[] = [];
+  #childIds: Arrays<number> = new Arrays();
+
+  store(tokenId: number, nodeIds: number[]) {
+    const id = this.#childIds.wrap(nodeIds);
+    this.#tokenIds[id] = tokenId;
+    return id;
+  }
+
+  stringify(nodeId: number = this.#tokenIds.length - 1): string {
+    const tail = this.#childIds.unwrap(nodeId).map((it) => this.stringify(it));
+    return tail.length
+      ? `(${this.#tokenIds[nodeId]} ${tail.join(" ")})`
+      : this.#tokenIds[nodeId].toString();
+  }
+}
+
+enum Op {
   Accept,
-  Binary,
+  ArgsHead,
+  ArgsTail,
+  Block,
   Else,
   Expect,
-  Expression,
+  Expr,
+  ExprHead,
+  ExprTail,
   ReturnValue,
   Semicolon,
-  StartList,
-  Statements,
-  TailList,
-  Unary,
+  Stmts,
 }
 
 const PRECEDENCE_A: number[] = [];
@@ -53,52 +77,62 @@ PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
 
 export class Parser {
   #stack = new Stack();
-  #count = 0;
+  #tokenId = 0;
+  #openNodeLengths: number[] = [];
+  #openNodeTokenIds: number[] = [];
+  #closedNodes: number[] = [];
+  #asts = new ASTs();
 
   constructor() {
-    this.#stack.push(Part.Statements, Part.Expect, TokenType.END);
+    this.#stack.push(Op.Stmts, Op.Expect, TokenType.END);
   }
 
   visitAll(types: TokenType[]) {
     for (const type of types) {
       this.visit(type);
     }
+    console.log(this.#closedNodes.map((it) => this.#asts.stringify(it)));
+    console.log(this.#closed.map((it) => this.#closedTreeString(it)));
+    console.log(this.#open.map((it) => this.#openTreeString(it)));
   }
 
-  // could even return events
   visit(type: TokenType) {
+    if (type === TokenType.BRACE_LEFT) this.#openNode();
+    if (type === TokenType.BRACE_RIGHT) this.#closeNode();
     while (!this.#accept(type));
-    // why does this do nothing?
-    this.#count++;
+    this.#tokenId++;
   }
 
   #error(message: string) {
-    return new Error(`@${this.#count}: ${message}`);
+    return new Error(`@${this.#tokenId}: ${message}`);
   }
 
   #accept(type: TokenType) {
     if (this.#stack.isEmpty()) {
-      // why this right away?
       throw this.#error("No more tokens can be accepted");
     }
-    switch (this.#stack.pop()) {
-      case Part.Accept:
+
+    switch (this.open(this.#stack.pop())) {
+      case Op.Accept:
         return type === this.#stack.pop();
-      case Part.Binary:
-        return this.#binary(type, this.#stack.pop());
-      case Part.Else:
+      case Op.ExprTail:
+        return this.#exprTail(type, this.#stack.pop());
+      case Op.Block:
+        this.#stack.push(
+          Op.Expect,
+          TokenType.BRACE_LEFT,
+          Op.Stmts,
+          Op.Expect,
+          TokenType.BRACE_RIGHT,
+        );
+        return false;
+      case Op.Else:
         if (type === TokenType.ELSE) {
-          this.#stack.push(
-            Part.Expect,
-            TokenType.BRACE_LEFT,
-            Part.Statements,
-            Part.Expect,
-            TokenType.BRACE_RIGHT,
-          );
+          this.#stack.push(Op.Block);
           return true;
         }
         return false;
-      case Part.Expect: {
+      case Op.Expect: {
         const operand = this.#stack.pop();
         if (type === operand) return true;
         throw this.#error(
@@ -107,39 +141,58 @@ export class Parser {
           } received`,
         );
       }
-      case Part.Expression:
-        return this.#expression(type, this.#stack.pop());
-      case Part.ReturnValue:
-        if (type === TokenType.BRACE_RIGHT) return false;
-        return this.#expression(type);
-      case Part.Semicolon:
+      case Op.Expr:
+        this.#openNode();
+        this.#stack.push(Op.ExprHead, Op.ExprTail, this.#stack.pop());
+        return false;
+      case Op.ReturnValue:
+        if (type !== TokenType.BRACE_RIGHT) this.#stack.push(Op.Expr, 0);
+        return false;
+      case Op.Semicolon:
         if (type === TokenType.BRACE_RIGHT || type === TokenType.END) {
           return false;
         }
         if (type === TokenType.SEMICOLON) {
-          this.#stack.push(Part.Statements);
+          this.#stack.push(Op.Stmts);
           return true;
         }
         throw this.#error(`Expected ";" or "}", received ${TokenType[type]}`);
-      case Part.Statements:
+      case Op.Stmts:
         return this.#statements(type);
-      case Part.StartList:
+      case Op.ArgsHead:
         if (type === TokenType.PAREN_RIGHT) return true;
-        this.#stack.push(Part.TailList);
-        return this.#expression(type);
-      case Part.TailList:
+        this.#stack.push(Op.Expr, 0, Op.ArgsTail);
+        return false;
+      case Op.ArgsTail:
         if (type === TokenType.PAREN_RIGHT) return true;
         if (type === TokenType.COMMA) {
-          this.#stack.push(Part.Expression, 0, Part.TailList);
+          this.#stack.push(Op.Expr, 0, Op.ArgsTail);
           return true;
         }
         throw this.#error(`Expected "," or ")" but found ${TokenType[type]}`);
-      case Part.Unary:
-        return this.#unary(type);
+      case Op.ExprHead:
+        return this.#exprHead(type);
     }
   }
 
-  #unary(type: TokenType) {
+  #openNode() {
+    this.#openNodeLengths.push(this.#closedNodes.length);
+    this.#openNodeTokenIds.push(this.#tokenId);
+  }
+
+  #closeNode() {
+    const length = this.#openNodeLengths.pop();
+    assert(length !== undefined);
+    const tokenId = this.#openNodeTokenIds.pop();
+    assert(tokenId !== undefined);
+    this.#closedNodes[length] = this.#asts.store(
+      tokenId,
+      this.#closedNodes.slice(length),
+    );
+    this.#closedNodes.length = length + 1;
+  }
+
+  #exprHead(type: TokenType) {
     switch (type) {
       case TokenType.FALSE:
       case TokenType.IDENTIFIER:
@@ -150,28 +203,20 @@ export class Parser {
       case TokenType.LOG:
       case TokenType.NOT:
       case TokenType.NEW:
-        this.#stack.push(Part.Unary);
+        this.#stack.push(Op.ExprHead);
         return true;
       case TokenType.VAR:
-        this.#stack.push(
-          Part.Expect,
-          TokenType.IDENTIFIER,
-        );
+        this.#stack.push(Op.Expect, TokenType.IDENTIFIER);
         return true;
       case TokenType.PAREN_LEFT:
-        this.#stack.push(
-          Part.Expression,
-          0,
-          Part.Expect,
-          TokenType.PAREN_RIGHT,
-        );
+        this.#stack.push(Op.Expr, 0, Op.Expect, TokenType.PAREN_RIGHT);
         return true;
       default:
         this.#error("Expression expected");
     }
   }
 
-  #binary(type: TokenType, precedence: number) {
+  #exprTail(type: TokenType, precedence: number) {
     switch (type) {
       case TokenType.AND:
       case TokenType.BE:
@@ -183,32 +228,23 @@ export class Parser {
       case TokenType.NOT_MORE:
       case TokenType.OR:
         if (PRECEDENCE_B[type] < precedence) return false;
-        this.#stack.push(
-          Part.Expression,
-          PRECEDENCE_A[type],
-          Part.Binary,
-          precedence,
-        );
+        this.#stack.push(Op.Expr, PRECEDENCE_A[type], Op.ExprTail, precedence);
         return true;
       case TokenType.DOT:
         this.#stack.push(
-          Part.Expect,
+          Op.Expect,
           TokenType.IDENTIFIER,
-          Part.Binary,
+          Op.ExprTail,
           precedence,
         );
         return true;
       case TokenType.PAREN_LEFT:
-        this.#stack.push(Part.StartList, Part.Binary, precedence);
+        this.#stack.push(Op.ArgsHead, Op.ExprTail, precedence);
         return true;
       default:
+        this.#closeNode();
         return false;
     }
-  }
-
-  #expression(type: TokenType, precedence: number = 0) {
-    this.#stack.push(Part.Binary, precedence);
-    return this.#unary(type);
   }
 
   #statements(type: TokenType) {
@@ -217,62 +253,96 @@ export class Parser {
       case TokenType.END:
         return false;
       case TokenType.BRACE_LEFT:
-        this.#stack.push(
-          Part.Statements,
-          Part.Expect,
-          TokenType.BRACE_RIGHT,
-          Part.Statements,
-        );
-        return true;
+        this.#stack.push(Op.Block, Op.Stmts);
+        return false;
       case TokenType.BREAK:
       case TokenType.CONTINUE:
-        this.#stack.push(Part.Accept, TokenType.LABEL);
+        this.#stack.push(Op.Accept, TokenType.LABEL);
         return true;
       case TokenType.IF:
-        this.#stack.push(
-          Part.Expression,
-          0,
-          Part.Expect,
-          TokenType.BRACE_LEFT,
-          Part.Statements,
-          Part.Expect,
-          TokenType.BRACE_RIGHT,
-          Part.Else,
-          Part.Statements,
-        );
+        this.#stack.push(Op.Expr, 0, Op.Block, Op.Else, Op.Stmts);
         return true;
       case TokenType.LABEL:
         this.#stack.push(
-          Part.Expect,
+          Op.Expect,
           TokenType.WHILE,
-          Part.Expression,
+          Op.Expr,
           0,
-          Part.Expect,
-          TokenType.BRACE_LEFT,
-          Part.Statements,
-          Part.Expect,
-          TokenType.BRACE_RIGHT,
-          Part.Statements,
+          Op.Block,
+          Op.Stmts,
         );
         return true;
       case TokenType.RETURN:
-        this.#stack.push(Part.ReturnValue);
+        this.#stack.push(Op.ReturnValue);
         return true;
       case TokenType.WHILE:
-        this.#stack.push(
-          Part.Expression,
-          0,
-          Part.Expect,
-          TokenType.BRACE_LEFT,
-          Part.Statements,
-          Part.Expect,
-          TokenType.BRACE_RIGHT,
-          Part.Statements,
-        );
+        this.#stack.push(Op.Expr, 0, Op.Block, Op.Stmts);
         return true;
       default:
-        this.#stack.push(Part.Semicolon);
-        return this.#expression(type);
+        this.#stack.push(Op.Expr, 0, Op.Semicolon);
+        return false;
     }
+  }
+
+  // log details on every instruction
+  #arrays = new Arrays<{ op: Op; tokenId: number; children: number }>();
+  #open: { op: Op; tokenId: number; size: number; length: number }[] = [];
+  #closed: { op: Op; tokenId: number; children: number }[] = [];
+
+  private close() {
+    const size = this.#stack.size();
+    let i = this.#open.length - 1;
+    for (; i > 0 && this.#open[i].size > size; i--) {
+      const { op, tokenId, length } = this.#open[i];
+      const children = this.#arrays.wrap(this.#closed.slice(length));
+      this.#closed.length = length;
+      this.#closed.push({ op, tokenId, children });
+    }
+    this.#open.length = i + 1;
+  }
+
+  private open(op: Op) {
+    this.close();
+    this.#open.push({
+      op,
+      tokenId: this.#tokenId,
+      size: this.#stack.size(),
+      length: this.#closed.length,
+    });
+    return op;
+  }
+
+  #openTreeString(
+    tree: { op: Op; tokenId: number; size: number; length: number },
+  ) {
+    return `${Op[tree.op]}@${tree.tokenId}`;
+  }
+
+  #closedTreeString(
+    tree: { op: Op; tokenId: number; children: number },
+  ): string {
+    const head = `${Op[tree.op]}@${tree.tokenId}`;
+    const tail = this.#arrays.unwrap(tree.children).map((it) =>
+      this.#closedTreeString(it)
+    );
+    return tail.length ? `${head}(${tail.join(", ")})` : head;
+  }
+}
+
+class Arrays<A> {
+  #entries: A[] = [];
+  #children: number[] = [];
+  wrap(trees: A[]) {
+    this.#entries.push(...trees);
+    return this.#children.push(this.#entries.length) - 1;
+  }
+  unwrap(id: number) {
+    return this.#entries.slice(
+      id && this.#children[id - 1],
+      this.#children[id],
+    );
+  }
+  length(id: number) {
+    return this.#children[id] - (id && this.#children[id - 1]);
   }
 }
