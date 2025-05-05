@@ -1,5 +1,28 @@
 # Scryptic
 
+## 2025-05-05
+
+### non terminal stack
+
+Firstly, forget about the ast, just build something that can accept or reject
+tokens.
+
+The non terminal stack stores the non terminals that need to be matched.
+
+This now takes the shape of an instruction stack.
+
+1. use this to build asts somehow.
+2. add tests for errors
+
+AST building by means of a list of partial elements Add instructions.
+
+I am unsure if this solution actually helps. It is a push parser, but whether it
+shows how to do parsing in a modular and parallel way is unclear. Maybe that
+comes later from adding 'events.'
+
+Other idea: maybe the structure of the grammar determines that of the tree
+somehow.
+
 ## 2025-05-04
 
 ### push pratt
@@ -25,6 +48,30 @@ state management.
 - consume identifier cases
 - error cases
 - assignments (var, ident, dot, ...)
+
+### general approach
+
+- list of (incomplete) asts to be combined
+- predict the next token as part of the state... fine, but some rule on what to
+  do is needed as well, which can apply to many tokens and there may be
+  fallbacks to expectations that where set earlier.
+- rules?
+
+Expectations could be set up in a map, generally saying which type of node to
+push. alternatively, the type causes a shift.
+
+Nodes are connected to nonterminals an token to terminals. So..
+
+I am unlikely to invent something entirely new, still I was hoping to at least
+unlock a way to break up the parser into independent modules.
+
+### async methods...
+
+Can we do something with that?
+
+`#next(): Promise<TokenType>`
+
+lookahead... so remember the previous token type to deal with the next one.
 
 ## 2025-05-03
 

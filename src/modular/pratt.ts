@@ -19,9 +19,9 @@ PRECEDENCE_B[TokenType.BE] = 4;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
 
 enum State {
-  Consume,
-  ConsumeIdentifier,
-  MatchBinary,
+  Expect,
+  ExpectIdentifier,
+  AcceptBinary,
 }
 
 export class PrattParser {
@@ -37,7 +37,7 @@ export class PrattParser {
     return this.precedenceAs.push(PRECEDENCE_A[op]) - 1;
   }
 
-  #state = State.Consume;
+  #state = State.Expect;
   #tokens: number[] = [];
   #index = -1;
 
@@ -47,7 +47,7 @@ export class PrattParser {
 
   #pushOps(type: TokenType) {
     this.#push(this.#store(type));
-    this.#state = State.Consume;
+    this.#state = State.Expect;
   }
 
   #parens: number[] = [];
@@ -62,17 +62,17 @@ export class PrattParser {
 
   visit(type: TokenType) {
     this.#tokenId++;
-    if (this.#state === State.ConsumeIdentifier) {
+    if (this.#state === State.ExpectIdentifier) {
       if (type === TokenType.IDENTIFIER) {
         this.#push(this.#store(type));
-        this.#state = State.MatchBinary;
+        this.#state = State.AcceptBinary;
         return true;
       } else {
         throw new Error("identifier required");
       }
     }
 
-    if (this.#state === State.Consume) {
+    if (this.#state === State.Expect) {
       return this.#consume(type);
     }
 
@@ -97,7 +97,7 @@ export class PrattParser {
       case TokenType.DOT:
         this.#collapse(PRECEDENCE_B[type]);
         this.#pushOps(type);
-        this.#state = State.ConsumeIdentifier;
+        this.#state = State.ExpectIdentifier;
         return true;
       case TokenType.PAREN_LEFT:
         // effectively move the parenthesis before the function
@@ -179,7 +179,7 @@ export class PrattParser {
       case TokenType.THIS:
       case TokenType.TRUE:
         this.#push(this.#store(type));
-        this.#state = State.MatchBinary;
+        this.#state = State.AcceptBinary;
         return true;
       case TokenType.LOG:
       case TokenType.NOT:
@@ -190,7 +190,7 @@ export class PrattParser {
       case TokenType.VAR:
         this.#push(-1);
         this.#pushOps(type);
-        this.#state = State.ConsumeIdentifier;
+        this.#state = State.ExpectIdentifier;
         return true;
       case TokenType.PAREN_LEFT:
         this.#parens.push(this.#index + 1);
@@ -203,7 +203,7 @@ export class PrattParser {
           this.#calls >> 1;
           this.#push(-1);
           this.#bindTop();
-          this.#state = State.MatchBinary;
+          this.#state = State.AcceptBinary;
           return;
         }
         throw new Error("misplaced ')'");
@@ -234,7 +234,7 @@ export class PrattParser {
       );
     }
     parts.push(
-      this.#state === State.Consume
+      this.#state === State.Expect
         ? "?"
         : this.#stringify(this.#tokens[this.#index]) +
           ")".repeat(this.#index),

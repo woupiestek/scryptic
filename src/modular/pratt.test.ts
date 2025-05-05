@@ -3,7 +3,7 @@ import {
   assertThrows,
 } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton } from "./lexer.ts";
-import { PrattParser } from "./parser.ts";
+import { PrattParser } from "./pratt.ts";
 
 // && = . != == < > >= <= || ( ,
 
