@@ -17,8 +17,8 @@ class Stack {
     }
   }
   pop() {
-    const ins = this.#instructions[this.#index--];
-    return ins;
+    assert(this.#index >= 0);
+    return this.#instructions[this.#index--];
   }
   size() {
     return this.#index + 1;
@@ -48,6 +48,7 @@ enum Op {
   ArgsHead,
   ArgsTail,
   Block,
+  BlockEnd,
   Else,
   Expect,
   Expr,
@@ -55,6 +56,7 @@ enum Op {
   ExprTail,
   ReturnValue,
   Semicolon,
+  Stmt,
   Stmts,
 }
 
@@ -84,6 +86,7 @@ export class Parser {
   #asts = new ASTs();
 
   constructor() {
+    this.#openTree(Op.Stmts);
     this.#stack.push(Op.Stmts, Op.Expect, TokenType.END);
   }
 
@@ -91,9 +94,10 @@ export class Parser {
     for (const type of types) {
       this.visit(type);
     }
+    assert(this.#stack.size() === 0);
     console.log(this.#closedNodes.map((it) => this.#asts.stringify(it)));
-    console.log(this.#closed.map((it) => this.#closedTreeString(it)));
-    console.log(this.#open.map((it) => this.#openTreeString(it)));
+    console.log(this.#closed.map((it) => this.#closedTreeString(it, types)));
+    console.log(this.#open.map((it) => this.#openTreeString(it, types)));
   }
 
   visit(type: TokenType) {
@@ -108,11 +112,7 @@ export class Parser {
   }
 
   #accept(type: TokenType) {
-    if (this.#stack.isEmpty()) {
-      throw this.#error("No more tokens can be accepted");
-    }
-
-    switch (this.open(this.#stack.pop())) {
+    switch (this.#openTree(this.#stack.pop())) {
       case Op.Accept:
         return type === this.#stack.pop();
       case Op.ExprTail:
@@ -122,6 +122,7 @@ export class Parser {
           Op.Expect,
           TokenType.BRACE_LEFT,
           Op.Stmts,
+          Op.BlockEnd,
           Op.Expect,
           TokenType.BRACE_RIGHT,
         );
@@ -153,12 +154,37 @@ export class Parser {
           return false;
         }
         if (type === TokenType.SEMICOLON) {
-          this.#stack.push(Op.Stmts);
           return true;
         }
         throw this.#error(`Expected ";" or "}", received ${TokenType[type]}`);
       case Op.Stmts:
-        return this.#statements(type);
+        switch (type) {
+          case TokenType.BRACE_RIGHT:
+          case TokenType.BREAK:
+          case TokenType.CONTINUE:
+          case TokenType.END:
+          case TokenType.RETURN:
+            break;
+          default:
+            this.#stack.push(Op.Stmt, Op.Stmts);
+            break;
+        }
+        return false;
+      case Op.BlockEnd:
+        switch (type) {
+          case TokenType.BREAK:
+          case TokenType.CONTINUE:
+            this.#stack.push(Op.Accept, TokenType.LABEL);
+            break;
+          case TokenType.RETURN:
+            this.#stack.push(Op.ReturnValue);
+            break;
+          default:
+            return false;
+        }
+        return true;
+      case Op.Stmt:
+        return this.#statement(type);
       case Op.ArgsHead:
         if (type === TokenType.PAREN_RIGHT) return true;
         this.#stack.push(Op.Expr, 0, Op.ArgsTail);
@@ -247,20 +273,19 @@ export class Parser {
     }
   }
 
-  #statements(type: TokenType) {
+  #statement(type: TokenType) {
     switch (type) {
       case TokenType.BRACE_RIGHT:
       case TokenType.END:
         return false;
       case TokenType.BRACE_LEFT:
-        this.#stack.push(Op.Block, Op.Stmts);
+        this.#stack.push(Op.Block);
         return false;
       case TokenType.BREAK:
       case TokenType.CONTINUE:
-        this.#stack.push(Op.Accept, TokenType.LABEL);
-        return true;
+        return false;
       case TokenType.IF:
-        this.#stack.push(Op.Expr, 0, Op.Block, Op.Else, Op.Stmts);
+        this.#stack.push(Op.Expr, 0, Op.Block, Op.Else);
         return true;
       case TokenType.LABEL:
         this.#stack.push(
@@ -269,14 +294,12 @@ export class Parser {
           Op.Expr,
           0,
           Op.Block,
-          Op.Stmts,
         );
         return true;
       case TokenType.RETURN:
-        this.#stack.push(Op.ReturnValue);
-        return true;
+        return false;
       case TokenType.WHILE:
-        this.#stack.push(Op.Expr, 0, Op.Block, Op.Stmts);
+        this.#stack.push(Op.Expr, 0, Op.Block);
         return true;
       default:
         this.#stack.push(Op.Expr, 0, Op.Semicolon);
@@ -289,7 +312,7 @@ export class Parser {
   #open: { op: Op; tokenId: number; size: number; length: number }[] = [];
   #closed: { op: Op; tokenId: number; children: number }[] = [];
 
-  private close() {
+  #closeTrees() {
     const size = this.#stack.size();
     let i = this.#open.length - 1;
     for (; i > 0 && this.#open[i].size > size; i--) {
@@ -301,8 +324,8 @@ export class Parser {
     this.#open.length = i + 1;
   }
 
-  private open(op: Op) {
-    this.close();
+  #openTree(op: Op) {
+    this.#closeTrees();
     this.#open.push({
       op,
       tokenId: this.#tokenId,
@@ -314,18 +337,22 @@ export class Parser {
 
   #openTreeString(
     tree: { op: Op; tokenId: number; size: number; length: number },
+    types: TokenType[],
   ) {
-    return `${Op[tree.op]}@${tree.tokenId}`;
+    return `${Op[tree.op]}_${TokenType[types[tree.tokenId]]}_${tree.tokenId}`;
   }
 
   #closedTreeString(
     tree: { op: Op; tokenId: number; children: number },
+    types: TokenType[],
   ): string {
-    const head = `${Op[tree.op]}@${tree.tokenId}`;
+    const head = `${Op[tree.op]}_${
+      TokenType[types[tree.tokenId]]
+    }_${tree.tokenId}`;
     const tail = this.#arrays.unwrap(tree.children).map((it) =>
-      this.#closedTreeString(it)
+      this.#closedTreeString(it, types)
     );
-    return tail.length ? `${head}(${tail.join(", ")})` : head;
+    return tail.length ? `(${head} ${tail.join(" ")})` : head;
   }
 }
 
