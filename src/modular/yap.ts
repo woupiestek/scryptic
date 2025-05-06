@@ -25,27 +25,9 @@ class Stack {
   }
 }
 
-class ASTs {
-  #tokenIds: number[] = [];
-  #childIds: Arrays<number> = new Arrays();
-
-  store(tokenId: number, nodeIds: number[]) {
-    const id = this.#childIds.wrap(nodeIds);
-    this.#tokenIds[id] = tokenId;
-    return id;
-  }
-
-  stringify(nodeId: number = this.#tokenIds.length - 1): string {
-    const tail = this.#childIds.unwrap(nodeId).map((it) => this.stringify(it));
-    return tail.length
-      ? `(${this.#tokenIds[nodeId]} ${tail.join(" ")})`
-      : this.#tokenIds[nodeId].toString();
-  }
-}
-
 enum Op {
   Accept,
-  ArgsHead,
+  Args,
   ArgsTail,
   Block,
   BlockEnd,
@@ -77,16 +59,14 @@ const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
 PRECEDENCE_B[TokenType.BE] = 0;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
 
+type Frame = { op: Op; tokenId: number; children: number };
+
 export class Parser {
   #stack = new Stack();
   #tokenId = 0;
-  #openNodeLengths: number[] = [];
-  #openNodeTokenIds: number[] = [];
-  #closedNodes: number[] = [];
-  #asts = new ASTs();
 
   constructor() {
-    this.#openTree(Op.Stmts);
+    this.#pushFrame(Op.Stmt);
     this.#stack.push(Op.Stmts, Op.Expect, TokenType.END);
   }
 
@@ -95,14 +75,13 @@ export class Parser {
       this.visit(type);
     }
     assert(this.#stack.size() === 0);
-    console.log(this.#closedNodes.map((it) => this.#asts.stringify(it)));
-    console.log(this.#closed.map((it) => this.#closedTreeString(it, types)));
-    console.log(this.#open.map((it) => this.#openTreeString(it, types)));
+
+    for (const ast of this.asts()) {
+      console.log(ast.stringify());
+    }
   }
 
   visit(type: TokenType) {
-    if (type === TokenType.BRACE_LEFT) this.#openNode();
-    if (type === TokenType.BRACE_RIGHT) this.#closeNode();
     while (!this.#accept(type));
     this.#tokenId++;
   }
@@ -112,7 +91,8 @@ export class Parser {
   }
 
   #accept(type: TokenType) {
-    switch (this.#openTree(this.#stack.pop())) {
+    this.#popFrames();
+    switch (this.#pushFrame(this.#stack.pop())) {
       case Op.Accept:
         return type === this.#stack.pop();
       case Op.ExprTail:
@@ -143,7 +123,6 @@ export class Parser {
         );
       }
       case Op.Expr:
-        this.#openNode();
         this.#stack.push(Op.ExprHead, Op.ExprTail, this.#stack.pop());
         return false;
       case Op.ReturnValue:
@@ -185,7 +164,7 @@ export class Parser {
         return true;
       case Op.Stmt:
         return this.#statement(type);
-      case Op.ArgsHead:
+      case Op.Args:
         if (type === TokenType.PAREN_RIGHT) return true;
         this.#stack.push(Op.Expr, 0, Op.ArgsTail);
         return false;
@@ -199,23 +178,6 @@ export class Parser {
       case Op.ExprHead:
         return this.#exprHead(type);
     }
-  }
-
-  #openNode() {
-    this.#openNodeLengths.push(this.#closedNodes.length);
-    this.#openNodeTokenIds.push(this.#tokenId);
-  }
-
-  #closeNode() {
-    const length = this.#openNodeLengths.pop();
-    assert(length !== undefined);
-    const tokenId = this.#openNodeTokenIds.pop();
-    assert(tokenId !== undefined);
-    this.#closedNodes[length] = this.#asts.store(
-      tokenId,
-      this.#closedNodes.slice(length),
-    );
-    this.#closedNodes.length = length + 1;
   }
 
   #exprHead(type: TokenType) {
@@ -265,10 +227,9 @@ export class Parser {
         );
         return true;
       case TokenType.PAREN_LEFT:
-        this.#stack.push(Op.ArgsHead, Op.ExprTail, precedence);
+        this.#stack.push(Op.Args, Op.ExprTail, precedence);
         return true;
       default:
-        this.#closeNode();
         return false;
     }
   }
@@ -276,13 +237,14 @@ export class Parser {
   #statement(type: TokenType) {
     switch (type) {
       case TokenType.BRACE_RIGHT:
+      case TokenType.BREAK:
+      case TokenType.CONTINUE:
       case TokenType.END:
+      case TokenType.RETURN:
+        // empty statement allowed
         return false;
       case TokenType.BRACE_LEFT:
         this.#stack.push(Op.Block);
-        return false;
-      case TokenType.BREAK:
-      case TokenType.CONTINUE:
         return false;
       case TokenType.IF:
         this.#stack.push(Op.Expr, 0, Op.Block, Op.Else);
@@ -296,8 +258,6 @@ export class Parser {
           Op.Block,
         );
         return true;
-      case TokenType.RETURN:
-        return false;
       case TokenType.WHILE:
         this.#stack.push(Op.Expr, 0, Op.Block);
         return true;
@@ -308,14 +268,20 @@ export class Parser {
   }
 
   // log details on every instruction
-  #arrays = new Arrays<{ op: Op; tokenId: number; children: number }>();
+  #arrays = new Arrays<Frame>();
   #open: { op: Op; tokenId: number; size: number; length: number }[] = [];
-  #closed: { op: Op; tokenId: number; children: number }[] = [];
+  #closed: Frame[] = [];
 
-  #closeTrees() {
+  *asts() {
+    for (const frame of this.#closed) {
+      yield new AST(frame, this.#arrays);
+    }
+  }
+
+  #popFrames() {
     const size = this.#stack.size();
     let i = this.#open.length - 1;
-    for (; i > 0 && this.#open[i].size > size; i--) {
+    for (; i > 0 && this.#open[i].size >= size; i--) {
       const { op, tokenId, length } = this.#open[i];
       const children = this.#arrays.wrap(this.#closed.slice(length));
       this.#closed.length = length;
@@ -324,8 +290,8 @@ export class Parser {
     this.#open.length = i + 1;
   }
 
-  #openTree(op: Op) {
-    this.#closeTrees();
+  #pushFrame(op: Op) {
+    if (op === Op.Stmts) return op;
     this.#open.push({
       op,
       tokenId: this.#tokenId,
@@ -334,25 +300,27 @@ export class Parser {
     });
     return op;
   }
+}
 
-  #openTreeString(
-    tree: { op: Op; tokenId: number; size: number; length: number },
-    types: TokenType[],
-  ) {
-    return `${Op[tree.op]}_${TokenType[types[tree.tokenId]]}_${tree.tokenId}`;
+class AST {
+  readonly op;
+  readonly tokenId;
+  #children;
+  constructor(frame: Frame, private arrays: Arrays<Frame>) {
+    this.op = frame.op;
+    this.tokenId = frame.tokenId;
+    this.#children = frame.children;
   }
-
-  #closedTreeString(
-    tree: { op: Op; tokenId: number; children: number },
-    types: TokenType[],
-  ): string {
-    const head = `${Op[tree.op]}_${
-      TokenType[types[tree.tokenId]]
-    }_${tree.tokenId}`;
-    const tail = this.#arrays.unwrap(tree.children).map((it) =>
-      this.#closedTreeString(it, types)
-    );
-    return tail.length ? `(${head} ${tail.join(" ")})` : head;
+  *children() {
+    for (const frame of this.arrays.unwrap(this.#children)) {
+      yield new AST(frame, this.arrays);
+    }
+  }
+  stringify(): string {
+    const tag = Op[this.op];
+    const head = `${tag} tokenId="${this.tokenId}"`;
+    const tail = [...this.children()].map((it) => it.stringify());
+    return tail.length ? `<${head}>${tail.join("")}</${tag}>` : `<${head}/>`;
   }
 }
 

@@ -1,5 +1,12 @@
 # Scryptic
 
+## 2025-05-06
+
+## ideas
+
+Get flatter trees somehow. Perhaps the way to solve this is by manipulating the
+operand stack.
+
 ## 2025-05-05
 
 ### non terminal stack
