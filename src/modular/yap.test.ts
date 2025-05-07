@@ -45,7 +45,8 @@ const testCodes = [
   'var x = "wrong!"; while x != "right!" { x = "right!" } log x',
   "x && y == z;",
   "z = f(x, y);",
-  ";",""
+  ";",
+  "",
 ];
 
 for (const testCode of testCodes) {

@@ -291,13 +291,22 @@ export class Parser {
   }
 
   #pushFrame(op: Op) {
-    if (op === Op.Stmts) return op;
-    this.#open.push({
-      op,
-      tokenId: this.#tokenId,
-      size: this.#stack.size(),
-      length: this.#closed.length,
-    });
+    switch (op) {
+      case Op.Args:
+      case Op.Block:
+      case Op.BlockEnd:
+      case Op.Else:
+      case Op.Expr:
+      case Op.ExprHead:
+      case Op.ExprTail:
+      case Op.Stmt:
+        this.#open.push({
+          op,
+          tokenId: this.#tokenId,
+          size: this.#stack.size(),
+          length: this.#closed.length,
+        });
+    }
     return op;
   }
 }
