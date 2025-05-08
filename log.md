@@ -1,5 +1,13 @@
 # Scryptic
 
+## 2025-05-08
+
+### here we go again
+
+For basic blocks, enumerated values, much like a list of instructions, global
+list of instructions. Then basic blocks ending in retrun, if, or unconditional
+jump.
+
 ## 2025-05-06
 
 ## ideas

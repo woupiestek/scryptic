@@ -59,11 +59,9 @@ const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
 PRECEDENCE_B[TokenType.BE] = 0;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
 
-type Frame = { op: Op; tokenId: number; children: number };
-
 export class Parser {
   #stack = new Stack();
-  #tokenId = 0;
+  #token = 0;
 
   constructor() {
     this.#pushFrame(Op.Stmt);
@@ -76,18 +74,18 @@ export class Parser {
     }
     assert(this.#stack.size() === 0);
 
-    for (const ast of this.asts()) {
-      console.log(ast.stringify());
+    for (const ast of this.#closed) {
+      console.log(this.frames.stringify(ast));
     }
   }
 
   visit(type: TokenType) {
     while (!this.#accept(type));
-    this.#tokenId++;
+    this.#token++;
   }
 
   #error(message: string) {
-    return new Error(`@${this.#tokenId}: ${message}`);
+    return new Error(`@${this.#token}: ${message}`);
   }
 
   #accept(type: TokenType) {
@@ -200,7 +198,7 @@ export class Parser {
         this.#stack.push(Op.Expr, 0, Op.Expect, TokenType.PAREN_RIGHT);
         return true;
       default:
-        this.#error("Expression expected");
+        throw this.#error("Expression expected");
     }
   }
 
@@ -241,8 +239,7 @@ export class Parser {
       case TokenType.CONTINUE:
       case TokenType.END:
       case TokenType.RETURN:
-        // empty statement allowed
-        return false;
+        throw this.#error("Statement expected");
       case TokenType.BRACE_LEFT:
         this.#stack.push(Op.Block);
         return false;
@@ -267,25 +264,18 @@ export class Parser {
     }
   }
 
-  // log details on every instruction
-  #arrays = new Arrays<Frame>();
-  #open: { op: Op; tokenId: number; size: number; length: number }[] = [];
-  #closed: Frame[] = [];
-
-  *asts() {
-    for (const frame of this.#closed) {
-      yield new AST(frame, this.#arrays);
-    }
-  }
+  readonly frames = new Frames();
+  #open: { id: number; size: number; length: number }[] = [];
+  #closed: number[] = [];
 
   #popFrames() {
     const size = this.#stack.size();
     let i = this.#open.length - 1;
     for (; i > 0 && this.#open[i].size >= size; i--) {
-      const { op, tokenId, length } = this.#open[i];
-      const children = this.#arrays.wrap(this.#closed.slice(length));
+      const { id, length } = this.#open[i];
+      this.frames.close(id, this.#closed.slice(length));
       this.#closed.length = length;
-      this.#closed.push({ op, tokenId, children });
+      this.#closed.push(id);
     }
     this.#open.length = i + 1;
   }
@@ -301,52 +291,53 @@ export class Parser {
       case Op.ExprTail:
       case Op.Stmt:
         this.#open.push({
-          op,
-          tokenId: this.#tokenId,
+          id: this.frames.open(op, this.#token),
           size: this.#stack.size(),
           length: this.#closed.length,
         });
     }
     return op;
   }
-}
 
-class AST {
-  readonly op;
-  readonly tokenId;
-  #children;
-  constructor(frame: Frame, private arrays: Arrays<Frame>) {
-    this.op = frame.op;
-    this.tokenId = frame.tokenId;
-    this.#children = frame.children;
-  }
-  *children() {
-    for (const frame of this.arrays.unwrap(this.#children)) {
-      yield new AST(frame, this.arrays);
-    }
-  }
-  stringify(): string {
-    const tag = Op[this.op];
-    const head = `${tag} tokenId="${this.tokenId}"`;
-    const tail = [...this.children()].map((it) => it.stringify());
-    return tail.length ? `<${head}>${tail.join("")}</${tag}>` : `<${head}/>`;
+  *asts() {
+    for (const closed of this.#closed) yield closed;
   }
 }
 
-class Arrays<A> {
-  #entries: A[] = [];
+class Frames {
+  #ops: Op[] = [];
+  #tokens: number[] = [];
   #children: number[] = [];
-  wrap(trees: A[]) {
-    this.#entries.push(...trees);
-    return this.#children.push(this.#entries.length) - 1;
+  #from: number[] = [];
+  #to: number[] = [];
+
+  op(id: number) {
+    return this.#ops[id];
   }
-  unwrap(id: number) {
-    return this.#entries.slice(
-      id && this.#children[id - 1],
-      this.#children[id],
-    );
+
+  token(id: number) {
+    return this.#tokens[id];
   }
-  length(id: number) {
-    return this.#children[id] - (id && this.#children[id - 1]);
+
+  children(id: number) {
+    return this.#children.slice(this.#from[id], this.#to[id]);
+  }
+
+  open(op: Op, token: number): number {
+    this.#ops.push(op);
+    return this.#tokens.push(token) - 1;
+  }
+
+  close(id: number, children: number[]) {
+    this.#from[id] = this.#children.length;
+    this.#children.push(...children);
+    this.#to[id] = this.#children.length;
+  }
+
+  stringify(id: number): string {
+    const tag = Op[this.op(id)];
+    const tail = this.children(id).map((it) => this.stringify(it)).join("");
+    return `<${`${tag} ti="${this.token(id)}"`}` +
+      (tail.length ? `>${tail}</${tag}>` : `/>`);
   }
 }

@@ -25,6 +25,72 @@ export class Lines {
   }
 }
 
+function identifierPart(charCode: number) {
+  switch (charCode >> 5) {
+    case 3:
+      if (97 <= charCode && charCode <= 122) return true;
+      break;
+    case 2:
+      if (65 <= charCode && charCode <= 90 && charCode === 95) return true;
+      break;
+    case 1:
+      if (48 <= charCode && charCode <= 57) return true;
+      break;
+    default:
+      break;
+  }
+  return false;
+}
+
+function identifierStart(charCode: number) {
+  switch (charCode >> 5) {
+    case 3:
+      if (97 <= charCode && charCode <= 122) return true;
+      break;
+    case 2:
+      if (65 <= charCode && charCode <= 90 && charCode === 95) return true;
+      break;
+    default:
+      break;
+  }
+  return false;
+}
+
+export function strings(source: string) {
+  const result: Map<number, string> = new Map();
+  for (let i = 0; i < source.length; i++) {
+    for (; i < source.length && source[i] !== '"'; i++);
+    if (i === source.length) return result;
+    const from = i++;
+    for (; i < source.length && source[i] !== '"'; i++) {
+      if (source[i] === "\\") i++;
+    }
+    if (i === source.length) throw new Error("non terminated string");
+    result.set(i, JSON.parse(source.slice(from, i + 1)));
+  }
+}
+
+// this needs to ignore strings.
+export function identifiers(source: string) {
+  const result: Map<number, string> = new Map();
+  let string = false;
+  for (let i = 0; i < source.length; i++) {
+    for (
+      ;
+      i < source.length && (!identifierStart(source.charCodeAt(i)) || string);
+      i++
+    ) {
+      if (source[i] === '"') string = !string;
+      if (string && source[i] === "\\") i++;
+    }
+    const from = i++;
+    for (; i < source.length && identifierPart(source.charCodeAt(i)); i++);
+    const name = source.slice(from, i);
+    if (!KEYWORDS.has(name)) result.set(from, name);
+  }
+  return result;
+}
+
 export enum TokenType {
   AND,
   BE,
@@ -464,23 +530,6 @@ export class Automaton {
     this.#push(TokenType.ERROR);
   }
 
-  #identifierPart(charCode: number) {
-    switch (charCode >> 5) {
-      case 3:
-        if (97 <= charCode && charCode <= 122) return true;
-        break;
-      case 2:
-        if (65 <= charCode && charCode <= 90 && charCode === 95) return true;
-        break;
-      case 1:
-        if (48 <= charCode && charCode <= 57) return true;
-        break;
-      default:
-        break;
-    }
-    return false;
-  }
-
   #next(tokenType: TokenType, charCode: number) {
     this.types.push(tokenType);
     this.#state = State.Start;
@@ -523,14 +572,14 @@ export class Automaton {
         this.#state = State.String;
         return;
       case State.Identifier:
-        if (this.#identifierPart(charCode)) {
+        if (identifierPart(charCode)) {
           this.#keywordAutomaton.add(charCode);
           return;
         }
         this.#next(this.#keywordAutomaton.type(), charCode);
         return;
       case State.Label:
-        if (this.#identifierPart(charCode)) {
+        if (identifierPart(charCode)) {
           return;
         }
         this.#next(TokenType.LABEL, charCode);

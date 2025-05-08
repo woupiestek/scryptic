@@ -1,7 +1,8 @@
+import { assertThrows } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton } from "./lexer.ts";
 import { Parser } from "./yap.ts";
 
-const testCodes = [
+const goodCases = [
   'log "Hello, World!"',
   'log "Hello, \u2260!"',
   'var x = "Hello, World!"; log x',
@@ -45,15 +46,37 @@ const testCodes = [
   'var x = "wrong!"; while x != "right!" { x = "right!" } log x',
   "x && y == z;",
   "z = f(x, y);",
-  ";",
   "",
 ];
 
-for (const testCode of testCodes) {
+for (const testCode of goodCases) {
   Deno.test(`No blow up on '${testCode}'`, () => {
     const automaton = new Automaton();
     automaton.readString(testCode);
     const parser = new Parser();
     parser.visitAll(automaton.types);
+  });
+}
+
+const badCases = [
+  ";",
+  "log",
+  'var "Hello, World!"; log x',
+  "var x = ; log x",
+  'var x;\
+  { x = "Hello, World!" };\
+  log x',
+  '{ x = "Hello, World!"; }',
+  '&&"help"',
+  "true &&",
+  "true if",
+];
+
+for (const testCode of badCases) {
+  Deno.test(`Blow up on '${testCode}'`, () => {
+    const automaton = new Automaton();
+    automaton.readString(testCode);
+    const parser = new Parser();
+    assertThrows(() => parser.visitAll(automaton.types));
   });
 }

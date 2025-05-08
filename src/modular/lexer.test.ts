@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { Automaton, Tokens, TokenType } from "./lexer.ts";
+import { Automaton, identifiers, strings, Tokens, TokenType } from "./lexer.ts";
 
 const testCodes = [
   'log "Hello, World!"',
@@ -68,3 +68,16 @@ for (const testCode of testCodes) {
     assertEquals(automaton.indices, indices);
   });
 }
+
+Deno.test("helpers", () => {
+  const testCase =
+    'var x = "wrong!"; while !false { if x == "right!" { break } else { x = "ri\\"ght!"; continue } } log x';
+  assertEquals(
+    strings(testCase),
+    new Map([[15, "wrong!"], [48, "right!"], [80, 'ri"ght!']]),
+  );
+  assertEquals(
+    identifiers(testCase),
+    new Map([[4, "x"], [36, "x"], [67, "x"], [100, "x"]]),
+  );
+});
