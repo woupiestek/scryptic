@@ -3,7 +3,7 @@ import { Modest, Value, ValueT } from "./modest.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
-    Array.from({ length: ((length / 5) | 0) - 1 }).map((_, i) => 5 * (i + 2))
+    [...Array(((length / 5) | 0) - 1).keys().map((i) => 5 * (i + 2))]
       .join("   ");
 }
 function run(input: string) {

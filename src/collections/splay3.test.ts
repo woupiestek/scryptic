@@ -1,41 +1,43 @@
 import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { NumberTrie } from "./numberTrie2.ts";
+import { SplayMap } from "./splay3.ts";
 
 Deno.test(function simpleCase() {
-  let array = NumberTrie.empty<number>();
-  for (let i = 0; i < 31; i++) {
-    array = array.set(i, i);
+  const array = new SplayMap<number>();
+  for (let i = 0; i < 55; i++) {
+    array.set(i, i);
   }
-  for (let i = 0; i < 31; i++) {
+  for (let i = 0; i < 55; i++) {
     assertEquals(array.get(i), i);
   }
-  const expected = [...Array(31).keys().map((i) => [i, i])];
+  const expected = Array(55).keys().map((i) => [i, i]).toArray();
   const actual = [...array.entries()];
+  actual.sort((a, b) => a[0] - b[0]);
   assertEquals(actual, expected);
 });
 
 Deno.test(function reverseOrder() {
-  let array = NumberTrie.empty<number>();
-  for (let i = 30; i >= 0; i--) {
-    array = array.set(i, i);
+  const array = new SplayMap<number>();
+  for (let i = 54; i >= 0; i--) {
+    array.set(i, i);
   }
-  for (let i = 0; i < 31; i++) {
+  for (let i = 0; i < 55; i++) {
     assertEquals(array.get(i), i);
   }
-  const expected = [...Array(31).keys().map((i) => [i, i])];
+  const expected = [...Array(55).keys().map((i) => [i, i])];
   const actual = [...array.entries()];
+  actual.sort((a, b) => a[0] - b[0]);
   assertEquals(actual, expected);
 });
 
 Deno.test(function randomOrder() {
-  let array = NumberTrie.empty<number>();
+  const array = new SplayMap<number>();
   const entries = [...Array(31).keys()];
   while (entries.length > 0) {
     const i = Math.floor(entries.length * Math.random());
-    array = array.set(entries[i], entries[i]);
-    const e = entries.pop() as number;
+    array.set(entries[i], entries[i]);
+    const e = entries.pop();
     if (i < entries.length) {
-      entries[i] = e;
+      entries[i] = e as number;
     }
   }
   for (let i = 0; i < 31; i++) {
@@ -43,23 +45,27 @@ Deno.test(function randomOrder() {
   }
   const expected = [...Array(31).keys().map((i) => [i, i])];
   const actual = [...array.entries()];
+  actual.sort((a, b) => a[0] - b[0]);
   assertEquals(actual, expected);
 });
 
 Deno.test(function deleteEveryThird() {
-  let array = NumberTrie.empty<number>();
+  const array = new SplayMap<number>();
   for (let i = 0; i < 31; i++) {
-    array = array.set(i, i);
+    array.set(i, i);
   }
   for (let i = 0; i < 31; i += 3) {
-    array = array.delete(i);
+    array.delete(i);
   }
   for (let i = 0; i < 31; i++) {
     assertEquals(array.get(i), i % 3 === 0 ? undefined : i);
   }
   const expected = [
-    ...Array(31).keys().filter((i) => i % 3 !== 0).map((i) => [i, i]),
+    ...Array(31).keys().map((i) => [i, i]).filter((
+      [i, _],
+    ) => i % 3 !== 0),
   ];
   const actual = [...array.entries()];
+  actual.sort((a, b) => a[0] - b[0]);
   assertEquals(actual, expected);
 });

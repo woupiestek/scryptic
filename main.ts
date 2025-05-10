@@ -1,9 +1,6 @@
 console.info(
   JSON.stringify(
-    Array.from({ length: 120 }, (
-      _,
-      i,
-    ) => [String.fromCharCode(i + 8), i + 8]),
+    Array(120).keys().map((i) => [String.fromCharCode(i + 8), i + 8]),
   ),
   null,
   2,

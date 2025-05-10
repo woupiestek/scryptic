@@ -9,7 +9,7 @@ Deno.test(function simpleCase() {
   for (let i = 0; i < 55; i++) {
     assertEquals(array.get(i), i);
   }
-  const expected = Array.from({ length: 55 }).map((_, i) => [i, i]);
+  const expected = [...Array(55).keys().map((i) => [i, i])];
   const actual = [...array.entries()];
   assertEquals(actual, expected);
 });
@@ -22,14 +22,14 @@ Deno.test(function reverseOrder() {
   for (let i = 0; i < 55; i++) {
     assertEquals(array.get(i), i);
   }
-  const expected = Array.from({ length: 55 }).map((_, i) => [i, i]);
+  const expected = [...Array(55).keys().map((i) => [i, i])];
   const actual = [...array.entries()];
   assertEquals(actual, expected);
 });
 
 Deno.test(function randomOrder() {
   const array = new Table<number>();
-  const entries = Array.from({ length: 31 }).map((_, i) => i);
+  const entries = [...Array(31).keys()];
   while (entries.length > 0) {
     const i = Math.floor(entries.length * Math.random());
     array.set(entries[i], entries[i]);
@@ -41,7 +41,7 @@ Deno.test(function randomOrder() {
   for (let i = 0; i < 31; i++) {
     assertEquals(array.get(i), i);
   }
-  const expected = Array.from({ length: 31 }).map((_, i) => [i, i]);
+  const expected = [...Array(31).keys().map((i) => [i, i])];
   const actual = [...array.entries()];
   assertEquals(actual, expected);
 });
@@ -57,9 +57,9 @@ Deno.test(function deleteEveryThird() {
   for (let i = 0; i < 31; i++) {
     assertEquals(array.get(i), i % 3 === 0 ? undefined : i);
   }
-  const expected = Array.from({ length: 31 }).map((_, i) => [i, i]).filter((
-    [i, _],
-  ) => i % 3 !== 0);
+  const expected = [
+    ...Array(31).keys().filter((i) => i % 3 !== 0).map((i) => [i, i]),
+  ];
   const actual = [...array.entries()];
   assertEquals(actual, expected);
 });

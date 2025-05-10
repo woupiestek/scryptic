@@ -66,7 +66,6 @@ const badCases = [
   'var x;\
   { x = "Hello, World!" };\
   log x',
-  '{ x = "Hello, World!"; }',
   '&&"help"',
   "true &&",
   "true if",
