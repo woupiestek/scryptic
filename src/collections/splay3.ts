@@ -20,22 +20,12 @@ export class SplayMap<A> {
       return this.#alloc(pivot);
     }
     if (pivot > this.#keys[that]) {
-      if (this.#rights[that] < 0) {
-        const id = this.#alloc(pivot);
-        this.#lefts[id] = that;
-        return id;
-      }
       const right = this.#rotate(this.#rights[that], pivot);
       this.#rights[that] = this.#lefts[right];
       this.#lefts[right] = that;
       return right;
     }
     if (pivot < this.#keys[that]) {
-      if (this.#lefts[that] < 0) {
-        const id = this.#alloc(pivot);
-        this.#rights[id] = that;
-        return id;
-      }
       const left = this.#rotate(this.#lefts[that], pivot);
       this.#lefts[that] = this.#rights[left];
       this.#rights[left] = that;

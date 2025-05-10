@@ -60,11 +60,7 @@ class NonEmpty<A> {
   }
 
   object(): { [_: number]: A } {
-    const y: { [_: number]: A } = {};
-    for (const [k, v] of this.entries()) {
-      y[k] = v;
-    }
-    return y;
+    return Object.fromEntries(this.entries());
   }
 
   toString(): string {
