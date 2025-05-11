@@ -25,8 +25,7 @@ class Stack {
   }
 }
 
-enum Op {
-  Accept,
+export enum Op {
   Args,
   ArgsTail,
   Block,
@@ -36,6 +35,7 @@ enum Op {
   Expr,
   ExprHead,
   ExprTail,
+  Label,
   ReturnValue,
   Semicolon,
   Stmt,
@@ -74,7 +74,7 @@ export class Parser {
     }
     assert(this.#stack.size() === 0);
 
-    for (const ast of this.#closed) {
+    for (const ast of this.frames.closed()) {
       console.log(this.frames.stringify(ast));
     }
   }
@@ -91,8 +91,8 @@ export class Parser {
   #accept(type: TokenType) {
     this.#popFrames();
     switch (this.#pushFrame(this.#stack.pop())) {
-      case Op.Accept:
-        return type === this.#stack.pop();
+      case Op.Label:
+        return type === TokenType.LABEL;
       case Op.ExprTail:
         return this.#exprTail(type, this.#stack.pop());
       case Op.Block:
@@ -151,7 +151,7 @@ export class Parser {
         switch (type) {
           case TokenType.BREAK:
           case TokenType.CONTINUE:
-            this.#stack.push(Op.Accept, TokenType.LABEL);
+            this.#stack.push(Op.Label);
             break;
           case TokenType.RETURN:
             this.#stack.push(Op.ReturnValue);
@@ -265,23 +265,22 @@ export class Parser {
   }
 
   readonly frames = new Frames();
-  #open: { id: number; size: number; length: number }[] = [];
-  #closed: number[] = [];
+
+  // the parser still determines the shape of the tree
+  #sizes: number[] = [];
 
   #popFrames() {
     const size = this.#stack.size();
-    let i = this.#open.length - 1;
-    for (; i > 0 && this.#open[i].size >= size; i--) {
-      const { id, length } = this.#open[i];
-      this.frames.close(id, this.#closed.slice(length));
-      this.#closed.length = length;
-      this.#closed.push(id);
+    let i = this.#sizes.length - 1;
+    for (; i > 0 && this.#sizes[i] >= size; i--) {
+      this.frames.pop();
     }
-    this.#open.length = i + 1;
+    this.#sizes.length = i + 1;
   }
 
   #pushFrame(op: Op) {
     switch (op) {
+      case Op.Label:
       case Op.Args:
       case Op.Block:
       case Op.BlockEnd:
@@ -290,23 +289,18 @@ export class Parser {
       case Op.ExprHead:
       case Op.ExprTail:
       case Op.Stmt:
-        this.#open.push({
-          id: this.frames.open(op, this.#token),
-          size: this.#stack.size(),
-          length: this.#closed.length,
-        });
+        this.frames.push(op, this.#token);
+        this.#sizes.push(this.#stack.size());
     }
     return op;
   }
-
-  *asts() {
-    for (const closed of this.#closed) yield closed;
-  }
 }
 
-class Frames {
+export class Frames {
   #ops: Op[] = [];
   #tokens: number[] = [];
+  // arrays of children
+  // stack allocated
   #children: number[] = [];
   #from: number[] = [];
   #to: number[] = [];
@@ -323,15 +317,31 @@ class Frames {
     return this.#children.slice(this.#from[id], this.#to[id]);
   }
 
-  open(op: Op, token: number): number {
+  #open: { id: number; length: number }[] = [];
+  #closed: number[] = [];
+
+  push(op: Op, token: number) {
     this.#ops.push(op);
-    return this.#tokens.push(token) - 1;
+    this.#open.push({
+      id: this.#tokens.push(token) - 1,
+      length: this.#closed.length,
+    });
   }
 
-  close(id: number, children: number[]) {
+  pop() {
+    const open = this.#open.pop();
+    assert(open);
+    const { id, length } = open;
+    const children = this.#closed.slice(length);
+    this.#closed.length = length;
     this.#from[id] = this.#children.length;
     this.#children.push(...children);
     this.#to[id] = this.#children.length;
+    this.#closed.push(id);
+  }
+
+  *closed() {
+    for (const x of this.#closed) yield x;
   }
 
   stringify(id: number): string {

@@ -25,7 +25,7 @@ export class Lines {
   }
 }
 
-function identifierPart(charCode: number) {
+export function identifierPart(charCode: number) {
   switch (charCode >> 5) {
     case 3:
       if (97 <= charCode && charCode <= 122) return true;

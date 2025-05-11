@@ -1,5 +1,37 @@
 # Scryptic
 
+## 2025-05-11
+
+### trying again
+
+To implement some optimisations.
+
+### dreams
+
+Data oriented interpreter naturally used struct of arrays for all product types,
+except for 'services' which live on some kind of stack. Can 'services' be
+coroutines? How does a dependency injection resolver deal with that?
+
+The container normally does this invisibly, but there must be some method that
+allocates all the services, and passes thier references to each other, and then
+blocks, waiting for a kill signal from the system.
+
+Not every service requires its own frame, they can be batched, for temporary
+services that can be deallocated once the app is past a certain stage.
+
+How to solve the lifetime complexity there? I.e. a request comes in somehow, b/c
+the app is waiting for user input, or a cron trigger. At that point, how does
+the listner get access to required resources?
+
+### push based
+
+The compiler could receive events for the start and end of ast nodes, but would
+have to maintain its own stack of frames as well.
+
+### smaller steps
+
+Let's not try to make the compiler push based yet. It is not moving.
+
 ## 2025-05-08
 
 ### here we go again
