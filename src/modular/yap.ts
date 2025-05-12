@@ -35,6 +35,7 @@ export enum Op {
   Expr,
   ExprHead,
   ExprTail,
+  Identifier,
   Label,
   ReturnValue,
   Semicolon,
@@ -83,11 +84,11 @@ export class Parser {
     while (!this.#accept(type));
     this.#token++;
   }
-
+  
   #error(message: string) {
     return new Error(`@${this.#token}: ${message}`);
   }
-
+  
   #accept(type: TokenType) {
     this.#popFrames();
     switch (this.#pushFrame(this.#stack.pop())) {
@@ -123,6 +124,12 @@ export class Parser {
       case Op.Expr:
         this.#stack.push(Op.ExprHead, Op.ExprTail, this.#stack.pop());
         return false;
+      case Op.Identifier: {
+        if (type === TokenType.IDENTIFIER) return true;
+        throw this.#error(
+          `Identifier expected, ${TokenType[type]} received`,
+        );
+      }
       case Op.ReturnValue:
         if (type !== TokenType.BRACE_RIGHT) this.#stack.push(Op.Expr, 0);
         return false;
@@ -192,7 +199,7 @@ export class Parser {
         this.#stack.push(Op.ExprHead);
         return true;
       case TokenType.VAR:
-        this.#stack.push(Op.Expect, TokenType.IDENTIFIER);
+        this.#stack.push(Op.Identifier);
         return true;
       case TokenType.PAREN_LEFT:
         this.#stack.push(Op.Expr, 0, Op.Expect, TokenType.PAREN_RIGHT);
@@ -218,8 +225,7 @@ export class Parser {
         return true;
       case TokenType.DOT:
         this.#stack.push(
-          Op.Expect,
-          TokenType.IDENTIFIER,
+          Op.Identifier,
           Op.ExprTail,
           precedence,
         );
@@ -227,8 +233,16 @@ export class Parser {
       case TokenType.PAREN_LEFT:
         this.#stack.push(Op.Args, Op.ExprTail, precedence);
         return true;
-      default:
+      case TokenType.BRACE_LEFT:
+      case TokenType.BRACE_RIGHT:
+      case TokenType.END:
+      case TokenType.ERROR:
+      case TokenType.PAREN_RIGHT:
+      case TokenType.SEMICOLON:
+      case TokenType.COMMA:
         return false;
+        default:
+          throw this.#error(`Expected binary operator or expression ending, not ${TokenType[type]}`)
     }
   }
 
@@ -270,12 +284,22 @@ export class Parser {
   #sizes: number[] = [];
 
   #popFrames() {
+    if (this.#sizes.length === 0) return;
     const size = this.#stack.size();
-    let i = this.#sizes.length - 1;
-    for (; i > 0 && this.#sizes[i] >= size; i--) {
-      this.frames.pop();
+    let l = this.#sizes.length;
+    // binary search new length
+    for (let i = 0; i + 1 < l;) {
+      const k = (i + l) >> 1;
+      if (this.#sizes[k] < size) {
+        i = k;
+      } else {
+        l = k;
+      }
     }
-    this.#sizes.length = i + 1;
+    if (this.#sizes.length > l) {
+      this.frames.pop(l);
+      this.#sizes.length = l;
+    }
   }
 
   #pushFrame(op: Op) {
@@ -288,6 +312,7 @@ export class Parser {
       case Op.Expr:
       case Op.ExprHead:
       case Op.ExprTail:
+      case Op.Identifier:
       case Op.Stmt:
         this.frames.push(op, this.#token);
         this.#sizes.push(this.#stack.size());
@@ -306,14 +331,17 @@ export class Frames {
   #to: number[] = [];
 
   op(id: number) {
+    assert(id < this.#ops.length);
     return this.#ops[id];
   }
 
   token(id: number) {
+    assert(id < this.#tokens.length);
     return this.#tokens[id];
   }
 
   children(id: number) {
+    assert(id < this.#from.length);
     return this.#children.slice(this.#from[id], this.#to[id]);
   }
 
@@ -328,16 +356,18 @@ export class Frames {
     });
   }
 
-  pop() {
-    const open = this.#open.pop();
-    assert(open);
-    const { id, length } = open;
-    const children = this.#closed.slice(length);
-    this.#closed.length = length;
-    this.#from[id] = this.#children.length;
-    this.#children.push(...children);
-    this.#to[id] = this.#children.length;
-    this.#closed.push(id);
+  pop(l: number) {
+    while (this.#open.length > l) {
+      const open = this.#open.pop();
+      assert(open);
+      const { id, length } = open;
+      const children = this.#closed.slice(length);
+      this.#closed.length = length;
+      this.#from[id] = this.#children.length;
+      this.#children.push(...children);
+      this.#to[id] = this.#children.length;
+      this.#closed.push(id);
+    }
   }
 
   *closed() {
