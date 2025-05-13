@@ -1,5 +1,21 @@
 # Scryptic
 
+## 2025-05-13
+
+### fantasy
+
+The name of a generic type of each field is known at compile time, there must a
+table that maps type arguments to the actual arrays of values, which is where
+reszing and moving elements becomes an option.
+
+### argument registers
+
+simplify the implementation of functions with argument registers just break each
+frame up into two arrays, and have argument addresses plus opcodes to push
+arguments. depending on the number of registers in the opcodes, multipush args,
+so most function can be ready with one or two. problem: what if multiple frames
+are being prepared? as in a complex function call? hmm...
+
 ## 2025-05-11
 
 ### trying again

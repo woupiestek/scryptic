@@ -8,12 +8,8 @@ class Stack {
     return this.#index < 0;
   }
   push(...instructions: number[]) {
-    for (
-      let instruction = instructions.pop();
-      instruction !== undefined;
-      instruction = instructions.pop()
-    ) {
-      this.#instructions[++this.#index] = instruction;
+    for (let i = instructions.length - 1; i >= 0; i--) {
+      this.#instructions[++this.#index] = instructions[i];
     }
   }
   pop() {
@@ -65,7 +61,6 @@ export class Parser {
   #token = 0;
 
   constructor() {
-    this.#pushFrame(Op.Stmt);
     this.#stack.push(Op.Stmts, Op.Expect, TokenType.END);
   }
 
@@ -84,11 +79,11 @@ export class Parser {
     while (!this.#accept(type));
     this.#token++;
   }
-  
+
   #error(message: string) {
     return new Error(`@${this.#token}: ${message}`);
   }
-  
+
   #accept(type: TokenType) {
     this.#popFrames();
     switch (this.#pushFrame(this.#stack.pop())) {
@@ -233,16 +228,20 @@ export class Parser {
       case TokenType.PAREN_LEFT:
         this.#stack.push(Op.Args, Op.ExprTail, precedence);
         return true;
-      case TokenType.BRACE_LEFT:
-      case TokenType.BRACE_RIGHT:
+      case TokenType.BRACE_LEFT: // if, while
+      case TokenType.BRACE_RIGHT: // after if, while
+      case TokenType.COMMA:
       case TokenType.END:
       case TokenType.ERROR:
       case TokenType.PAREN_RIGHT:
       case TokenType.SEMICOLON:
-      case TokenType.COMMA:
         return false;
-        default:
-          throw this.#error(`Expected binary operator or expression ending, not ${TokenType[type]}`)
+      default:
+        throw this.#error(
+          `Expected binary operator or expression ending, not ${
+            TokenType[type]
+          }`,
+        );
     }
   }
 
@@ -314,6 +313,7 @@ export class Parser {
       case Op.ExprTail:
       case Op.Identifier:
       case Op.Stmt:
+      case Op.Stmts:
         this.frames.push(op, this.#token);
         this.#sizes.push(this.#stack.size());
     }

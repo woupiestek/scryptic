@@ -3,10 +3,7 @@ import { NatSet } from "./natset.ts";
 
 Deno.test("expected behavior", () => {
   const numbers = new Set(
-    Array.from(
-      { length: 1000 },
-      () => Math.trunc(Math.random() * 1e6),
-    ),
+    Array(1000).keys().map((i) => (997 + 7919 * i) % 1e5),
   );
   const natSet = new NatSet();
   for (const number of numbers) {

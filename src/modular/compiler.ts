@@ -2,23 +2,19 @@ import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton, TokenType } from "./lexer.ts";
 import { Parser } from "./yap.ts";
 
-// alles heeft al een nummer,
-// is het niet makkelijker die aan elkaar te verbinden!?
-// het wil weer niet
-
 export class Compiler {
-  private readonly automaton: Automaton;
-  private readonly parser: Parser;
+  private readonly automaton: Automaton = new Automaton();
+  private readonly parser: Parser = new Parser();
   #script: number[];
   constructor(
     private readonly source: string,
   ) {
-    this.automaton = new Automaton();
     this.automaton.readString(source);
-    this.parser = new Parser();
     this.parser.visitAll(this.automaton.types);
-    this.#script = this.parser.frames.closed().map((i) => this.#statement(i))
-      .toArray();
+    const x = [...this.parser.frames.closed()];
+    this.#script = x.length
+      ? [this.#statement(x[0]), ...this.#statements(x[1])]
+      : [];
   }
 
   show() {
@@ -37,8 +33,6 @@ export class Compiler {
     return this.parser.frames.children(id);
   }
 
-  #labels: string[] = [];
-
   #label(id: number) {
     if (
       this.#type(id) !== TokenType.LABEL
@@ -46,10 +40,8 @@ export class Compiler {
     const from = this.#index(id);
     let to = from;
     while (/[0-9A-Za-z]/.test(this.source[++to]));
-    return this.#labels.push(this.source.slice(from, to)) - 1;
+    return this.source.slice(from, to);
   }
-
-  #identifiers: string[] = [];
 
   #identifier(id: number) {
     if (
@@ -58,22 +50,27 @@ export class Compiler {
     const from = this.#index(id);
     let to = from;
     while (/[0-9A-Za-z]/.test(this.source[++to]));
-    return this.#identifiers.push(this.source.slice(from, to)) - 1;
+    return this.source.slice(from, to);
   }
 
   #exprs: [number, number, number][] = [];
 
   #exprHead(id: number): number {
-      assert(id !== undefined)
-      const type = this.#type(id);
-      const children = this.#children(id);
-      if (type === TokenType.VAR) {
+    assert(id !== undefined);
+    const type = this.#type(id);
+    const children = this.#children(id);
+    if (type === TokenType.VAR) {
       return this.#exprs.push([
         -1,
         type,
         this.#index(children[0]),
       ]) - 1;
     }
+
+    if (type === TokenType.PAREN_LEFT) {
+      return this.#expr(children[0]);
+    }
+
     return this.#exprs.push([
       -1,
       type,
@@ -81,29 +78,28 @@ export class Compiler {
     ]) - 1;
   }
 
-  #args: number[][] = [];
+  #argses: number[][] = [];
 
   #expr(id: number): number {
-    assert(id!==undefined)
+    assert(id !== undefined);
     const [h, t] = this.#children(id);
     const left = this.#exprHead(h);
     const children = t === undefined ? undefined : this.#children(t);
-    if (!children?.length||this.#type(t)===TokenType.SEMICOLON) return left;
     const typeT = this.#type(t);
-    if (typeT == TokenType.PAREN_LEFT) {
+    if (!children?.length) return left;
+    if (typeT === TokenType.PAREN_LEFT) {
       return this.#exprs.push([
         left,
         typeT,
-        this.#args.push(children.map((child) => this.#expr(child))) - 1,
-      ]) -
-        1;
+        this.#argses.push(
+          (this.#children(children[0])).map((child) => this.#expr(child)),
+        ) - 1,
+      ]) - 1;
     }
     if (typeT === TokenType.DOT) {
       return this.#exprs.push([left, typeT, this.#index(children[0])]) - 1;
     }
-    // no accounting for args & dot!
-    return this.#exprs.push([left, typeT, this.#expr(children[0])]) -
-      1;
+    return this.#exprs.push([left, typeT, this.#expr(children[0])]) - 1;
   }
 
   #exprStr(id: number): string {
@@ -117,9 +113,11 @@ export class Compiler {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR:
-        return `(${this.#exprStr(this.#exprs[id][0])} ${
-          TokenType[this.#exprs[id][1]]
-        } ${this.#exprStr(this.#exprs[id][2])})`;
+        return this.#listStr([
+          this.#exprStr(this.#exprs[id][0]),
+          TokenType[this.#exprs[id][1]],
+          this.#exprStr(this.#exprs[id][2]),
+        ]);
       case TokenType.FALSE:
       case TokenType.THIS:
       case TokenType.TRUE:
@@ -127,38 +125,57 @@ export class Compiler {
       case TokenType.LOG:
       case TokenType.NOT:
       case TokenType.NEW:
-        return `(${TokenType[this.#exprs[id][1]]} ${
-          this.#exprStr(this.#exprs[id][2])
-        })`;
+        return this.#listStr([
+          TokenType[this.#exprs[id][1]],
+          this.#exprStr(this.#exprs[id][2]),
+        ]);
       case TokenType.IDENTIFIER:
       case TokenType.STRING:
       case TokenType.VAR:
       case TokenType.DOT:
-        return `(${TokenType[this.#exprs[id][1]]} ${this.#exprs[id][2]})`;
+        return this.#listStr([
+          TokenType[this.#exprs[id][1]],
+          this.#exprs[id][2].toString(),
+        ]);
       case TokenType.PAREN_LEFT:
-        return `(${this.#exprStr(this.#exprs[id][0])}  ${
-          this.#args[this.#exprs[id][2]].map((i) => this.#exprStr(i)).join(" ")
-        }`;
+        return this.#listStr([
+          this.#exprStr(this.#exprs[id][0]),
+          ...this.#argses[this.#exprs[id][2]].map((i) => this.#exprStr(i)),
+        ]);
       default:
-        return `(${(this.#exprs[id][0])}? ${
-          TokenType[this.#exprs[id][1]]
-        } ${(this.#exprs[id][2])}?)`;
+        return this.#listStr([
+          "?" + this.#exprs[id][0],
+          TokenType[this.#exprs[id][1]],
+          "?" + this.#exprs[id][2],
+        ]);
     }
   }
 
   #blocks: number[][] = [];
 
   #block(id: number): number {
-    assert(id !== undefined)
+    assert(id !== undefined);
     // how about block ends?
     // can't be right anyway...
     return this.#blocks.push(
-      this.#children(id).map((i) => this.#statement(i)),
+      this.#statements(this.#children(id)[0]),
     ) - 1;
   }
 
   // let them be unequal now.
   #stmts: number[][] = [];
+
+  #statements(id: number) {
+    const ids: number[] = [];
+    for (;;) {
+      const c = this.#children(id);
+      if (c.length === 0) {
+        return ids;
+      }
+      ids.push(this.#statement(c[0]));
+      id = c[1];
+    }
+  }
 
   #statement(id: number) {
     const type = this.#type(id);
@@ -204,7 +221,7 @@ export class Compiler {
       }
       case TokenType.SEMICOLON:
       case TokenType.BRACE_RIGHT:
-         case TokenType.END:
+      case TokenType.END:
         return -1;
       default:
         // not pushing?
@@ -213,6 +230,7 @@ export class Compiler {
   }
 
   #listStr(strs: string[]) {
+    if (strs.length === 1) return strs[0];
     return `(${strs.join(" ")})`;
   }
 
@@ -224,7 +242,7 @@ export class Compiler {
   }
 
   #stmtsStr(id: number): string {
-    if(id===-1) return ';'
+    if (id === -1) return ";";
     switch (this.#stmts[id][0]) {
       case TokenType.BRACE_LEFT:
         return this.#blockStr(this.#stmts[id][1]);
