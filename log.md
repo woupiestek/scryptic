@@ -1,5 +1,16 @@
 # Scryptic
 
+## 2025-05-16
+
+### structure
+
+Not many options: `S = {} | E * S | if E * S * S | return E`. Note: `{}` may be
+distinct from `return void`, or not... We don't have arguments to the S (yet)...
+Not for the expressions either.
+
+To loop back, the statement id need to be generated in advance could that not
+lead to situations where `S` immediately points to another `S`?
+
 ## 2025-05-13
 
 ### fantasy
