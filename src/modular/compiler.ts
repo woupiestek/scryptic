@@ -1,17 +1,19 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton, TokenType } from "./lexer.ts";
-import { Parser } from "./yap.ts";
+import { Frames, Parser } from "./yap.ts";
 
 export class Compiler {
   private readonly automaton: Automaton = new Automaton();
-  private readonly parser: Parser = new Parser();
+  private readonly parser: Parser;
+  private readonly frames: Frames = new Frames();
   #script: number[];
   constructor(
     private readonly source: string,
   ) {
     this.automaton.readString(source);
+    this.parser = new Parser(this.frames);
     this.parser.visitAll(this.automaton.types);
-    const x = [...this.parser.frames.closed()];
+    const x = [...this.frames.closed()];
     this.#script = x.length
       ? [this.#statement(x[0]), ...this.#statements(x[1])]
       : [];
@@ -22,15 +24,15 @@ export class Compiler {
   }
 
   #type(id: number) {
-    return this.automaton.types[this.parser.frames.token(id)];
+    return this.automaton.types[this.frames.token(id)];
   }
 
   #index(id: number) {
-    return this.automaton.indices[this.parser.frames.token(id)];
+    return this.automaton.indices[this.frames.token(id)];
   }
 
   #children(id: number) {
-    return this.parser.frames.children(id);
+    return this.frames.children(id);
   }
 
   #label(id: number) {

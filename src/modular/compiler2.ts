@@ -1,6 +1,6 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton, TokenType } from "./lexer.ts";
-import { Op, Parser } from "./yap.ts";
+import { Frames, Op, Parser } from "./yap.ts";
 
 enum Jump {
   Goto,
@@ -10,7 +10,8 @@ enum Jump {
 
 export class Compiler {
   #automaton: Automaton = new Automaton();
-  #parser: Parser = new Parser();
+  #frames: Frames = new Frames();
+  #parser: Parser = new Parser(this.#frames);
   #labels: Labels = new Labels();
 
   constructor(
@@ -18,31 +19,30 @@ export class Compiler {
   ) {
     this.#automaton.readString(source);
     this.#parser.visitAll(this.#automaton.types);
-    const x = [...this.#parser.frames.closed()];
+    const x = [...this.#frames.closed()];
     if (x.length) {
       this.#statement(
         x[0],
         this.#id++,
-        this.#maybeStatements(x[1], -1, -1),
-        -1,
+        this.#maybeStatements(x[1], -1),
       );
     }
   }
 
   #type(id: number) {
-    return this.#automaton.types[this.#parser.frames.token(id)];
+    return this.#automaton.types[this.#frames.token(id)];
   }
 
   #index(id: number) {
-    return this.#automaton.indices[this.#parser.frames.token(id)];
+    return this.#automaton.indices[this.#frames.token(id)];
   }
 
   #children(id: number) {
-    return this.#parser.frames.children(id);
+    return this.#frames.children(id);
   }
 
   #firstChild(id: number) {
-    return this.#parser.frames.children(id)[0];
+    return this.#frames.children(id)[0];
   }
 
   #id = 0;
@@ -57,10 +57,10 @@ export class Compiler {
   }
 
   #op(source: number, op: Op) {
-    assert(this.#parser.frames.op(source) === op);
+    assert(this.#frames.op(source) === op);
   }
 
-  #statements(source: number, target: number, nextId: number, labels: number) {
+  #statements(source: number, target: number, nextId: number) {
     this.#op(source, Op.Stmts);
     const c = this.#children(source);
     if (c.length === 0) {
@@ -71,12 +71,11 @@ export class Compiler {
     this.#statement(
       h,
       target,
-      this.#maybeStatements(t, nextId, labels),
-      labels,
+      this.#maybeStatements(t, nextId),
     );
   }
 
-  #maybeStatements(source: number, nextId: number, labels: number) {
+  #maybeStatements(source: number, nextId: number) {
     this.#op(source, Op.Stmts);
     const c = this.#children(source);
     if (c.length === 0) {
@@ -87,8 +86,7 @@ export class Compiler {
     this.#statement(
       h,
       target,
-      this.#maybeStatements(t, nextId, labels),
-      labels,
+      this.#maybeStatements(t, nextId),
     );
     return target;
   }
@@ -103,7 +101,7 @@ export class Compiler {
     return this.source.slice(from, to);
   }
 
-  #statement(source: number, target: number, nextId: number, labels: number) {
+  #statement(source: number, target: number, nextId: number) {
     this.#op(source, Op.Stmt);
     switch (this.#type(source)) {
       case TokenType.BRACE_LEFT:
@@ -111,7 +109,6 @@ export class Compiler {
           this.#firstChild(this.#firstChild(source)),
           target,
           nextId,
-          labels,
         );
         return;
       case TokenType.BREAK: {
@@ -121,8 +118,8 @@ export class Compiler {
           -1,
           Jump.Goto,
           children.length
-            ? this.#labels.breakTo(labels, this.#label(children[0]))
-            : this.#labels.breakAt(labels),
+            ? this.#labels.breakTo(this.#label(children[0]))
+            : this.#labels.breakAt(),
         );
         return;
       }
@@ -133,18 +130,18 @@ export class Compiler {
           -1,
           Jump.Goto,
           children.length
-            ? this.#labels.continueTo(labels, this.#label(children[0]))
-            : this.#labels.continueAt(labels),
+            ? this.#labels.continueTo(this.#label(children[0]))
+            : this.#labels.continueAt(),
         );
         return;
       }
       case TokenType.IF: {
         const [i, t, e] = this.#children(source);
-        const a = this.#maybeStatements(this.#firstChild(t), nextId, labels);
+        const a = this.#maybeStatements(this.#firstChild(t), nextId);
         let b = nextId;
         const f = this.#firstChild(e);
         if (f !== undefined) {
-          b = this.#maybeStatements(this.#firstChild(f), nextId, labels);
+          b = this.#maybeStatements(this.#firstChild(f), nextId);
         }
         this.#set(target, i, Jump.If, a, b);
         return;
@@ -153,12 +150,13 @@ export class Compiler {
         const label = this.#label(source);
         const [c, b] = this.#children(source);
         const id = this.#id++;
+        this.#labels.push(label, nextId, target);
         this.#statements(
           this.#firstChild(b),
           id,
           target,
-          this.#labels.cons(label, nextId, target, labels),
         );
+        this.#labels.pop();
         this.#set(target, c, Jump.If, id, nextId);
         return;
       }
@@ -168,11 +166,12 @@ export class Compiler {
       case TokenType.WHILE: {
         const label = this.#label(source);
         const [c, b] = this.#children(source);
+        this.#labels.push(label, nextId, target);
         const id = this.#maybeStatements(
           this.#firstChild(b),
           target,
-          this.#labels.cons(label, nextId, target, labels),
         );
+        this.#labels.pop();
         this.#set(target, c, Jump.If, id, nextId);
         return;
       }
@@ -209,36 +208,43 @@ class Labels {
   #label: (string | undefined)[] = [];
   #break: number[] = [];
   #continue: number[] = [];
-  #tail: number[] = [];
-  cons(
+  #top = -1;
+
+  push(
     label: string | undefined,
     bre: number,
     con: number,
-    tail: number,
-  ): number {
-    this.#label.push(label);
-    this.#break.push(bre);
-    this.#continue.push(con);
-    return this.#tail.push(tail) - 1;
+  ): void {
+    this.#label[++this.#top] = label;
+    this.#break[this.#top] = bre;
+    this.#continue[this.#top] = con;
   }
 
-  breakAt(id: number): number {
-    return this.#break[id];
+  pop() {
+    this.#top--;
   }
 
-  breakTo(id: number, label: string | undefined): number {
+  breakAt(): number {
+    return this.#break[this.#top];
+  }
+
+  breakTo(label: string | undefined): number {
     if (label === undefined) return -1;
-    for (; id > 0 && this.#label[id] !== label; id = this.#tail[id]);
-    return id > 0 ? this.breakAt(id) : -1;
+    for (let id = this.#top; id >= 0; id--) {
+      if (this.#label[id] === label) return this.#break[id];
+    }
+    return -1;
   }
 
-  continueAt(id: number): number {
-    return this.#continue[id];
+  continueAt(): number {
+    return this.#continue[this.#top];
   }
 
-  continueTo(id: number, label: string | undefined): number {
+  continueTo(label: string | undefined): number {
     if (label === undefined) return -1;
-    for (; id > 0 && this.#label[id] !== label; id = this.#tail[id]);
-    return id > 0 ? this.continueAt(id) : -1;
+    for (let id = this.#top; id >= 0; id--) {
+      if (this.#label[id] === label) return this.#continue[id];
+    }
+    return -1;
   }
 }

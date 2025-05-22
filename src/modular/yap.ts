@@ -56,11 +56,17 @@ const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
 PRECEDENCE_B[TokenType.BE] = 0;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
 
+export type Listener = {
+  push: (op: Op, token: number) => void;
+  pop: (count: number) => void;
+  stop: () => void;
+};
+
 export class Parser {
   #stack = new Stack();
   #token = 0;
 
-  constructor() {
+  constructor(readonly frames: Listener = new Frames()) {
     this.#stack.push(Op.Stmts, Op.Expect, TokenType.END);
   }
 
@@ -69,10 +75,7 @@ export class Parser {
       this.visit(type);
     }
     assert(this.#stack.size() === 0);
-
-    for (const ast of this.frames.closed()) {
-      console.log(this.frames.stringify(ast));
-    }
+    this.frames.stop();
   }
 
   visit(type: TokenType) {
@@ -277,8 +280,6 @@ export class Parser {
     }
   }
 
-  readonly frames = new Frames();
-
   // the parser still determines the shape of the tree
   #sizes: number[] = [];
 
@@ -303,7 +304,6 @@ export class Parser {
 
   #pushFrame(op: Op) {
     switch (op) {
-      case Op.Label:
       case Op.Args:
       case Op.Block:
       case Op.BlockEnd:
@@ -312,6 +312,7 @@ export class Parser {
       case Op.ExprHead:
       case Op.ExprTail:
       case Op.Identifier:
+      case Op.Label:
       case Op.Stmt:
       case Op.Stmts:
         this.frames.push(op, this.#token);
@@ -379,5 +380,11 @@ export class Frames {
     const tail = this.children(id).map((it) => this.stringify(it)).join("");
     return `<${`${tag} ti="${this.token(id)}"`}` +
       (tail.length ? `>${tail}</${tag}>` : `/>`);
+  }
+
+  stop() {
+    for (const ast of this.closed()) {
+      console.log(this.stringify(ast));
+    }
   }
 }
