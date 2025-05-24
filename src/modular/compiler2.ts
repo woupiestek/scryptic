@@ -2,6 +2,8 @@ import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton, TokenType } from "./lexer.ts";
 import { Frames, Op, Parser } from "./yap.ts";
 import { NatSet } from "../collections/natset.ts";
+import { Table } from "../collections/table.ts";
+import { cyrb53 } from "./cyrb53.ts";
 
 enum Jump {
   Goto,
@@ -16,7 +18,6 @@ export class Compiler {
   #labels: Labels = new Labels();
   #stmts: Statements = new Statements();
   #exprs: Expressions = new Expressions();
-  #idens: Identifiers = new Identifiers();
 
   constructor(
     private readonly source: string,
@@ -50,7 +51,8 @@ export class Compiler {
   }
 
   #op(source: number, op: Op) {
-    assert(this.#frames.op(source) === op);
+    const op2 = this.#frames.op(source);
+    assert(op2 === op, `${Op[op2]} !== ${Op[op]}`);
   }
 
   #statements(source: number, target: number, nextId: number) {
@@ -94,7 +96,7 @@ export class Compiler {
     }
     const from = this.#index(id);
     let to = from;
-    while (/[0-9A-Za-z]/.test(this.source[++to]));
+    while (to < this.source.length && /[0-9A-Za-z]/.test(this.source[++to]));
     return this.source.slice(from, to);
   }
 
@@ -192,29 +194,31 @@ export class Compiler {
     }
   }
 
+  #name(id: number) {
+    const name = this.#labelOrIdentifier(id);
+    assert(name !== undefined);
+    return this.#exprs.addName(name);
+  }
+
   #exprHead(id: number): number {
     this.#op(id, Op.ExprHead);
     const type = this.#type(id);
     const child = this.#firstChild(id);
     if (type === TokenType.VAR) {
-      return this.#exprs.store(
-        -1,
-        type,
-        this.#index(child),
-      );
+      return this.#exprs.store(-1, type, this.#name(child));
     }
-
+    if (type === TokenType.IDENTIFIER) {
+      return this.#exprs.store(-1, type, this.#name(id));
+    }
     if (type === TokenType.PAREN_LEFT) {
       return this.#expr(child);
     }
-
     if (
       type === TokenType.FALSE || type === TokenType.THIS ||
       type === TokenType.TRUE
     ) {
       return this.#exprs.store(-1, type, -1);
     }
-
     return this.#exprs.store(
       -1,
       type,
@@ -239,7 +243,7 @@ export class Compiler {
       );
     }
     if (typeT === TokenType.DOT) {
-      return this.#exprs.store(left, typeT, this.#index(child));
+      return this.#exprs.store(left, typeT, this.#name(child));
     }
     return this.#exprs.store(left, typeT, this.#expr(child));
   }
@@ -302,11 +306,17 @@ class Expressions {
   #lefts: number[] = [];
   #operators: number[] = [];
   #rights: number[] = [];
-
   #arrays: number[][] = [];
+  #identifiers = new Table<string>();
 
   storeArray(array: number[]) {
     return this.#arrays.push(array) - 1;
+  }
+
+  addName(name: string) {
+    const key = cyrb53(name);
+    this.#identifiers.set(key, name);
+    return key;
   }
 
   store(left: number, operator: TokenType, right: number = -1): number {
@@ -333,6 +343,7 @@ class Expressions {
       case TokenType.LESS:
       case TokenType.LOG:
       case TokenType.MORE:
+      case TokenType.NEW:
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.NOT:
@@ -349,12 +360,12 @@ class Expressions {
         }
         return `(${this.show(left)} ${opstr} ${this.show(right)})`;
       case TokenType.IDENTIFIER:
-      case TokenType.NEW:
-      case TokenType.STRING:
       case TokenType.VAR:
+        return `(${opstr} ${this.#identifiers.get(right)})`;
+      case TokenType.STRING:
         return `(${opstr} ${right})`;
       case TokenType.DOT:
-        return `(${this.show(left)} ${opstr} ${right})`;
+        return `(${this.show(left)} ${opstr} ${this.#identifiers.get(right)})`;
       case TokenType.PAREN_LEFT:
         return `(${this.show(left)} ${
           this.#arrays[right].map((j) => this.show(j)).join(" ")

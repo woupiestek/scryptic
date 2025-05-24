@@ -332,7 +332,7 @@ export class Frames {
   #to: number[] = [];
 
   op(id: number) {
-    assert(id < this.#ops.length);
+    assert(id < this.#ops.length, "out of range");
     return this.#ops[id];
   }
 

@@ -48,17 +48,17 @@ Deno.test(function randomOrder() {
 
 Deno.test(function deleteEveryThird() {
   const array = new Table<number>();
-  for (let i = 0; i < 31; i++) {
+  for (let i = 0; i < 55; i++) {
     array.set(i, i);
   }
-  for (let i = 0; i < 31; i += 3) {
+  for (let i = 0; i < 55; i += 3) {
     array.delete(i);
   }
-  for (let i = 0; i < 31; i++) {
+  for (let i = 0; i < 55; i++) {
     assertEquals(array.get(i), i % 3 === 0 ? undefined : i);
   }
   const expected = [
-    ...Array(31).keys().filter((i) => i % 3 !== 0).map((i) => [i, i]),
+    ...Array(55).keys().filter((i) => i % 3 !== 0).map((i) => [i, i]),
   ];
   const actual = [...array.entries()];
   assertEquals(actual, expected);

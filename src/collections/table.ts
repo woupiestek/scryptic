@@ -1,13 +1,12 @@
-type Entry<A> = { index: number; value?: A };
-
 export class Table<A> {
   #mask = 7;
-  #entries: Entry<A>[] = Array.from({ length: this.#mask + 1 });
+  #indices: number[] = new Array(this.#mask + 1);
+  #values: (A | undefined)[] = new Array(this.#mask + 1);
   #load = 0;
   get(index: number) {
     for (let i = index & this.#mask;; i = (i + 1) & this.#mask) {
-      if (!this.#entries[i]) return;
-      if (this.#entries[i].index === index) return this.#entries[i].value;
+      if (this.#values[i] === undefined) return undefined;
+      if (this.#indices[i] === index) return this.#values[i];
     }
   }
   set(index: number, value: A) {
@@ -16,19 +15,21 @@ export class Table<A> {
     }
     for (let i = index & this.#mask;; i = (i + 1) & this.#mask) {
       let tombstone = -1;
-      if (!this.#entries[i]) {
+      if (this.#values[i] === undefined) {
         if (tombstone > -1) {
-          this.#entries[tombstone] = { index, value };
+          this.#indices[tombstone] = index;
+          this.#values[tombstone] = value;
           return;
         }
-        this.#entries[i] = { index, value };
+        this.#indices[i] = index;
+        this.#values[i] = value;
         this.#load++;
         return;
       }
-      if (this.#entries[i].index === index) {
-        this.#entries[i].value = value;
+      if (this.#indices[i] === index) {
+        this.#values[i] = value;
         return;
-      } else if (this.#entries[i].value === undefined && tombstone === -1) {
+      } else if (this.#values[i] === undefined && tombstone === -1) {
         tombstone = i;
       }
     }
@@ -36,25 +37,29 @@ export class Table<A> {
   #resize() {
     this.#mask = this.#mask * 2 + 1;
     this.#load = 0;
-    const table = this.#entries;
-    this.#entries = Array.from({ length: this.#mask + 1 });
-    for (const entry of table) {
-      if (entry?.value !== undefined) {
-        this.set(entry.index, entry.value);
+    const indices = this.#indices;
+    const values = this.#values;
+    this.#indices = new Array(this.#mask + 1);
+    this.#values = new Array(this.#mask + 1);
+    for (let i = 0, l = indices.length; i < l; i++) {
+      const value = values[i];
+      if (value !== undefined) {
+        this.set(indices[i], value);
       }
     }
   }
   delete(index: number) {
     for (let i = index & this.#mask;; i = (i + 1) & this.#mask) {
-      if (!this.#entries[i]) return;
-      if (this.#entries[i].index === index) {
-        delete this.#entries[index].value;
+      if (this.#values[i] === undefined) return;
+      if (this.#indices[i] === index) {
+        this.#values[index] = undefined;
       }
     }
   }
   *entries(): Generator<[number, A]> {
-    for (const entry of this.#entries) {
-      if (entry?.value !== undefined) yield [entry.index, entry.value];
+    for (let i = 0, l = this.#indices.length; i < l; i++) {
+      const value = this.#values[i];
+      if (value !== undefined) yield [this.#indices[i], value];
     }
   }
   toString() {
