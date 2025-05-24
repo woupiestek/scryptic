@@ -16,6 +16,7 @@ export class Compiler {
   #labels: Labels = new Labels();
   #stmts: Statements = new Statements();
   #exprs: Expressions = new Expressions();
+  #idens: Identifiers = new Identifiers();
 
   constructor(
     private readonly source: string,
@@ -83,10 +84,14 @@ export class Compiler {
     return target;
   }
 
-  #label(id: number) {
-    if (
-      this.#type(id) !== TokenType.LABEL
-    ) return undefined;
+  #matchType(id: number, ...types: TokenType[]) {
+    return (types.includes(this.#type(id)));
+  }
+
+  #labelOrIdentifier(id: number) {
+    if (!this.#matchType(id, TokenType.IDENTIFIER, TokenType.LABEL)) {
+      return undefined;
+    }
     const from = this.#index(id);
     let to = from;
     while (/[0-9A-Za-z]/.test(this.source[++to]));
@@ -110,7 +115,7 @@ export class Compiler {
           -1,
           Jump.Goto,
           children.length
-            ? this.#labels.breakTo(this.#label(children[0]))
+            ? this.#labels.breakTo(this.#labelOrIdentifier(children[0]))
             : this.#labels.breakAt(),
         );
         return;
@@ -122,7 +127,7 @@ export class Compiler {
           -1,
           Jump.Goto,
           children.length
-            ? this.#labels.continueTo(this.#label(children[0]))
+            ? this.#labels.continueTo(this.#labelOrIdentifier(children[0]))
             : this.#labels.continueAt(),
         );
         return;
@@ -139,7 +144,7 @@ export class Compiler {
         return;
       }
       case TokenType.LABEL: {
-        const label = this.#label(source);
+        const label = this.#labelOrIdentifier(source);
         const [c, b] = this.#children(source);
         const id = this.#stmts.alloc();
         this.#labels.push(label, nextId, target);
@@ -160,7 +165,7 @@ export class Compiler {
         );
         return;
       case TokenType.WHILE: {
-        const label = this.#label(source);
+        const label = this.#labelOrIdentifier(source);
         const [c, b] = this.#children(source);
         this.#labels.push(label, nextId, target);
         const id = this.#maybeStatements(
@@ -190,23 +195,30 @@ export class Compiler {
   #exprHead(id: number): number {
     this.#op(id, Op.ExprHead);
     const type = this.#type(id);
-    const children = this.#children(id);
+    const child = this.#firstChild(id);
     if (type === TokenType.VAR) {
       return this.#exprs.store(
         -1,
         type,
-        this.#index(children[0]),
+        this.#index(child),
       );
     }
 
     if (type === TokenType.PAREN_LEFT) {
-      return this.#expr(children[0]);
+      return this.#expr(child);
+    }
+
+    if (
+      type === TokenType.FALSE || type === TokenType.THIS ||
+      type === TokenType.TRUE
+    ) {
+      return this.#exprs.store(-1, type, -1);
     }
 
     return this.#exprs.store(
       -1,
       type,
-      children.length ? this.#exprHead(children[0]) : this.#index(id),
+      child === undefined ? this.#index(id) : this.#exprHead(child),
     );
   }
 
@@ -214,23 +226,22 @@ export class Compiler {
     this.#op(source, Op.Expr);
     const [h, t] = this.#children(source);
     const left = this.#exprHead(h);
-    const children = t === undefined ? undefined : this.#children(t);
+    const child = t === undefined ? undefined : this.#firstChild(t);
+    if (child === undefined) return left;
     const typeT = this.#type(t);
-    if (!children?.length) return left;
     if (typeT === TokenType.PAREN_LEFT) {
       return this.#exprs.store(
         left,
         typeT,
         this.#exprs.storeArray(
-          (this.#children(children[0])).map((child) => this.#expr(child)),
+          (this.#children(child)).map((child) => this.#expr(child)),
         ),
       );
     }
     if (typeT === TokenType.DOT) {
-      return this.#exprs.store(left, typeT, this.#index(children[0]));
+      return this.#exprs.store(left, typeT, this.#index(child));
     }
-
-    return this.#exprs.store(left, typeT, this.#expr(children[0]));
+    return this.#exprs.store(left, typeT, this.#expr(child));
   }
 
   show() {
@@ -306,6 +317,7 @@ class Expressions {
   }
 
   show(i: number): string {
+    assert(i < this.#lefts.length);
     if (i < 0) return "null";
     const left = this.#lefts[i];
     const op = this.#operators[i];
@@ -321,13 +333,14 @@ class Expressions {
       case TokenType.LESS:
       case TokenType.LOG:
       case TokenType.MORE:
-      case TokenType.NEW:
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.NOT:
       case TokenType.OR:
       case TokenType.THIS:
       case TokenType.TRUE:
+        assert(left < i, opstr + " bad left");
+        assert(right < i, opstr + " bad right");
         if (left < 0) {
           if (right < 0) {
             return opstr;
@@ -336,10 +349,12 @@ class Expressions {
         }
         return `(${this.show(left)} ${opstr} ${this.show(right)})`;
       case TokenType.IDENTIFIER:
+      case TokenType.NEW:
       case TokenType.STRING:
       case TokenType.VAR:
-      case TokenType.DOT:
         return `(${opstr} ${right})`;
+      case TokenType.DOT:
+        return `(${this.show(left)} ${opstr} ${right})`;
       case TokenType.PAREN_LEFT:
         return `(${this.show(left)} ${
           this.#arrays[right].map((j) => this.show(j)).join(" ")
@@ -384,9 +399,9 @@ class Statements {
     const e = exprs.show(this.expr(i));
     switch (this.jump(i)) {
       case Jump.Goto:
-        return `${e}; goto ${this.args(i)[0]}`;
+        return `${e} then ${this.args(i)[0]}`;
       case Jump.If:
-        return `if ${e} ${this.args(i).join(" ")}`;
+        return `if ${e} then ${this.args(i).join(" else ")}`;
       case Jump.Return:
         return `return ${e}`;
     }
