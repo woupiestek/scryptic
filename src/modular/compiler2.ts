@@ -1,7 +1,6 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton, TokenType } from "./lexer.ts";
 import { Frames, Op, Parser } from "./yap.ts";
-import { NatSet } from "../collections/natset.ts";
 import { Table } from "../collections/table.ts";
 import { cyrb53 } from "./cyrb53.ts";
 
@@ -87,7 +86,7 @@ export class Compiler {
   }
 
   #matchType(id: number, ...types: TokenType[]) {
-    return (types.includes(this.#type(id)));
+    return types.includes(this.#type(id));
   }
 
   #labelOrIdentifier(id: number) {
@@ -249,55 +248,15 @@ export class Compiler {
   }
 
   show() {
-    const result: string[] = [];
+    const result: string[] = ["Expressions:"];
+    for (let i = 0, l = this.#exprs.size(); i < l; i++) {
+      result.push(`${i}: ${this.#exprs.show(i)}`);
+    }
+    result.push("Statements:");
     for (let i = 0, l = this.#stmts.size(); i < l; i++) {
-      result.push(this.#stmts.show(i, this.#exprs));
+      result.push(`${i}: ${this.#stmts.show(i)}`);
     }
-    return result.map((x, i) => `${i}: ${x}`).join("\n");
-  }
-}
-
-// keep in context
-// truncate after leaving a scope...
-// it is not the same thing as dealing with the jumps!
-// the scopes are another concern.
-class Identifiers {
-  #top = -1;
-  #keys: string[] = [];
-  #values: number[] = [];
-  #declared = new NatSet();
-
-  declare(key: string, value: number = -1): void {
-    this.#keys[++this.#top] = key;
-    this.#values[this.#top] = value;
-    this.#declared.add(this.#top);
-  }
-
-  // what will this be used for?
-  pop() {
-    if (this.#top > 0) this.#top--;
-  }
-
-  get(key: string): number {
-    for (let id = this.#top; id >= 0; id--) {
-      if (this.#keys[id] === key) return this.#values[id];
-    }
-    this.#keys[++this.#top] = key;
-    this.#values[this.#top] = -1;
-    // isn't this going to hurt later?
-    return -1;
-  }
-
-  assign(key: string, value: number): boolean {
-    for (let id = this.#top; id >= 0; id--) {
-      if (this.#keys[id] === key) {
-        this.#values[id] = value;
-        return this.#declared.has(id);
-      }
-    }
-    this.#keys[++this.#top] = key;
-    this.#values[this.#top] = value;
-    return this.#declared.has(this.#top);
+    return result.join("\n");
   }
 }
 
@@ -324,6 +283,10 @@ class Expressions {
     this.#operators[this.#top] = operator;
     this.#rights[this.#top] = right;
     return this.#top;
+  }
+
+  size() {
+    return this.#lefts.length;
   }
 
   show(i: number): string {
@@ -356,20 +319,18 @@ class Expressions {
           if (right < 0) {
             return opstr;
           }
-          return `(${opstr} ${this.show(right)})`;
+          return `(${opstr} ${right})`;
         }
-        return `(${this.show(left)} ${opstr} ${this.show(right)})`;
+        return `(${left} ${opstr} ${right})`;
       case TokenType.IDENTIFIER:
       case TokenType.VAR:
         return `(${opstr} ${this.#identifiers.get(right)})`;
       case TokenType.STRING:
         return `(${opstr} ${right})`;
       case TokenType.DOT:
-        return `(${this.show(left)} ${opstr} ${this.#identifiers.get(right)})`;
+        return `(${left} ${opstr} ${this.#identifiers.get(right)})`;
       case TokenType.PAREN_LEFT:
-        return `(${this.show(left)} ${
-          this.#arrays[right].map((j) => this.show(j)).join(" ")
-        })`;
+        return `(${left} ${this.#arrays[right].join(" ")})`;
       default:
         return `(${left} ${opstr} ${right})`;
     }
@@ -406,15 +367,14 @@ class Statements {
     return this.#args[id];
   }
 
-  show(i: number, exprs: Expressions) {
-    const e = exprs.show(this.expr(i));
+  show(i: number) {
     switch (this.jump(i)) {
       case Jump.Goto:
-        return `${e} then ${this.args(i)[0]}`;
+        return `${i} then ${this.args(i)[0]}`;
       case Jump.If:
-        return `if ${e} then ${this.args(i).join(" else ")}`;
+        return `if ${i} then ${this.args(i).join(" else ")}`;
       case Jump.Return:
-        return `return ${e}`;
+        return `return ${i}`;
     }
   }
 }
