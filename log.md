@@ -1,5 +1,69 @@
 # Scryptic
 
+## 2025-06-08
+
+### review of implementation of objects
+
+Idea: use the heap for arrays of primitives, find other solutions of rthe rest.
+So how would you implemnt classical objects? A global 'counter' and array of
+free slots, for one. The function that returns the next free element defines the
+type. It is then upto the data storage service for the class to store the
+fields, and to ensure that every index in the range can be stored.
+
+Something about dropping: either a 'drop' callback is added by the compiler when
+a handle goes out of scope, or the garbage collector calls it on sweep. So there
+is something new here, that makes garbage collection definable.
+
+And the alternative? The hashtable, that allows immutable objects without
+duplicates. A, but look at the lox implementions: each class implements its own
+rules for mark and sweep. That is all we need here, right?
+
+## 2025-06-07
+
+Two ideas:
+
+- plans for a data oriented language
+- plans for a data structure for the compiler.
+
+### the language
+
+Restrict access to the heap by only allowing allocations of arrays there, then
+making array second class citizens. I.e. arrays can be declared but are more
+like types at that level. There must be some room to dynamically get more arrays
+and to resize arrays, do dependency injection, generics, etc.
+
+Instead of object, you work with array indices. so it would be nice to control
+which indices are currently valid. Somehow combining the idea of a type as the
+image of a function and linearity/type dependence.
+
+Note: with local array variables, resizing etc. can be described.
+
+### the structure
+
+Balanced tree but with all nodes elements stored in 'global' arrays.
+
+### nano pass somehow
+
+very differetn ways to traverse the source:
+
+E.g. collection of positions per token type...
+
+focusing on certain data structures, but why not skip ahaed after the parsing
+round. i.e. have lists of nodes per type, and apply operations to these types
+separately. Limitation? Adding and removing nodes after the fact...
+
+nanopass as in focusing on certsain types of nodes, bt would it not be faster if
+the nodes were grouped by type anyway...
+
+### depth vector
+
+depth first preorder traversal depth vector: record at which dept each node
+occurs this is an encoding of the ast.
+
+### closure table
+
+To make all this work for functionl programs, stick closures in a table.
+
 ## 2025-05-16
 
 ### structure

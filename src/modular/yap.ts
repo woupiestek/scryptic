@@ -325,15 +325,15 @@ export class Parser {
 export class Frames {
   #ops: Op[] = [];
   #tokens: number[] = [];
-  // arrays of children
-  // stack allocated
-  #children: number[] = [];
-  #from: number[] = [];
-  #to: number[] = [];
+  #depth: number[] = [];
 
   op(id: number) {
     assert(id < this.#ops.length, "out of range");
     return this.#ops[id];
+  }
+
+  depth(id: number) {
+    return this.#depth[id] ?? -1;
   }
 
   token(id: number) {
@@ -342,49 +342,36 @@ export class Frames {
   }
 
   children(id: number) {
-    assert(id < this.#from.length);
-    return this.#children.slice(this.#from[id], this.#to[id]);
+    assert(id < this.#depth.length);
+    const depth = this.#depth[id];
+    const result = [];
+    for (let i = id + 1, l = this.#depth.length; i < l; i++) {
+      if (this.#depth[i] <= depth) break;
+      if (this.#depth[i] === depth + 1) result.push(i);
+    }
+    return result;
   }
 
-  #open: { id: number; length: number }[] = [];
-  #closed: number[] = [];
+  #currentDepth: number = 0;
 
   push(op: Op, token: number) {
     this.#ops.push(op);
-    this.#open.push({
-      id: this.#tokens.push(token) - 1,
-      length: this.#closed.length,
-    });
+    this.#depth.push(this.#currentDepth++);
+    this.#tokens.push(token);
   }
 
   pop(l: number) {
-    while (this.#open.length > l) {
-      const open = this.#open.pop();
-      assert(open);
-      const { id, length } = open;
-      const children = this.#closed.slice(length);
-      this.#closed.length = length;
-      this.#from[id] = this.#children.length;
-      this.#children.push(...children);
-      this.#to[id] = this.#children.length;
-      this.#closed.push(id);
-    }
+    this.#currentDepth = l;
   }
 
-  *closed() {
-    for (const x of this.#closed) yield x;
-  }
-
-  stringify(id: number): string {
-    const tag = Op[this.op(id)];
-    const tail = this.children(id).map((it) => this.stringify(it)).join("");
-    return `<${`${tag} ti="${this.token(id)}"`}` +
-      (tail.length ? `>${tail}</${tag}>` : `/>`);
+  stringify(): string {
+    return this.#depth.keys().map((id) =>
+      "  ".repeat(this.depth(id)) +
+      `${Op[this.op(id)]}:${this.token(id)}`
+    ).toArray().join("\n");
   }
 
   stop() {
-    for (const ast of this.closed()) {
-      console.log(this.stringify(ast));
-    }
+    console.log(this.stringify());
   }
 }

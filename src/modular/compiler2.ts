@@ -23,14 +23,7 @@ export class Compiler {
   ) {
     this.#automaton.readString(source);
     this.#parser.visitAll(this.#automaton.types);
-    const x = [...this.#frames.closed()];
-    if (x.length) {
-      this.#statement(
-        x[0],
-        this.#stmts.alloc(),
-        this.#maybeStatements(x[1], -1),
-      );
-    }
+    this.#maybeStatements(0, -1);
   }
 
   #type(id: number) {

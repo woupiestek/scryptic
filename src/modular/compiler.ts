@@ -13,10 +13,7 @@ export class Compiler {
     this.automaton.readString(source);
     this.parser = new Parser(this.frames);
     this.parser.visitAll(this.automaton.types);
-    const x = [...this.frames.closed()];
-    this.#script = x.length
-      ? [this.#statement(x[0]), ...this.#statements(x[1])]
-      : [];
+    this.#script = this.#statements(0);
   }
 
   show() {
