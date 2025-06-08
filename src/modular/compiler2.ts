@@ -38,10 +38,6 @@ export class Compiler {
     return this.#frames.children(id);
   }
 
-  #firstChild(id: number) {
-    return this.#frames.children(id)[0];
-  }
-
   #op(source: number, op: Op) {
     const op2 = this.#frames.op(source);
     assert(op2 === op, `${Op[op2]} !== ${Op[op]}`);
@@ -49,14 +45,13 @@ export class Compiler {
 
   #statements(source: number, target: number, nextId: number) {
     this.#op(source, Op.Stmts);
-    const c = this.#children(source);
-    if (c.length === 0) {
+    if (this.#frames.isLeaf(source)) {
       this.#stmts.set(target, -1, Jump.Goto, nextId);
       return;
     }
-    const [h, t] = c;
+    const [_, t] = this.#children(source);
     this.#statement(
-      h,
+      source + 1,
       target,
       this.#maybeStatements(t, nextId),
     );
@@ -64,14 +59,13 @@ export class Compiler {
 
   #maybeStatements(source: number, nextId: number) {
     this.#op(source, Op.Stmts);
-    const c = this.#children(source);
-    if (c.length === 0) {
+    if (this.#frames.isLeaf(source)) {
       return nextId;
     }
-    const [h, t] = c;
+    const [_, t] = this.#children(source);
     const target = this.#stmts.alloc();
     this.#statement(
-      h,
+      source + 1,
       target,
       this.#maybeStatements(t, nextId),
     );
@@ -97,42 +91,38 @@ export class Compiler {
     switch (this.#type(source)) {
       case TokenType.BRACE_LEFT:
         this.#statements(
-          this.#firstChild(this.#firstChild(source)),
+          source + 2,
           target,
           nextId,
         );
         return;
-      case TokenType.BREAK: {
-        const children = this.#children(source);
+      case TokenType.BREAK:
         this.#stmts.set(
           target,
           -1,
           Jump.Goto,
-          children.length
-            ? this.#labels.breakTo(this.#labelOrIdentifier(children[0]))
-            : this.#labels.breakAt(),
+          this.#frames.isLeaf(source)
+            ? this.#labels.breakAt()
+            : this.#labels.breakTo(this.#labelOrIdentifier(source + 1)),
         );
         return;
-      }
       case TokenType.CONTINUE: {
-        const children = this.#children(source);
         this.#stmts.set(
           target,
           -1,
           Jump.Goto,
-          children.length
-            ? this.#labels.continueTo(this.#labelOrIdentifier(children[0]))
-            : this.#labels.continueAt(),
+          this.#frames.isLeaf(source)
+            ? this.#labels.continueAt()
+            : this.#labels.continueTo(this.#labelOrIdentifier(source + 1)),
         );
         return;
       }
       case TokenType.IF: {
         const [i, t, e] = this.#children(source);
-        const a = this.#maybeStatements(this.#firstChild(t), nextId);
+        const a = this.#maybeStatements(t + 1, nextId);
         let b = nextId;
-        const f = this.#firstChild(e);
-        if (f !== undefined) {
-          b = this.#maybeStatements(this.#firstChild(f), nextId);
+        if (!this.#frames.isLeaf(e)) {
+          b = this.#maybeStatements(e + 2, nextId);
         }
         this.#stmts.set(target, this.#expr(i), Jump.If, a, b);
         return;
@@ -143,7 +133,7 @@ export class Compiler {
         const id = this.#stmts.alloc();
         this.#labels.push(label, nextId, target);
         this.#statements(
-          this.#firstChild(b),
+          b + 1,
           id,
           target,
         );
@@ -154,7 +144,7 @@ export class Compiler {
       case TokenType.RETURN:
         this.#stmts.set(
           target,
-          this.#expr(this.#firstChild(source)) ?? -1,
+          this.#frames.isLeaf(source) ? this.#expr(source + 1) : -1,
           Jump.Return,
         );
         return;
@@ -163,7 +153,7 @@ export class Compiler {
         const [c, b] = this.#children(source);
         this.#labels.push(label, nextId, target);
         const id = this.#maybeStatements(
-          this.#firstChild(b),
+          b + 1,
           target,
         );
         this.#labels.pop();
@@ -178,7 +168,7 @@ export class Compiler {
       default:
         this.#stmts.set(
           target,
-          this.#expr(this.#firstChild(source)),
+          this.#expr(source + 1),
           Jump.Goto,
           nextId,
         );
@@ -195,15 +185,14 @@ export class Compiler {
   #exprHead(id: number): number {
     this.#op(id, Op.ExprHead);
     const type = this.#type(id);
-    const child = this.#firstChild(id);
     if (type === TokenType.VAR) {
-      return this.#exprs.store(-1, type, this.#name(child));
+      return this.#exprs.store(-1, type, this.#name(id + 1));
     }
     if (type === TokenType.IDENTIFIER) {
       return this.#exprs.store(-1, type, this.#name(id));
     }
     if (type === TokenType.PAREN_LEFT) {
-      return this.#expr(child);
+      return this.#expr(id + 1);
     }
     if (
       type === TokenType.FALSE || type === TokenType.THIS ||
@@ -214,30 +203,29 @@ export class Compiler {
     return this.#exprs.store(
       -1,
       type,
-      child === undefined ? this.#index(id) : this.#exprHead(child),
+      this.#frames.isLeaf(id) ? this.#index(id) : this.#exprHead(id + 1),
     );
   }
 
   #expr(source: number): number {
     this.#op(source, Op.Expr);
-    const [h, t] = this.#children(source);
-    const left = this.#exprHead(h);
-    const child = t === undefined ? undefined : this.#firstChild(t);
-    if (child === undefined) return left;
+    const [_, t] = this.#children(source);
+    const left = this.#exprHead(source + 1);
+    if (this.#frames.isLeaf(t)) return left;
     const typeT = this.#type(t);
     if (typeT === TokenType.PAREN_LEFT) {
       return this.#exprs.store(
         left,
         typeT,
         this.#exprs.storeArray(
-          (this.#children(child)).map((child) => this.#expr(child)),
+          (this.#children(t + 1)).map((child) => this.#expr(child)),
         ),
       );
     }
     if (typeT === TokenType.DOT) {
-      return this.#exprs.store(left, typeT, this.#name(child));
+      return this.#exprs.store(left, typeT, this.#name(t + 1));
     }
-    return this.#exprs.store(left, typeT, this.#expr(child));
+    return this.#exprs.store(left, typeT, this.#expr(t + 1));
   }
 
   show() {

@@ -327,9 +327,17 @@ export class Frames {
   #tokens: number[] = [];
   #depth: number[] = [];
 
+  size(): number {
+    return this.#depth.length;
+  }
+
+  isLeaf(id: number) {
+    return !(this.#depth[id] < this.#depth[id + 1]);
+  }
+
   op(id: number) {
     assert(id < this.#ops.length, "out of range");
-    return this.#ops[id];
+    return this.#ops[id] ?? -1;
   }
 
   depth(id: number) {
@@ -338,7 +346,7 @@ export class Frames {
 
   token(id: number) {
     assert(id < this.#tokens.length);
-    return this.#tokens[id];
+    return this.#tokens[id] ?? -1;
   }
 
   children(id: number) {
@@ -367,7 +375,7 @@ export class Frames {
   stringify(): string {
     return this.#depth.keys().map((id) =>
       "  ".repeat(this.depth(id)) +
-      `${Op[this.op(id)]}:${this.token(id)}`
+      `${Op[this.op(id)]}: ${this.token(id)}`
     ).toArray().join("\n");
   }
 
