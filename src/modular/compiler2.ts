@@ -207,6 +207,7 @@ export class Compiler {
     );
   }
 
+  // extra tails!?
   #expr(source: number): number {
     this.#op(source, Op.Expr);
     const [_, t] = this.#children(source);

@@ -17,7 +17,8 @@ export class Compiler {
   }
 
   show() {
-    return this.#listStr(this.#script.map((s) => this.#stmtsStr(s)));
+    return this.#exprs.toString() + "\n" +
+      this.#listStr(this.#script.map((s) => this.#stmtsStr(s)));
   }
 
   #type(id: number) {
@@ -52,102 +53,59 @@ export class Compiler {
     return this.source.slice(from, to);
   }
 
-  #exprs: [number, number, number][] = [];
+  #exprs = new Expressions();
 
+  // return number of consumed nodes?
   #exprHead(id: number): number {
     assert(id !== undefined);
     const type = this.#type(id);
-    const children = this.#children(id);
     if (type === TokenType.VAR) {
-      return this.#exprs.push([
-        -1,
+      this.#exprs.push(
         type,
-        this.#index(children[0]),
-      ]) - 1;
+        this.frames.depth(id),
+        this.#index(id + 1),
+      );
+      return 2;
     }
 
     if (type === TokenType.PAREN_LEFT) {
-      return this.#expr(children[0]);
+      return this.#expr(id + 1) + 1;
     }
 
-    return this.#exprs.push([
-      -1,
-      type,
-      children.length ? this.#exprHead(children[0]) : this.#index(id),
-    ]) - 1;
+    if (this.frames.isLeaf(id)) {
+      this.#exprs.push(type, this.frames.depth(id), this.#index(id));
+      return 1;
+    }
+    this.#exprs.push(type, this.frames.depth(id));
+    return this.#exprHead(id + 1) + 1;
   }
 
-  #argses: number[][] = [];
-
+  // extra tails!?
   #expr(id: number): number {
     assert(id !== undefined);
-    const [h, t] = this.#children(id);
-    const left = this.#exprHead(h);
-    const children = t === undefined ? undefined : this.#children(t);
+    // don't rearrange yet!
+    const h = this.#exprHead(id + 1) + 1;
+    const t = id + h;
+    if (this.frames.isLeaf(t)) {
+      return h; // not + 1?
+    }
     const typeT = this.#type(t);
-    if (!children?.length) return left;
     if (typeT === TokenType.PAREN_LEFT) {
-      return this.#exprs.push([
-        left,
-        typeT,
-        this.#argses.push(
-          (this.#children(children[0])).map((child) => this.#expr(child)),
-        ) - 1,
-      ]) - 1;
+      this.#exprs.push(typeT, this.frames.depth(t));
+      let i = 1;
+      for (
+        const d = this.frames.depth(t);
+        this.frames.depth(t + i) > d;
+        i += this.#expr(t + i)
+      );
+      return h + i;
     }
     if (typeT === TokenType.DOT) {
-      return this.#exprs.push([left, typeT, this.#index(children[0])]) - 1;
+      this.#exprs.push(typeT, this.frames.depth(t), this.#index(t + 1));
+      return h + 1;
     }
-    return this.#exprs.push([left, typeT, this.#expr(children[0])]) - 1;
-  }
-
-  #exprStr(id: number): string {
-    switch (this.#exprs[id][1]) {
-      case TokenType.AND:
-      case TokenType.BE:
-      case TokenType.IS_NOT:
-      case TokenType.IS:
-      case TokenType.LESS:
-      case TokenType.MORE:
-      case TokenType.NOT_LESS:
-      case TokenType.NOT_MORE:
-      case TokenType.OR:
-        return this.#listStr([
-          this.#exprStr(this.#exprs[id][0]),
-          TokenType[this.#exprs[id][1]],
-          this.#exprStr(this.#exprs[id][2]),
-        ]);
-      case TokenType.FALSE:
-      case TokenType.THIS:
-      case TokenType.TRUE:
-        return TokenType[this.#exprs[id][1]];
-      case TokenType.LOG:
-      case TokenType.NOT:
-      case TokenType.NEW:
-        return this.#listStr([
-          TokenType[this.#exprs[id][1]],
-          this.#exprStr(this.#exprs[id][2]),
-        ]);
-      case TokenType.IDENTIFIER:
-      case TokenType.STRING:
-      case TokenType.VAR:
-      case TokenType.DOT:
-        return this.#listStr([
-          TokenType[this.#exprs[id][1]],
-          this.#exprs[id][2].toString(),
-        ]);
-      case TokenType.PAREN_LEFT:
-        return this.#listStr([
-          this.#exprStr(this.#exprs[id][0]),
-          ...this.#argses[this.#exprs[id][2]].map((i) => this.#exprStr(i)),
-        ]);
-      default:
-        return this.#listStr([
-          "?" + this.#exprs[id][0],
-          TokenType[this.#exprs[id][1]],
-          "?" + this.#exprs[id][2],
-        ]);
-    }
+    this.#exprs.push(typeT, this.frames.depth(t));
+    return this.#expr(t + 1) + h + 1; // watch for off by 1
   }
 
   #blocks: number[][] = [];
@@ -157,7 +115,7 @@ export class Compiler {
     // how about block ends?
     // can't be right anyway...
     return this.#blocks.push(
-      this.#statements(this.#children(id)[0]),
+      this.#statements(id + 1),
     ) - 1;
   }
 
@@ -180,7 +138,7 @@ export class Compiler {
     const type = this.#type(id);
     switch (type) {
       case TokenType.BRACE_LEFT:
-        return this.#stmts.push([type, this.#block(this.#children(id)[0])]) - 1;
+        return this.#stmts.push([type, this.#block(id + 1)]) - 1;
       case TokenType.BREAK:
       case TokenType.CONTINUE: {
         const children = this.#children(id);
@@ -192,7 +150,8 @@ export class Compiler {
       case TokenType.IF: {
         const [i, t, e] = this.#children(id);
         const f = this.#children(e);
-        const ie = this.#expr(i);
+        const ie = this.#exprs.count();
+        this.#expr(i);
         const tb = this.#block(t);
         const eb = f.length ? this.#block(f[0]) : -1;
         return this.#stmts.push([type, ie, tb, eb]) - 1;
@@ -200,31 +159,42 @@ export class Compiler {
       case TokenType.LABEL: {
         const label = this.#index(id);
         const [c, b] = this.#children(id);
-        const condition = this.#expr(c);
+        const condition = this.#exprs.count();
+        this.#expr(c);
         const body = this.#block(b);
         return this.#stmts.push([TokenType.WHILE, label, condition, body]) - 1;
       }
       case TokenType.WHILE: {
         const label = -1;
         const [c, b] = this.#children(id);
-        const condition = this.#expr(c);
+        const condition = this.#exprs.count();
+        this.#expr(c);
         const body = this.#block(b);
         return this.#stmts.push([TokenType.WHILE, label, condition, body]) - 1;
       }
       case TokenType.RETURN: {
-        const children = this.#children(id);
+        if (this.frames.isLeaf(id)) {
+          return this.#stmts.push([
+            type,
+            -1,
+          ]) - 1;
+        }
+        const children = this.#exprs.count();
+        this.#expr(id + 1);
         return this.#stmts.push([
           type,
-          children.length ? this.#expr(children[0]) : -1,
+          children,
         ]) - 1;
       }
       case TokenType.SEMICOLON:
       case TokenType.BRACE_RIGHT:
       case TokenType.END:
         return -1;
-      default:
-        // not pushing?
-        return this.#stmts.push([-1, this.#expr(this.#children(id)[0])]) - 1;
+      default: { // not pushing?
+        const children = this.#exprs.count();
+        this.#expr(id + 1);
+        return this.#stmts.push([-1, children]) - 1;
+      }
     }
   }
 
@@ -252,7 +222,7 @@ export class Compiler {
         return this.#listStr(
           [
             TokenType[this.#stmts[id][0]],
-            this.#exprStr(this.#stmts[id][1]),
+            "" + (this.#stmts[id][1]),
             this.#blockStr(this.#stmts[id][2]),
             this.#blockStr(this.#stmts[id][3]),
           ],
@@ -262,20 +232,45 @@ export class Compiler {
           [
             TokenType[this.#stmts[id][0]],
             this.#stmts[id][1].toString(),
-            this.#exprStr(this.#stmts[id][2]),
+            "" + (this.#stmts[id][2]),
             this.#blockStr(this.#stmts[id][3]),
           ],
         );
       case TokenType.RETURN:
         return `(${TokenType[this.#stmts[id][0]]} ${
-          this.#exprStr(this.#stmts[id][1])
+          "" + (this.#stmts[id][1])
         })`;
       case -1:
-        return this.#exprStr(this.#stmts[id][1]);
+        return "" + (this.#stmts[id][1]);
       default: {
         const [h, ...t] = this.#stmts[id];
         return this.#listStr([TokenType[h], ...t.map((i) => i + "?")]);
       }
     }
+  }
+}
+
+// keep using the depth vector
+class Expressions {
+  #type: TokenType[] = [];
+  #depth: number[] = [];
+  #value: number[] = []; // not sure how else to deal with identifiers, strings etc.
+
+  count() {
+    return this.#type.length;
+  }
+
+  push(type: TokenType, depth: number, value: number = -1): void {
+    this.#type.push(type);
+    this.#depth.push(depth);
+    this.#value.push(value);
+  }
+
+  toString() {
+    return this.#type.keys().map((key) =>
+      `${key}:${"  ".repeat(this.#depth[key])}${TokenType[this.#type[key]]}${
+        this.#value[key] === -1 ? "" : `(${this.#value[key]})`
+      }`
+    ).toArray().join("\n");
   }
 }

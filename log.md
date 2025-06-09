@@ -1,5 +1,34 @@
 # Scryptic
 
+## 2025-06-09
+
+### thinking through the data oriented vm
+
+So the idea is that the language offers no simple access to heap memory. There
+are arrays of primitive types, but they aren't first class citizens. Instead,
+they are treated like types. Function may be generic in arrays, and there may be
+array classes. The conceit is that memory use is planned at compile time. Now,
+there is the issue that arrays may need to be resized. Assuming that the
+language still has garbage collection, This implies something like foreign key
+'constraints', Which suggests that arrays containing entries of other arrays are
+possible, reinforcing the idea of treating arrays as types. Mark en sweep
+garbage collection would mean what?
+
+### generic array
+
+One use could be resizing. A bigger arrays is neededd to contain all the data,
+so the solution is to make all the functions generic in the array they operate
+on. That way, the functions switch over when the array does.
+
+### mark and sweep
+
+Same algo right? special attention is given to foreign keys, but without actual
+tables, some relations would be missed. how bad is this?
+
+This means tables insetad of arrays, where colomn may be opaque foreign keys,
+obscuring the difference with an object oriented program. even the idea that
+tables are not first class becomes meaningless.
+
 ## 2025-06-08
 
 ### review of implementation of objects

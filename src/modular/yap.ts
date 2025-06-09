@@ -41,7 +41,7 @@ export enum Op {
 
 const PRECEDENCE_A: number[] = [];
 PRECEDENCE_A[TokenType.AND] = 2;
-PRECEDENCE_A[TokenType.BE] = 1;
+PRECEDENCE_A[TokenType.BE] = 0;
 PRECEDENCE_A[TokenType.DOT] = 4;
 PRECEDENCE_A[TokenType.IS_NOT] = 3;
 PRECEDENCE_A[TokenType.IS] = 3;
@@ -50,10 +50,10 @@ PRECEDENCE_A[TokenType.MORE] = 3;
 PRECEDENCE_A[TokenType.NOT_LESS] = 3;
 PRECEDENCE_A[TokenType.NOT_MORE] = 3;
 PRECEDENCE_A[TokenType.OR] = 2;
-PRECEDENCE_A[TokenType.PAREN_LEFT] = 0;
+PRECEDENCE_A[TokenType.PAREN_LEFT] = 1;
 
 const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
-PRECEDENCE_B[TokenType.BE] = 0;
+PRECEDENCE_B[TokenType.BE] = 1;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
 
 export type Listener = {
@@ -208,6 +208,7 @@ export class Parser {
   }
 
   #exprTail(type: TokenType, precedence: number) {
+    if ((PRECEDENCE_A[type] ?? -1) < precedence) return false;
     switch (type) {
       case TokenType.AND:
       case TokenType.BE:
@@ -218,10 +219,11 @@ export class Parser {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR:
-        if (PRECEDENCE_B[type] < precedence) return false;
-        this.#stack.push(Op.Expr, PRECEDENCE_A[type], Op.ExprTail, precedence);
+        this.#stack.push(Op.Expr, PRECEDENCE_B[type], Op.ExprTail, precedence);
         return true;
       case TokenType.DOT:
+        // '(var x = new A()).y = "right!"; log(x.y)' goes wrong... why!?
+        // ''
         this.#stack.push(
           Op.Identifier,
           Op.ExprTail,
@@ -372,7 +374,7 @@ export class Frames {
     this.#currentDepth = l;
   }
 
-  stringify(): string {
+  toString(): string {
     return this.#depth.keys().map((id) =>
       "  ".repeat(this.depth(id)) +
       `${Op[this.op(id)]}: ${this.token(id)}`
@@ -380,6 +382,6 @@ export class Frames {
   }
 
   stop() {
-    console.log(this.stringify());
+    // console.log(this.stringify());
   }
 }
