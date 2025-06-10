@@ -1,6 +1,9 @@
-import { assertThrows } from "https://deno.land/std@0.178.0/testing/asserts.ts";
+import {
+  assertEquals,
+  assertThrows,
+} from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton } from "./lexer.ts";
-import { Parser } from "./yap.ts";
+import { Frames, Parser } from "./yap.ts";
 
 const goodCases = [
   'log "Hello, World!"',
@@ -78,4 +81,55 @@ for (const testCode of badCases) {
     const parser = new Parser();
     assertThrows(() => parser.visitAll(automaton.types));
   });
+}
+
+const bindRight = [
+  "x && y == z",
+  "x = y && z",
+  "x && y != z",
+  "x || y < z",
+  "x && y || z", // right associative preferred?
+  // "x = y(z)",
+  // "x == y.z",
+];
+
+for (const text of bindRight) {
+  Deno.test(`bind right case '${text}'`, () => {
+    assertEquals(
+      (getFrames(text)).pattern(),
+      "(((.(.(.(.(..).)).))).)",
+    );
+  });
+}
+
+const bindLeft = [
+  "x == y && z",
+  "x || y = z", // hmmm
+  "x != y || z",
+  "x < y && z",
+  // "x.y = z",
+];
+
+for (const text of bindLeft) {
+  Deno.test(`bind left case '${text}'`, () => {
+    assertEquals(
+      getFrames(text).pattern(),
+      "(((.(.(..)(.(..).)))).)",
+    );
+  });
+}
+
+Deno.test("problem case", () => {
+  console.log(getFrames("x.y = z").toString());
+  console.log(getFrames("x = y.z").toString());
+  // not real problem cases, just unexpected tree structure.
+});
+
+function getFrames(text: string) {
+  const automaton = new Automaton();
+  automaton.readString(text);
+  const frames = new Frames();
+  const parser = new Parser(frames);
+  parser.visitAll(automaton.types);
+  return frames;
 }

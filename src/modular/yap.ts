@@ -16,6 +16,10 @@ class Stack {
     assert(this.#index >= 0);
     return this.#instructions[this.#index--];
   }
+  top() {
+    assert(this.#index >= 0);
+    return this.#instructions[this.#index];
+  }
   size() {
     return this.#index + 1;
   }
@@ -41,7 +45,7 @@ export enum Op {
 
 const PRECEDENCE_A: number[] = [];
 PRECEDENCE_A[TokenType.AND] = 2;
-PRECEDENCE_A[TokenType.BE] = 0;
+PRECEDENCE_A[TokenType.BE] = 1;
 PRECEDENCE_A[TokenType.DOT] = 4;
 PRECEDENCE_A[TokenType.IS_NOT] = 3;
 PRECEDENCE_A[TokenType.IS] = 3;
@@ -53,8 +57,8 @@ PRECEDENCE_A[TokenType.OR] = 2;
 PRECEDENCE_A[TokenType.PAREN_LEFT] = 1;
 
 const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
-PRECEDENCE_B[TokenType.BE] = 1;
-PRECEDENCE_B[TokenType.PAREN_LEFT] = 4;
+PRECEDENCE_B[TokenType.BE] = 0;
+PRECEDENCE_B[TokenType.PAREN_LEFT] = 0;
 
 export type Listener = {
   push: (op: Op, token: number) => void;
@@ -93,7 +97,7 @@ export class Parser {
       case Op.Label:
         return type === TokenType.LABEL;
       case Op.ExprTail:
-        return this.#exprTail(type, this.#stack.pop());
+        return this.#exprTail(type);
       case Op.Block:
         this.#stack.push(
           Op.Expect,
@@ -120,7 +124,7 @@ export class Parser {
         );
       }
       case Op.Expr:
-        this.#stack.push(Op.ExprHead, Op.ExprTail, this.#stack.pop());
+        this.#stack.push(Op.ExprHead, Op.ExprTail);
         return false;
       case Op.Identifier: {
         if (type === TokenType.IDENTIFIER) return true;
@@ -207,8 +211,11 @@ export class Parser {
     }
   }
 
-  #exprTail(type: TokenType, precedence: number) {
-    if ((PRECEDENCE_A[type] ?? -1) < precedence) return false;
+  #exprTail(type: TokenType) {
+    if ((PRECEDENCE_A[type] ?? -1) < this.#stack.top()) {
+      this.#stack.pop();
+      return false;
+    }
     switch (type) {
       case TokenType.AND:
       case TokenType.BE:
@@ -219,7 +226,7 @@ export class Parser {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR:
-        this.#stack.push(Op.Expr, PRECEDENCE_B[type], Op.ExprTail, precedence);
+        this.#stack.push(Op.Expr, PRECEDENCE_B[type], Op.ExprTail);
         return true;
       case TokenType.DOT:
         // '(var x = new A()).y = "right!"; log(x.y)' goes wrong... why!?
@@ -227,11 +234,10 @@ export class Parser {
         this.#stack.push(
           Op.Identifier,
           Op.ExprTail,
-          precedence,
         );
         return true;
       case TokenType.PAREN_LEFT:
-        this.#stack.push(Op.Args, Op.ExprTail, precedence);
+        this.#stack.push(Op.Args, Op.ExprTail);
         return true;
       case TokenType.BRACE_LEFT: // if, while
       case TokenType.BRACE_RIGHT: // after if, while
@@ -240,6 +246,7 @@ export class Parser {
       case TokenType.ERROR:
       case TokenType.PAREN_RIGHT:
       case TokenType.SEMICOLON:
+        this.#stack.pop();
         return false;
       default:
         throw this.#error(
@@ -343,11 +350,10 @@ export class Frames {
   }
 
   depth(id: number) {
-    return this.#depth[id] ?? -1;
+    return this.#depth[id] ?? 0;
   }
 
   token(id: number) {
-    assert(id < this.#tokens.length);
     return this.#tokens[id] ?? -1;
   }
 
@@ -379,6 +385,16 @@ export class Frames {
       "  ".repeat(this.depth(id)) +
       `${Op[this.op(id)]}: ${this.token(id)}`
     ).toArray().join("\n");
+  }
+
+  pattern(): string {
+    return this.#depth.keys().map(
+      (id) => {
+        return this.isLeaf(id)
+          ? "." + ")".repeat(this.depth(id) - this.depth(id + 1))
+          : "(" + ".".repeat(this.token(id + 1) - this.token(id));
+      },
+    ).toArray().join("");
   }
 
   stop() {
