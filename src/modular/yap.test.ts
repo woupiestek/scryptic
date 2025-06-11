@@ -3,7 +3,8 @@ import {
   assertThrows,
 } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton } from "./lexer.ts";
-import { Frames, Parser } from "./yap.ts";
+import { Parser } from "./yap.ts";
+import { Trees } from "./prattify.ts";
 
 const goodCases = [
   'log "Hello, World!"',
@@ -88,16 +89,14 @@ const bindRight = [
   "x = y && z",
   "x && y != z",
   "x || y < z",
-  "x && y || z", // right associative preferred?
-  // "x = y(z)",
-  // "x == y.z",
+  "x && y || z", // right associative?
 ];
 
 for (const text of bindRight) {
   Deno.test(`bind right case '${text}'`, () => {
     assertEquals(
-      (getFrames(text)).pattern(),
-      "(((.(.(.(.(..).)).))).)",
+      new Trees(getFrames(text)).toString(),
+      "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (3:ExprTail 2:ExprHead 4:ExprHead))) 5:Stmts)",
     );
   });
 }
@@ -107,29 +106,39 @@ const bindLeft = [
   "x || y = z", // hmmm
   "x != y || z",
   "x < y && z",
-  // "x.y = z",
 ];
 
 for (const text of bindLeft) {
   Deno.test(`bind left case '${text}'`, () => {
     assertEquals(
-      getFrames(text).pattern(),
-      "(((.(.(..)(.(..).)))).)",
+      new Trees(getFrames(text)).toString(),
+      "(0:Stmts (0:Stmt (3:ExprTail (1:ExprTail 0:ExprHead 2:ExprHead) 4:ExprHead)) 5:Stmts)",
     );
   });
 }
 
-Deno.test("problem case", () => {
-  console.log(getFrames("x.y = z").toString());
-  console.log(getFrames("x = y.z").toString());
-  // not real problem cases, just unexpected tree structure.
+Deno.test("with dots cases", () => {
+  assertEquals(
+    new Trees(getFrames("x.y = z")).toString(),
+    "(0:Stmts (0:Stmt (3:ExprTail (1:ExprTail 0:ExprHead 2:Identifier) 4:ExprHead)) 5:Stmts)",
+  );
+  assertEquals(
+    new Trees(getFrames("x = y.z")).toString(),
+    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (3:ExprTail 2:ExprHead 4:Identifier))) 5:Stmts)",
+  );
+});
+
+Deno.test("function cases", () => {
+  assertEquals(
+    new Trees(getFrames("y(z)")).toString(),
+    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (2:Args 2:ExprHead))) 4:Stmts)",
+  );
 });
 
 function getFrames(text: string) {
   const automaton = new Automaton();
   automaton.readString(text);
-  const frames = new Frames();
-  const parser = new Parser(frames);
+  const parser = new Parser();
   parser.visitAll(automaton.types);
-  return frames;
+  return parser.frames;
 }

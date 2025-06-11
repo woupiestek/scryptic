@@ -60,17 +60,12 @@ const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
 PRECEDENCE_B[TokenType.BE] = 0;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 0;
 
-export type Listener = {
-  push: (op: Op, token: number) => void;
-  pop: (count: number) => void;
-  stop: () => void;
-};
-
 export class Parser {
   #stack = new Stack();
   #token = 0;
+  readonly frames = new Frames();
 
-  constructor(readonly frames: Listener = new Frames()) {
+  constructor() {
     this.#stack.push(Op.Stmts, Op.Expect, TokenType.END);
   }
 
@@ -79,7 +74,7 @@ export class Parser {
       this.visit(type);
     }
     assert(this.#stack.size() === 0);
-    this.frames.stop();
+    assert(this.#sizes.length === 1);
   }
 
   visit(type: TokenType) {
@@ -295,19 +290,13 @@ export class Parser {
   #popFrames() {
     if (this.#sizes.length === 0) return;
     const size = this.#stack.size();
-    let l = this.#sizes.length;
-    // binary search new length
-    for (let i = 0; i + 1 < l;) {
-      const k = (i + l) >> 1;
+    for (let i = 0; i + 1 < this.#sizes.length;) {
+      const k = (i + this.#sizes.length) >> 1;
       if (this.#sizes[k] < size) {
         i = k;
       } else {
-        l = k;
+        this.#sizes.length = k;
       }
-    }
-    if (this.#sizes.length > l) {
-      this.frames.pop(l);
-      this.#sizes.length = l;
     }
   }
 
@@ -324,7 +313,7 @@ export class Parser {
       case Op.Label:
       case Op.Stmt:
       case Op.Stmts:
-        this.frames.push(op, this.#token);
+        this.frames.push(op, this.#token, this.#sizes.length);
         this.#sizes.push(this.#stack.size());
     }
     return op;
@@ -368,16 +357,10 @@ export class Frames {
     return result;
   }
 
-  #currentDepth: number = 0;
-
-  push(op: Op, token: number) {
+  push(op: Op, token: number, depth: number) {
     this.#ops.push(op);
-    this.#depth.push(this.#currentDepth++);
+    this.#depth.push(depth);
     this.#tokens.push(token);
-  }
-
-  pop(l: number) {
-    this.#currentDepth = l;
   }
 
   toString(): string {
@@ -385,19 +368,5 @@ export class Frames {
       "  ".repeat(this.depth(id)) +
       `${Op[this.op(id)]}: ${this.token(id)}`
     ).toArray().join("\n");
-  }
-
-  pattern(): string {
-    return this.#depth.keys().map(
-      (id) => {
-        return this.isLeaf(id)
-          ? "." + ")".repeat(this.depth(id) - this.depth(id + 1))
-          : "(" + ".".repeat(this.token(id + 1) - this.token(id));
-      },
-    ).toArray().join("");
-  }
-
-  stop() {
-    // console.log(this.stringify());
   }
 }

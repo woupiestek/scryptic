@@ -1,17 +1,17 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton, TokenType } from "./lexer.ts";
-import { Frames, Parser } from "./yap.ts";
+import { Parser } from "./yap.ts";
 
 export class Compiler {
   private readonly automaton: Automaton = new Automaton();
   private readonly parser: Parser;
-  private readonly frames: Frames = new Frames();
+  // private readonly frames: Frames = new Frames();
   #script: number[];
   constructor(
     private readonly source: string,
   ) {
     this.automaton.readString(source);
-    this.parser = new Parser(this.frames);
+    this.parser = new Parser();
     this.parser.visitAll(this.automaton.types);
     this.#script = this.#statements(0);
   }
@@ -22,15 +22,15 @@ export class Compiler {
   }
 
   #type(id: number) {
-    return this.automaton.types[this.frames.token(id)];
+    return this.automaton.types[this.parser.frames.token(id)];
   }
 
   #index(id: number) {
-    return this.automaton.indices[this.frames.token(id)];
+    return this.automaton.indices[this.parser.frames.token(id)];
   }
 
   #children(id: number) {
-    return this.frames.children(id);
+    return this.parser.frames.children(id);
   }
 
   #label(id: number) {
@@ -62,7 +62,7 @@ export class Compiler {
     if (type === TokenType.VAR) {
       this.#exprs.push(
         type,
-        this.frames.depth(id),
+        this.parser.frames.depth(id),
         this.#index(id + 1),
       );
       return 2;
@@ -72,11 +72,11 @@ export class Compiler {
       return this.#expr(id + 1) + 1;
     }
 
-    if (this.frames.isLeaf(id)) {
-      this.#exprs.push(type, this.frames.depth(id), this.#index(id));
+    if (this.parser.frames.isLeaf(id)) {
+      this.#exprs.push(type, this.parser.frames.depth(id), this.#index(id));
       return 1;
     }
-    this.#exprs.push(type, this.frames.depth(id));
+    this.#exprs.push(type, this.parser.frames.depth(id));
     return this.#exprHead(id + 1) + 1;
   }
 
@@ -86,25 +86,25 @@ export class Compiler {
     // don't rearrange yet!
     const h = this.#exprHead(id + 1) + 1;
     const t = id + h;
-    if (this.frames.isLeaf(t)) {
+    if (this.parser.frames.isLeaf(t)) {
       return h; // not + 1?
     }
     const typeT = this.#type(t);
     if (typeT === TokenType.PAREN_LEFT) {
-      this.#exprs.push(typeT, this.frames.depth(t));
+      this.#exprs.push(typeT, this.parser.frames.depth(t));
       let i = 1;
       for (
-        const d = this.frames.depth(t);
-        this.frames.depth(t + i) > d;
+        const d = this.parser.frames.depth(t);
+        this.parser.frames.depth(t + i) > d;
         i += this.#expr(t + i)
       );
       return h + i;
     }
     if (typeT === TokenType.DOT) {
-      this.#exprs.push(typeT, this.frames.depth(t), this.#index(t + 1));
+      this.#exprs.push(typeT, this.parser.frames.depth(t), this.#index(t + 1));
       return h + 1;
     }
-    this.#exprs.push(typeT, this.frames.depth(t));
+    this.#exprs.push(typeT, this.parser.frames.depth(t));
     return this.#expr(t + 1) + h + 1; // watch for off by 1
   }
 
@@ -173,7 +173,7 @@ export class Compiler {
         return this.#stmts.push([TokenType.WHILE, label, condition, body]) - 1;
       }
       case TokenType.RETURN: {
-        if (this.frames.isLeaf(id)) {
+        if (this.parser.frames.isLeaf(id)) {
           return this.#stmts.push([
             type,
             -1,

@@ -1,6 +1,6 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton, TokenType } from "./lexer.ts";
-import { Frames, Op, Parser } from "./yap.ts";
+import { Op, Parser } from "./yap.ts";
 import { Table } from "../collections/table.ts";
 import { cyrb53 } from "./cyrb53.ts";
 
@@ -12,8 +12,7 @@ enum Jump {
 
 export class Compiler {
   #automaton: Automaton = new Automaton();
-  #frames: Frames = new Frames();
-  #parser: Parser = new Parser(this.#frames);
+  #parser: Parser = new Parser();
   #labels: Labels = new Labels();
   #stmts: Statements = new Statements();
   #exprs: Expressions = new Expressions();
@@ -27,25 +26,25 @@ export class Compiler {
   }
 
   #type(id: number) {
-    return this.#automaton.types[this.#frames.token(id)];
+    return this.#automaton.types[this.#parser.frames.token(id)];
   }
 
   #index(id: number) {
-    return this.#automaton.indices[this.#frames.token(id)];
+    return this.#automaton.indices[this.#parser.frames.token(id)];
   }
 
   #children(id: number) {
-    return this.#frames.children(id);
+    return this.#parser.frames.children(id);
   }
 
   #op(source: number, op: Op) {
-    const op2 = this.#frames.op(source);
+    const op2 = this.#parser.frames.op(source);
     assert(op2 === op, `${Op[op2]} !== ${Op[op]}`);
   }
 
   #statements(source: number, target: number, nextId: number) {
     this.#op(source, Op.Stmts);
-    if (this.#frames.isLeaf(source)) {
+    if (this.#parser.frames.isLeaf(source)) {
       this.#stmts.set(target, -1, Jump.Goto, nextId);
       return;
     }
@@ -59,7 +58,7 @@ export class Compiler {
 
   #maybeStatements(source: number, nextId: number) {
     this.#op(source, Op.Stmts);
-    if (this.#frames.isLeaf(source)) {
+    if (this.#parser.frames.isLeaf(source)) {
       return nextId;
     }
     const [_, t] = this.#children(source);
@@ -101,7 +100,7 @@ export class Compiler {
           target,
           -1,
           Jump.Goto,
-          this.#frames.isLeaf(source)
+          this.#parser.frames.isLeaf(source)
             ? this.#labels.breakAt()
             : this.#labels.breakTo(this.#labelOrIdentifier(source + 1)),
         );
@@ -111,7 +110,7 @@ export class Compiler {
           target,
           -1,
           Jump.Goto,
-          this.#frames.isLeaf(source)
+          this.#parser.frames.isLeaf(source)
             ? this.#labels.continueAt()
             : this.#labels.continueTo(this.#labelOrIdentifier(source + 1)),
         );
@@ -121,7 +120,7 @@ export class Compiler {
         const [i, t, e] = this.#children(source);
         const a = this.#maybeStatements(t + 1, nextId);
         let b = nextId;
-        if (!this.#frames.isLeaf(e)) {
+        if (!this.#parser.frames.isLeaf(e)) {
           b = this.#maybeStatements(e + 2, nextId);
         }
         this.#stmts.set(target, this.#expr(i), Jump.If, a, b);
@@ -144,7 +143,7 @@ export class Compiler {
       case TokenType.RETURN:
         this.#stmts.set(
           target,
-          this.#frames.isLeaf(source) ? this.#expr(source + 1) : -1,
+          this.#parser.frames.isLeaf(source) ? this.#expr(source + 1) : -1,
           Jump.Return,
         );
         return;
@@ -203,7 +202,7 @@ export class Compiler {
     return this.#exprs.store(
       -1,
       type,
-      this.#frames.isLeaf(id) ? this.#index(id) : this.#exprHead(id + 1),
+      this.#parser.frames.isLeaf(id) ? this.#index(id) : this.#exprHead(id + 1),
     );
   }
 
@@ -212,7 +211,7 @@ export class Compiler {
     this.#op(source, Op.Expr);
     const [_, t] = this.#children(source);
     const left = this.#exprHead(source + 1);
-    if (this.#frames.isLeaf(t)) return left;
+    if (this.#parser.frames.isLeaf(t)) return left;
     const typeT = this.#type(t);
     if (typeT === TokenType.PAREN_LEFT) {
       return this.#exprs.store(

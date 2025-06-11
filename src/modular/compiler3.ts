@@ -1,5 +1,5 @@
 import { Automaton, TokenType } from "./lexer.ts";
-import { Frames, Op, Parser } from "./yap.ts";
+import { Op, Parser } from "./yap.ts";
 
 const CONTROLS = new Set([
   TokenType.BRACE_LEFT,
@@ -13,8 +13,7 @@ const CONTROLS = new Set([
 
 export class Compiler {
   #automaton: Automaton = new Automaton();
-  #frames: Frames = new Frames();
-  #parser: Parser = new Parser(this.#frames);
+  #parser: Parser = new Parser();
 
   constructor(
     private readonly source: string,
@@ -26,11 +25,11 @@ export class Compiler {
   }
 
   #type(id: number) {
-    return this.#automaton.types[this.#frames.token(id)];
+    return this.#automaton.types[this.#parser.frames.token(id)];
   }
 
   #index(id: number) {
-    return this.#automaton.indices[this.#frames.token(id)];
+    return this.#automaton.indices[this.#parser.frames.token(id)];
   }
 
   #op: Op[] = [];
@@ -42,7 +41,7 @@ export class Compiler {
   #depths: number[] = [];
 
   #pushDepth(i: number) {
-    const j = this.#frames.depth(i);
+    const j = this.#parser.frames.depth(i);
     while (this.#depths[this.#depths.length - 1] >= j) {
       this.#depths.pop();
     }
@@ -50,15 +49,15 @@ export class Compiler {
   }
 
   #push(i: number, value = -1) {
-    this.#op.push(this.#frames.op(i));
+    this.#op.push(this.#parser.frames.op(i));
     this.#pushDepth(i);
     this.#types.push(this.#type(i));
     this.#value.push(value);
   }
 
   #run() {
-    for (let i = 0, l = this.#frames.size(); i < l; i++) {
-      const op = this.#frames.op(i);
+    for (let i = 0, l = this.#parser.frames.size(); i < l; i++) {
+      const op = this.#parser.frames.op(i);
       switch (op) {
         case Op.Block:
         case Op.Else:
@@ -73,7 +72,7 @@ export class Compiler {
           break;
         case Op.BlockEnd:
         case Op.ExprTail:
-          if (this.#frames.isLeaf(i)) break;
+          if (this.#parser.frames.isLeaf(i)) break;
           this.#push(i);
           break;
         case Op.ExprHead:
@@ -137,7 +136,7 @@ export class Compiler {
     let type: TokenType;
     let depth: number;
     let value: number;
-    for (let i = this.#frames.size(); i >= 0; i--) {
+    for (let i = this.#parser.frames.size(); i >= 0; i--) {
       if (this.#op[i] !== Op.ExprTail) continue;
       type = this.#types[i];
       depth = this.#depth[i];
