@@ -96,7 +96,23 @@ for (const text of bindRight) {
   Deno.test(`bind right case '${text}'`, () => {
     assertEquals(
       new Trees(getFrames(text)).toString(),
-      "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (3:ExprTail 2:ExprHead 4:ExprHead))) 5:Stmts)",
+      "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (3:ExprTail 2:ExprHead 4:ExprHead))))",
+    );
+  });
+}
+
+const bindRightForParens = [
+  "x == (y && z)",
+  "x != (y || z)",
+  "x < (y && z)",
+  "x && (y || z)",
+];
+
+for (const text of bindRightForParens) {
+  Deno.test(`bind right case '${text}'`, () => {
+    assertEquals(
+      new Trees(getFrames(text)).toString(),
+      "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (2:ExprHead (4:ExprTail 3:ExprHead 5:ExprHead)))))",
     );
   });
 }
@@ -112,7 +128,24 @@ for (const text of bindLeft) {
   Deno.test(`bind left case '${text}'`, () => {
     assertEquals(
       new Trees(getFrames(text)).toString(),
-      "(0:Stmts (0:Stmt (3:ExprTail (1:ExprTail 0:ExprHead 2:ExprHead) 4:ExprHead)) 5:Stmts)",
+      "(0:Stmts (0:Stmt (3:ExprTail (1:ExprTail 0:ExprHead 2:ExprHead) 4:ExprHead)))",
+    );
+  });
+}
+
+const bindLeftForParens = [
+  "(x && y) == z",
+  "(x || y) = z",
+  "(x = y) && z",
+  "(x && y) != z",
+  "(x || y) < z",
+];
+
+for (const text of bindLeftForParens) {
+  Deno.test(`bind left case '${text}'`, () => {
+    assertEquals(
+      new Trees(getFrames(text)).toString(),
+      "(0:Stmts (0:Stmt (5:ExprTail (0:ExprHead (2:ExprTail 1:ExprHead 3:ExprHead)) 6:ExprHead)))",
     );
   });
 }
@@ -120,19 +153,35 @@ for (const text of bindLeft) {
 Deno.test("with dots cases", () => {
   assertEquals(
     new Trees(getFrames("x.y = z")).toString(),
-    "(0:Stmts (0:Stmt (3:ExprTail (1:ExprTail 0:ExprHead 2:Identifier) 4:ExprHead)) 5:Stmts)",
+    "(0:Stmts (0:Stmt (3:ExprTail (1:ExprTail 0:ExprHead 2:Identifier) 4:ExprHead)))",
   );
   assertEquals(
     new Trees(getFrames("x = y.z")).toString(),
-    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (3:ExprTail 2:ExprHead 4:Identifier))) 5:Stmts)",
+    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (3:ExprTail 2:ExprHead 4:Identifier))))",
   );
 });
 
 Deno.test("function cases", () => {
-  assertEquals(
-    new Trees(getFrames("y(z)")).toString(),
-    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (2:Args 2:ExprHead))) 4:Stmts)",
-  );
+  const input = ["f()", "f(x)", "f(x, y)", "f(x, y, z)"];
+  const output = [
+    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead 2:Args)))",
+    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (2:Args 2:ExprHead))))",
+    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (2:Args 2:ExprHead 4:ExprHead))))",
+    "(0:Stmts (0:Stmt (1:ExprTail 0:ExprHead (2:Args 2:ExprHead 4:ExprHead 6:ExprHead))))",
+  ];
+
+  for (let i = 0; i < 4; i++) {
+    assertEquals(
+      new Trees(getFrames(input[i])).toString(),
+      output[i],
+    );
+  }
+});
+
+Deno.test("with dots cases", () => {
+  goodCases.forEach((
+    it,
+  ) => (console.log(it), console.log(new Trees(getFrames(it)).str())));
 });
 
 function getFrames(text: string) {

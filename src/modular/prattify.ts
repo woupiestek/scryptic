@@ -18,22 +18,39 @@ export class Trees {
       iByDepth[depth] = i;
       this.#first[i] = frames.isLeaf(i) ? -1 : i + 1;
     }
-    this.#rotateDownAndDeleteExpr();
+    this.#truncate();
   }
 
-  #rotateDownAndDeleteExpr() {
+  #truncate() {
     for (let i = this.#op.length - 1; i >= 0; i--) {
-      if (this.#op[this.#first[i]] === Op.Expr) this.#expr(i);
+      if (this.#op[this.#first[i]] === Op.Expr) {
+        this.#first[i] = this.#expr(this.#first[i]);
+      }
+      if (this.#op[this.#next[i]] === Op.Expr) {
+        this.#next[i] = this.#expr(this.#next[i]);
+      }
+      if (
+        this.#op[this.#first[i]] === Op.Stmts ||
+        this.#op[this.#first[i]] === Op.Else
+      ) {
+        this.#first[i] = this.#first[this.#first[i]];
+      }
+      if (
+        this.#op[this.#next[i]] === Op.Stmts ||
+        this.#op[this.#next[i]] === Op.Else
+      ) {
+        this.#next[i] = this.#first[this.#next[i]];
+      }
     }
   }
 
   /*
    * apply these rules until exhaustion:
-   * (i (Expr a (ExprTail b c) d) => (i (Expr (ExprTail a b) c) d)
-   * (i (Expr a ExprTail) d) => (i a d)
+   * (Expr a (ExprTail b c) => (Expr (ExprTail a b) c)
+   * (Expr a ExprTail) => a
    */
-  #expr(parent: number) {
-    let a = this.#first[this.#first[parent]];
+  #expr(expr: number) {
+    let a = this.#first[expr];
     let tail = this.#next[a];
     let b = this.#first[tail];
     while (b >= 0) {
@@ -45,8 +62,8 @@ export class Trees {
       tail = this.#next[a];
       b = this.#first[tail];
     }
-    this.#next[a] = this.#next[this.#first[parent]];
-    this.#first[parent] = a;
+    this.#next[a] = this.#next[expr];
+    return a;
   }
 
   #stringify(i: number, f: (_: number) => string): string {
@@ -65,5 +82,21 @@ export class Trees {
 
   toString(f: (_: number) => string = this.tag.bind(this)) {
     return this.#stringify(0, f);
+  }
+
+  #str(i: number, d: number, acc: string[]): void {
+    acc.push("  ".repeat(d) + this.tag(i));
+    if (this.#first[i] >= 0) {
+      this.#str(this.#first[i], d + 1, acc);
+    }
+    if (this.#next[i] >= 0) {
+      this.#str(this.#next[i], d, acc);
+    }
+  }
+
+  str() {
+    const acc: string[] = [];
+    this.#str(0, 0, acc);
+    return acc.join("\n");
   }
 }
