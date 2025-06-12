@@ -74,7 +74,7 @@ export class Parser {
       this.visit(type);
     }
     assert(this.#stack.size() === 0);
-    assert(this.#sizes.length === 1);
+    assert(this.#sizes.length === 2);
   }
 
   visit(type: TokenType) {
@@ -301,21 +301,8 @@ export class Parser {
   }
 
   #pushFrame(op: Op) {
-    switch (op) {
-      case Op.Args:
-      case Op.Block:
-      case Op.BlockEnd:
-      case Op.Else:
-      case Op.Expr:
-      case Op.ExprHead:
-      case Op.ExprTail:
-      case Op.Identifier:
-      case Op.Label:
-      case Op.Stmt:
-      case Op.Stmts:
-        this.frames.push(op, this.#token, this.#sizes.length);
-        this.#sizes.push(this.#stack.size());
-    }
+    this.frames.push(op, this.#token, this.#sizes.length);
+    this.#sizes.push(this.#stack.size());
     return op;
   }
 }

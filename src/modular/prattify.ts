@@ -31,15 +31,29 @@ export class Trees {
       }
       if (
         this.#op[this.#first[i]] === Op.Stmts ||
-        this.#op[this.#first[i]] === Op.Else
+        this.#op[this.#first[i]] === Op.Else ||
+        this.#op[this.#first[i]] === Op.ArgsTail
       ) {
         this.#first[i] = this.#first[this.#first[i]];
       }
       if (
         this.#op[this.#next[i]] === Op.Stmts ||
-        this.#op[this.#next[i]] === Op.Else
+        this.#op[this.#next[i]] === Op.Else ||
+        this.#op[this.#next[i]] === Op.ArgsTail
       ) {
         this.#next[i] = this.#first[this.#next[i]];
+      }
+      if (
+        this.#op[this.#next[i]] === Op.Expect ||
+        this.#op[this.#next[i]] === Op.Semicolon
+      ) {
+        this.#next[i] = -1;
+      }
+      if (
+        this.#op[this.#first[i]] === Op.Expect ||
+        this.#op[this.#first[i]] === Op.Semicolon
+      ) {
+        this.#first[i] = -1;
       }
     }
   }

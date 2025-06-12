@@ -126,7 +126,7 @@ export class Compiler {
     const ids: number[] = [];
     for (;;) {
       const c = this.#children(id);
-      if (c.length === 0) {
+      if (c.length < 2) {
         return ids;
       }
       ids.push(this.#statement(c[0]));

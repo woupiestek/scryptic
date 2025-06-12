@@ -58,10 +58,11 @@ export class Compiler {
 
   #maybeStatements(source: number, nextId: number) {
     this.#op(source, Op.Stmts);
-    if (this.#parser.frames.isLeaf(source)) {
+    const children = this.#children(source);
+    if (children.length < 2) {
       return nextId;
     }
-    const [_, t] = this.#children(source);
+    const [_, t] = children;
     const target = this.#stmts.alloc();
     this.#statement(
       source + 1,
@@ -90,7 +91,7 @@ export class Compiler {
     switch (this.#type(source)) {
       case TokenType.BRACE_LEFT:
         this.#statements(
-          source + 2,
+          source + 3,
           target,
           nextId,
         );
@@ -117,22 +118,23 @@ export class Compiler {
         return;
       }
       case TokenType.IF: {
-        const [i, t, e] = this.#children(source);
-        const a = this.#maybeStatements(t + 1, nextId);
+        const children = this.#children(source);
+        const [i, t, e] = children;
+        const a = this.#maybeStatements(t + 2, nextId);
         let b = nextId;
         if (!this.#parser.frames.isLeaf(e)) {
-          b = this.#maybeStatements(e + 2, nextId);
+          b = this.#maybeStatements(e + 3, nextId);
         }
         this.#stmts.set(target, this.#expr(i), Jump.If, a, b);
         return;
       }
       case TokenType.LABEL: {
         const label = this.#labelOrIdentifier(source);
-        const [c, b] = this.#children(source);
+        const [_, c, b] = this.#children(source);
         const id = this.#stmts.alloc();
         this.#labels.push(label, nextId, target);
         this.#statements(
-          b + 1,
+          b + 2,
           id,
           target,
         );
@@ -152,7 +154,7 @@ export class Compiler {
         const [c, b] = this.#children(source);
         this.#labels.push(label, nextId, target);
         const id = this.#maybeStatements(
-          b + 1,
+          b + 2,
           target,
         );
         this.#labels.pop();
@@ -206,7 +208,19 @@ export class Compiler {
     );
   }
 
-  // extra tails!?
+  #args(source: number): number {
+    this.#op(source, Op.Args);
+    const exprs = [];
+    let children = this.#children(source);
+    while (children.length === 2) {
+      exprs.push(this.#expr(children[0]));
+      children = this.#children(children[1]);
+    }
+    return this.#exprs.storeArray(
+      exprs,
+    );
+  }
+
   #expr(source: number): number {
     this.#op(source, Op.Expr);
     const [_, t] = this.#children(source);
@@ -217,9 +231,7 @@ export class Compiler {
       return this.#exprs.store(
         left,
         typeT,
-        this.#exprs.storeArray(
-          (this.#children(t + 1)).map((child) => this.#expr(child)),
-        ),
+        this.#args(t + 1),
       );
     }
     if (typeT === TokenType.DOT) {
