@@ -1,29 +1,31 @@
 import { NatSet } from "../collections/natset.ts";
-import { TokenType } from "./lexer.ts";
 import { Frames, Op } from "./yap.ts";
 
 export class Trees {
   #first: number[] = [];
   #next: number[] = [];
-  #token: TokenType[] = [];
-  #op: Op[] = [];
 
-  constructor(frames: Frames) {
-    const iByDepth: number[] = [];
+  constructor(readonly frames: Frames) {
+    const is: number[] = [];
     for (let i = frames.size() - 1; i >= 0; i--) {
-      this.#token[i] = frames.token(i);
-      this.#op[i] = frames.op(i);
       const depth = frames.depth(i);
-      this.#next[i] = iByDepth[depth] ?? -1;
-      iByDepth.length = depth;
-      iByDepth[depth] = i;
+      this.#next[i] = is[depth] ?? -1;
+      is.length = depth;
+      is[depth] = i;
       this.#first[i] = frames.isLeaf(i) ? -1 : i + 1;
     }
     this.#truncate();
   }
 
+  #truncate() {
+    for (let i = this.frames.size() - 1; i >= 0; i--) {
+      this.#first[i] = this.#move(this.#first[i]);
+      this.#next[i] = this.#move(this.#next[i]);
+    }
+  }
+
   #move(i: number) {
-    switch (this.#op[i]) {
+    switch (this.frames.op(i)) {
       case Op.Expr:
         return this.#expr(i);
       case Op.Stmts:
@@ -35,13 +37,6 @@ export class Trees {
         return -1;
       default:
         return i;
-    }
-  }
-
-  #truncate() {
-    for (let i = this.#op.length - 1; i >= 0; i--) {
-      this.#first[i] = this.#move(this.#first[i]);
-      this.#next[i] = this.#move(this.#next[i]);
     }
   }
 
@@ -78,7 +73,7 @@ export class Trees {
   }
 
   tag(i: number) {
-    return `${this.#token[i]}:${Op[this.#op[i]]}`;
+    return `${this.frames.token(i)}:${Op[this.frames.op(i)]}`;
   }
 
   toString() {
@@ -104,102 +99,75 @@ export class Trees {
 
 // this representation is a struggle.
 export class Trees2 {
-  #prev: number[] = [];
-  #set = new NatSet();
-  #token: TokenType[] = [];
-  #op: Op[] = [];
+  #parent: number[] = [];
+  #freed = new NatSet();
 
-  constructor(frames: Frames) {
-    const is: number[] = [];
-    for (let i = 0, l = frames.size(); i < l; i++) {
-      this.#token[i] = frames.token(i);
-      this.#op[i] = frames.op(i);
-      const depth = frames.depth(i);
-      if (depth < is.length) {
-        this.#prev[i] = is[depth];
-        this.#set.add(i);
-      } else {
-        this.#prev[i] = depth ? is[depth - 1] : -1;
-      }
-      is.length = depth;
-      is.push(i);
-    }
+  #free(i: number) {
+    this.#freed.add(i);
+  }
+
+  constructor(readonly frames: Frames) {
+    this.#parent = frames.parents();
     this.#truncate();
   }
 
   #truncate() {
-    for (let i = this.#op.length - 1; i >= 0; i--) {
-      switch (this.#op[i]) {
+    const heads: number[] = [];
+    const tails: number[] = [];
+    const del: number[] = [];
+    for (let i = this.frames.size() - 1; i >= 0; i--) {
+      switch (this.frames.op(i)) {
         case Op.Semicolon:
-          this.#prev[i] = -1;
+        case Op.Expect:
+          del.push(i);
           break;
-        case Op.Stmt:
-          // (pp . i:Stmt) => (pp i)
-          {
-            const pp = this.#prev[this.#prev[i]];
-            if (pp === -1) return;
-            this.#prev[this.#prev[i]] = -1;
-            this.#prev[i] = pp;
-            this.#set.add(i);
-          }
+        case Op.ExprHead:
+          heads[this.#parent[i]] = i;
           break;
-        case Op.ExprTail: {
-          // (e:Expr a (t:ExprTail b i:ExprTail)) => (t (e a b) i)
-          if (!this.#set.has(i)) break;
-          const b = this.#prev[i];
-          if (b === -1 || this.#set.has(b)) break;
-          const t = this.#prev[b];
-          if (t === -1 || !this.#set.has(t) || this.#op[t] !== Op.ExprTail) {
-            break;
-          }
-          const a = this.#prev[t];
-          if (a === -1 || this.#set.has(b)) break;
-          const e = this.#prev[a];
-          if (e === -1 || this.#op[e] !== Op.Expr) break;
-
-          this.#prev[t] = this.#prev[e];
-          if (this.#set.has(e)) this.#set.add(t);
-          else this.#set.remove(t);
-          this.#prev[i] = e;
-          this.#prev[b] = a;
-          this.#set.add(b);
-          this.#prev[e] = i;
-          this.#set.remove(e);
-        }
+        case Op.ExprTail:
+          tails[this.#parent[i]] = i;
+          break;
+        default:
+          break;
       }
+      const p = this.#parent[i];
+      if (this.frames.op(p) === Op.Stmt) {
+        this.#parent[i] = this.#parent[p];
+        del.push(p);
+      }
+    }
+    del.forEach((i) => this.#free(i));
+    for (let i = this.frames.size() - 1; i >= 0; i--) {
+      const head = heads[i];
+      const tail = tails[i];
+      if (head === undefined || tail === undefined) continue;
+      this.#parent[head] = tail;
+      this.#parent[tail] = this.#parent[i];
+      if (this.frames.op(i) === Op.Expr) this.#free(i);
     }
   }
 
-  #str(
-    i: number,
-    first: number[],
-    next: number[],
-    d: number,
-    acc: string[],
-  ): void {
-    if (i < 0) return;
-    acc.push("  ".repeat(d) + `${this.#token[i]}:${Op[this.#op[i]]}`);
-    this.#str(first[i] ?? -1, first, next, d + 1, acc);
-    this.#str(next[i] ?? -1, first, next, d, acc);
+  #str(i: number, d: number, children: number[][], acc: string[]): void {
+    if (i === this.frames.size()) acc.push("FREE");
+    else {acc.push(
+        "  ".repeat(d) + `${this.frames.token(i)}:${Op[this.frames.op(i)]}`,
+      );}
+    children[i].forEach((it) => this.#str(it, d + 1, children, acc));
   }
 
   str() {
-    const first = Array(this.#prev.length).map(() => -1);
-    const next = Array(this.#prev.length).map(() => -1);
-    const bottom = [];
-    for (let i = 0, l = this.#prev.length; i < l; i++) {
-      if (this.#prev[i] === -1) {
-        bottom.push(i);
+    const children: number[][] = this.#parent.map(() => []);
+    const roots: number[] = [];
+    for (let i = 0, l = this.#parent.length; i < l; i++) {
+      if (this.#freed.has(i)) continue;
+      if (this.#parent[i] === i) {
+        roots.push(i);
         continue;
       }
-      if (this.#set.has(i)) {
-        next[this.#prev[i]] = i;
-      } else {
-        first[this.#prev[i]] = i;
-      }
+      children[this.#parent[i]].push(i);
     }
     const acc: string[] = [];
-    bottom.forEach((i) => this.#str(i, first, next, 0, acc));
+    roots.forEach((i) => this.#str(i, 0, children, acc));
     return acc.join("\n");
   }
 }

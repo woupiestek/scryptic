@@ -16,7 +16,42 @@ nodes, but those are not directly reachable.
 
 Anyways, Aaron Hsu's solution does both: turn into binary then invert. Although
 his version is redundant, pointing to left siblings instead of using a boolean
-for child indices. This may speed things up...
+for child indices. I wonder why he settled on this one.
+
+### options
+
+The parent, child number approach: different because there is no pointing to
+siblings. A multipass approach here, or have I played enough?
+
+The restructing of expression trees affects at least three paths. o/c you can
+scan the n-tuples inverted trees for triplets of paths that meet up. Cost is
+proportional to the size of the tree, but can handle every node in parallel, so
+the cost per node is constant...
+
+The following transformations interest me:
+
+- `e a (ExprTail b) c => e (ExprTail a b) c`
+- `Expr a ExprTail => a` By accident, the `parent/sibling` turns the former into
+  a single path. The second one requires that we find ExprTails that aren't
+  leaves...
+
+It feel like often selectively invert the tree again to make changes, so other
+than that theoretical option to run in parallel, do we actually have a helpful
+representation?
+
+### thought
+
+Just track the parent, because the `Op` tells everything we need. This may be my
+mistake: trying to track positions. But note: If we cannot keep track of the
+ordering of the children, then certain reductions are a bad idea. In particular:
+lists of statements, function arguments and the two expressions of a binary
+operator must be told apart by their `Op`.
+
+### the service stack
+
+What we need a 'await garbage collection' system. Not even that... but a system
+to halt function return in order to extend the live time of stack allocated
+services.
 
 ## 2025-06-12
 

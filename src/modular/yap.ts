@@ -356,4 +356,15 @@ export class Frames {
       `${Op[this.op(id)]}: ${this.token(id)}`
     ).toArray().join("\n");
   }
+
+  parents() {
+    const parents: number[] = [];
+    const is: number[] = [];
+    for (let i = 0, l = this.size(); i < l; i++) {
+      const depth = this.depth(i);
+      parents[i] = depth ? is[depth - 1] : 0;
+      is[depth] = i;
+    }
+    return parents;
+  }
 }
