@@ -311,6 +311,7 @@ export class Frames {
   #ops: Op[] = [];
   #tokens: number[] = [];
   #depth: number[] = [];
+  #parents: number[] = [];
 
   size(): number {
     return this.#depth.length;
@@ -333,6 +334,10 @@ export class Frames {
     return this.#tokens[id] ?? -1;
   }
 
+  parent(id: number) {
+    return this.#parents[id];
+  }
+
   children(id: number) {
     assert(id < this.#depth.length);
     const depth = this.#depth[id];
@@ -344,27 +349,23 @@ export class Frames {
     return result;
   }
 
+  #is: number[] = [];
+
   push(op: Op, token: number, depth: number) {
     this.#ops.push(op);
     this.#depth.push(depth);
     this.#tokens.push(token);
+    this.#is[depth] = this.#parents.push(depth && this.#is[depth - 1]) - 1;
   }
 
   toString(): string {
     return this.#depth.keys().map((id) =>
       "  ".repeat(this.depth(id)) +
-      `${Op[this.op(id)]}: ${this.token(id)}`
+      `${this.#tokens[id]}: ${Op[this.op(id)]}`
     ).toArray().join("\n");
   }
 
   parents() {
-    const parents: number[] = [];
-    const is: number[] = [];
-    for (let i = 0, l = this.size(); i < l; i++) {
-      const depth = this.depth(i);
-      parents[i] = depth ? is[depth - 1] : 0;
-      is[depth] = i;
-    }
-    return parents;
+    return [...this.#parents];
   }
 }

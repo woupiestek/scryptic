@@ -150,7 +150,7 @@ export class Trees2 {
   #str(i: number, d: number, children: number[][], acc: string[]): void {
     if (i === this.frames.size()) acc.push("FREE");
     else {acc.push(
-        "  ".repeat(d) + `${this.frames.token(i)}:${Op[this.frames.op(i)]}`,
+        "  ".repeat(d) + `${this.frames.token(i)}: ${Op[this.frames.op(i)]}`,
       );}
     children[i].forEach((it) => this.#str(it, d + 1, children, acc));
   }
