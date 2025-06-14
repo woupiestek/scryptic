@@ -4,7 +4,7 @@ import {
 } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Automaton } from "./lexer.ts";
 import { Parser } from "./yap.ts";
-import { Trees } from "./prattify.ts";
+import { Trees, Trees2 } from "./prattify.ts";
 
 const goodCases = [
   'log "Hello, World!"',
@@ -178,10 +178,10 @@ Deno.test("function cases", () => {
   }
 });
 
-Deno.test("with dots cases", () => {
-  goodCases.forEach((
+Deno.test("pretext cases", () => {
+  ["a; b; if c {d; e} else {f; g} h"].forEach((
     it,
-  ) => (console.log(it), console.log(new Trees(getFrames(it)).str())));
+  ) => (console.log(it), console.log(new Trees2(getFrames(it)).str())));
 });
 
 function getFrames(text: string) {

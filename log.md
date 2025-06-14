@@ -1,5 +1,37 @@
 # Scryptic
 
+## 2025-06-14
+
+### tree stress
+
+Several attemps to working with flattened trees aren't working out.
+
+Ok: transforming into a binary tree using 'first' and 'next' allows a shift to
+struct of arrays. Another solution is inversion: parent and child-index But then
+every pass can only process one path! Perhaps that is the point: make tree
+processing like signal processing, by forcing focus on a single path...
+
+For example: deleting a node requires updating the indices of subsequent child
+nodes, but those are not directly reachable.
+
+Anyways, Aaron Hsu's solution does both: turn into binary then invert. Although
+his version is redundant, pointing to left siblings instead of using a boolean
+for child indices. This may speed things up...
+
+## 2025-06-12
+
+### radicality
+
+Literally implement free form objects by storing each field seperately. Now, a
+single hashing strategy suffices to de the lookup. Alternatively, object handles
+could be generated prescattered. Just generate mutiples of 181. Or 759250125...
+some half power of two, assuming that that gives a good scatter no matter how
+small the table.
+
+For garbage collection, the strategy is unclear now: Traverse the entire table
+every time? Determine which objects refer to which others once, but somehow
+collect garbage faster that way? I don't see this yet.
+
 ## 2025-06-09
 
 ### thinking through the data oriented vm
