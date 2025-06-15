@@ -1,5 +1,25 @@
 # Scryptic
 
+## 2025-06-16
+
+The static single assignment part is making less sense now...
+
+The parent vector is just a way to represent trees that is surprisingly
+convenient. The trees themselves can represent something else.
+
+What I want to say is: the use of parents makes substitution trivial. Take the
+parent of the expression to rewrite, and attach it to the rewritten expression.
+Variable sustitution cannot work that way, however, if variables occur more than
+once: Only one parent!
+
+So use points in the other direction for those: have nodes that contain pointers
+to (roots of) other trees.
+
+### basic blocks
+
+This is the step I maybe should have done first. Here the issues shows already:
+jump targets are the variables, that cannot always be inlined.
+
 ## 2015-06-15
 
 ### push based compiler
@@ -8,6 +28,22 @@ The parent vector implementation is starting to work, and it seems to permit the
 sort of push based architecture I imagined.
 
 Using every bit of data available is not a luxury, however.
+
+### scatter table
+
+Amazing one bit hash:
+
+```
+function hash() {
+  const values = new Array(256).map(() => 0);
+  for (let j = 0; j < 256; j++) {
+    for (let i = 0; i < 8; i++) {
+      values[j] += ((j >> i) & 1)  << (7 - i);
+    }
+  }
+  return values;
+}
+```
 
 ## 2025-06-14
 

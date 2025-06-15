@@ -1,5 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { Expressions, Statements } from "./compiler4.ts";
+import {
+  Expressions,
+  Statements,
+  StaticSingleAssignment,
+} from "./compiler4.ts";
 import { Automaton } from "./lexer.ts";
 import { Parser } from "./yap.ts";
 
@@ -10,7 +14,6 @@ Deno.test("extracting expressions", () => {
     "a == b && c != d; !!a; (a = new b()).c; a(b, c); var a;",
   );
   parser.visitAll(automaton.types);
-  console.log(parser.frames.toString());
   const exprs = new Expressions(parser.frames);
   assertEquals(
     exprs.toString(),
@@ -23,7 +26,6 @@ Deno.test("extracting statements", () => {
   const parser = new Parser();
   automaton.readString("a;if b { c } else { d } e");
   parser.visitAll(automaton.types);
-  console.log(parser.frames.toString());
   const stmts = new Statements(parser.frames);
   assertEquals(
     stmts.toString(),
@@ -36,7 +38,6 @@ Deno.test("extracting loops", () => {
   const parser = new Parser();
   automaton.readString("while b { continue } d");
   parser.visitAll(automaton.types);
-  console.log(parser.frames.toString());
   const stmts = new Statements(parser.frames);
   assertEquals(
     stmts.toString(),
@@ -49,7 +50,6 @@ Deno.test("extracting labelled loops", () => {
   const parser = new Parser();
   automaton.readString("#a while b { continue #a } d");
   parser.visitAll(automaton.types);
-  console.log(parser.frames.toString());
   const stmts = new Statements(parser.frames);
   assertEquals(
     stmts.toString(),
@@ -62,10 +62,13 @@ Deno.test("extracting labelled loops", () => {
   const parser = new Parser();
   automaton.readString("a; b; if c {d; e} else {f; g} h");
   parser.visitAll(automaton.types);
-  console.log(parser.frames.toString());
   const stmts = new Statements(parser.frames);
   assertEquals(
     stmts.toString(),
     "(0 (2 (4 (6 (7 9) 10) (11 (12 (13 15) 16)) 17)))",
   );
+});
+
+Deno.test("identifiers", () => {
+  console.log(new StaticSingleAssignment("var y = x; y"));
 });
