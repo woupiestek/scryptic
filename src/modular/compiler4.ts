@@ -1,84 +1,114 @@
-import { Automaton, TokenType } from "./lexer.ts";
-import { Op, Parser } from "./yap.ts";
+import { NatSet } from "../collections/natset.ts";
+import { Frames, Op } from "./yap.ts";
 
-export class Compiler {
-  #automaton = new Automaton();
-  #parser = new Parser();
-  #exprs = new Expressions();
-
-  constructor(
-    private readonly source: string,
-  ) {
-    this.#automaton.readString(source);
-    this.#parser.visitAll(this.#automaton.types);
-    console.log(this.#parser.frames.toString());
-    this.#expressions();
-    console.log(this.#exprs.toString());
+function prettyPrint(parents: number[]) {
+  const children: number[][] = parents.map(() => []);
+  const roots: number[] = [];
+  parents.forEach((x, i) => {
+    if (x === i) roots.push(i);
+    else if (x === undefined) return;
+    else children[x].push(i);
+  });
+  function str(i: number): string {
+    if (children[i].length === 0) return i.toString();
+    return "(" + [i.toString(), ...children[i].map((it) => str(it))].join(" ") +
+      ")";
   }
+  return roots.map((it) => str(it)).join("\n");
+}
 
-  #type(id: number) {
-    return this.#automaton.types[this.#parser.frames.token(id)];
-  }
+// respresent expressions as a parent vector for the tokens
+// so this is a pass that
+export class Expressions {
+  #parents: number[] = [];
 
-  #index(id: number) {
-    return this.#automaton.indices[this.#parser.frames.token(id)];
-  }
+  constructor(readonly frames: Frames) {
+    const lParens = new NatSet();
 
-  #expressions() {
-    const parents = this.#parser.frames.parents();
-    const exprs: number[] = [];
-    for (let i = 0, l = parents.length; i < l; i++) {
-      switch (this.#parser.frames.op(i)) {
-        // case Op.Expr:
-        case Op.ExprHead: {
-          const x = (exprs[i] ??= this.#exprs.new());
-          const y = (exprs[parents[i]] ??= this.#exprs.new());
-          this.#exprs.set(x, this.#type(i), 0, y);
+    for (let i = 0, l = frames.size(); i < l; i++) {
+      switch (frames.op(i)) {
+        case Op.Args: {
+          // Args -> ExprTail -> Expr(Tail)
+          const parent = frames.token(frames.parent(i));
+          const sibling = frames.token(frames.parent(frames.parent(i)));
+          // if the sibling is part of an expression, integrate this one!
+          this.#parents[parent] = this.#parents[sibling] === sibling
+            ? parent
+            : this.#parents[sibling];
+          this.#parents[sibling] = parent;
           break;
         }
-        case Op.ExprTail: {
-          if (this.#parser.frames.isLeaf(i)) continue;
-          const pi = parents[i];
-          const ppi = parents[pi];
-          const y = (exprs[pi] ??= this.#exprs.new());
-          const z = (this.#parser.frames.op(ppi) === Op.ExprTail)
-            ? (exprs[ppi] ??= this.#exprs.new())
-            : y;
-          this.#exprs.set(y, this.#type(i), 1, z);
+        case Op.Identifier: // reuse expr logic for member access
+        case Op.Expr: {
+          const expr = frames.token(i);
+          const parentOp = frames.op(frames.parent(i));
+          if (parentOp === Op.Args) {
+            this.#parents[expr] = frames.token(frames.parent(frames.parent(i)));
+            break;
+          }
+          if (parentOp === Op.ExprTail || parentOp === Op.ArgsTail) {
+            // Expr -> ExprTail -> Expr(Tail)
+            const parent = frames.token(frames.parent(i));
+            const sibling = frames.token(frames.parent(frames.parent(i)));
+            this.#parents[expr] = parent;
+            // if the sibling is part of an expression, integrate this one!
+            this.#parents[parent] = this.#parents[sibling] === sibling
+              ? parent
+              : this.#parents[sibling];
+            this.#parents[sibling] = parent;
+            break;
+          }
+          if (parentOp === Op.ExprHead) {
+            const paren = frames.token(
+              frames.parent(i),
+            );
+            // parenthetical case
+            this.#parents[frames.token(i)] = paren;
+            lParens.add(paren);
+            break;
+          }
+          this.#parents[expr] = expr;
           break;
-          //
         }
-        case Op.Args:
-        case Op.ArgsTail:
-        case Op.Identifier:
+        case Op.ExprHead:
+          if (frames.op(frames.parent(i)) === Op.ExprHead) {
+            this.#parents[frames.token(i)] = frames.token(
+              frames.parent(i),
+            );
+          }
+          break;
+        default:
+          break;
+      }
+    }
+
+    for (let i = 0, l = this.#parents.length; i < l; i++) {
+      const j = this.#parents[i];
+      if (lParens.has(j)) {
+        this.#parents[i] = this.#parents[j];
+        delete this.#parents[j];
       }
     }
   }
+
+  toString() {
+    return prettyPrint(this.#parents);
+  }
 }
 
-class Expressions {
+export class Statements {
   #parents: number[] = [];
-  #types: TokenType[] = [];
-  #child: number[] = [];
 
-  #index = 0;
-
-  new() {
-    return this.#index++;
-  }
-
-  set(index: number, type: TokenType, child: number, parent?: number) {
-    this.#types[index] = type;
-    this.#child[index] = child;
-    this.#parents[index] = parent ?? index;
+  constructor(readonly frames: Frames) {
+    for (let i = 0, l = frames.size(); i < l; i++) {
+      if (frames.op(i) === Op.Stmt) {
+        this.#parents[frames.token(i)] =
+          this.#parents[frames.token(frames.parent(frames.parent(i)))];
+      }
+    }
   }
 
   toString() {
-    return [
-      this.#types.map((t) => TokenType[t]).join(),
-      this.#parents.keys().toArray().join(),
-      this.#parents.join(),
-      this.#child.join(),
-    ].join("\n");
+    return prettyPrint(this.#parents);
   }
 }

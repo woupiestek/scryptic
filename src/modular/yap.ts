@@ -364,8 +364,4 @@ export class Frames {
       `${this.#tokens[id]}: ${Op[this.op(id)]}`
     ).toArray().join("\n");
   }
-
-  parents() {
-    return [...this.#parents];
-  }
 }

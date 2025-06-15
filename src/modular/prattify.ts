@@ -107,7 +107,8 @@ export class Trees2 {
   }
 
   constructor(readonly frames: Frames) {
-    this.#parent = frames.parents();
+    this.#parent = Array(frames.size()).keys().map((i) => frames.parent(i))
+      .toArray();
     this.#truncate();
   }
 

@@ -1,5 +1,14 @@
 # Scryptic
 
+## 2015-06-15
+
+### push based compiler
+
+The parent vector implementation is starting to work, and it seems to permit the
+sort of push based architecture I imagined.
+
+Using every bit of data available is not a luxury, however.
+
 ## 2025-06-14
 
 ### tree stress
