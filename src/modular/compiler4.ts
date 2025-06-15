@@ -1,20 +1,23 @@
 import { NatSet } from "../collections/natset.ts";
 import { Frames, Op } from "./yap.ts";
 
-function prettyPrint(parents: number[]) {
+function prettyPrint(parents: number[]): string {
   const children: number[][] = parents.map(() => []);
   const roots: number[] = [];
   parents.forEach((x, i) => {
     if (x === i) roots.push(i);
     else if (x === undefined) return;
-    else children[x].push(i);
+    else if (children[x] === undefined) {
+      console.log(x);
+      return;
+    } else children[x].push(i);
   });
   function str(i: number): string {
     if (children[i].length === 0) return i.toString();
     return "(" + [i.toString(), ...children[i].map((it) => str(it))].join(" ") +
       ")";
   }
-  return roots.map((it) => str(it)).join("\n");
+  return roots.map((it) => str(it)).join(";");
 }
 
 // respresent expressions as a parent vector for the tokens
@@ -39,6 +42,28 @@ export class Expressions {
           break;
         }
         case Op.Identifier: // reuse expr logic for member access
+        {
+          const iden = frames.token(i);
+          const parentOp = frames.op(frames.parent(i));
+          if (parentOp === Op.ExprTail) {
+            // Expr -> ExprTail -> Expr(Tail)
+            const parent = frames.token(frames.parent(i));
+            const sibling = frames.token(frames.parent(frames.parent(i)));
+            this.#parents[iden] = parent;
+            // if the sibling is part of an expression, integrate this one!
+            this.#parents[parent] = this.#parents[sibling] === sibling
+              ? parent
+              : this.#parents[sibling];
+            this.#parents[sibling] = parent;
+            break;
+          }
+          if (parentOp === Op.ExprHead) {
+            this.#parents[frames.token(i)] = frames.token(
+              frames.parent(i),
+            );
+          }
+          break;
+        }
         case Op.Expr: {
           const expr = frames.token(i);
           const parentOp = frames.op(frames.parent(i));
@@ -101,12 +126,18 @@ export class Statements {
 
   constructor(readonly frames: Frames) {
     for (let i = 0, l = frames.size(); i < l; i++) {
+      const grampaw = frames.parent(frames.parent(i));
       if (frames.op(i) === Op.Stmt) {
-        this.#parents[frames.token(i)] =
-          this.#parents[frames.token(frames.parent(frames.parent(i)))];
+        this.#parents[frames.token(i)] = frames.token(grampaw);
+        continue;
+      }
+      if (
+        frames.op(i) === Op.Block || frames.op(i) === Op.Else ||
+        frames.op(i) === Op.BlockEnd || frames.op(i) === Op.Label
+      ) {
+        this.#parents[frames.token(i)] = frames.token(frames.parent(i));
       }
     }
-    console.log(this.#parents)
   }
 
   toString() {
