@@ -106,6 +106,7 @@ export class Statements {
           this.#parents[frames.token(frames.parent(frames.parent(i)))];
       }
     }
+    console.log(this.#parents)
   }
 
   toString() {
