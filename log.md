@@ -20,6 +20,22 @@ to (roots of) other trees.
 This is the step I maybe should have done first. Here the issues shows already:
 jump targets are the variables, that cannot always be inlined.
 
+Add label nodes, connected to the token to jump to. Work back to front, maybe
+insert some weird token type for the gotos?
+
+Make roots out of those labels as well.
+
+### labels
+
+Can use tokens as ids:
+
+- Start with the very last Stmts, and propagate down tree as potential jump
+  target.
+- Can empty Stmts be told apart from no empty ones, if, so the strategy is to
+  fecth the value downstream.
+- After both are done, the break targets should be easy to find.
+- All the way down is not needed, just to the parent.
+
 ## 2015-06-15
 
 ### push based compiler

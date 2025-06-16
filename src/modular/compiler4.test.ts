@@ -1,11 +1,18 @@
 import { assertEquals } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import {
+  BasicBlocks,
+  Data,
   Expressions,
+  prettyPrint,
   Statements,
   StaticSingleAssignment,
 } from "./compiler4.ts";
 import { Automaton } from "./lexer.ts";
 import { Parser } from "./yap.ts";
+
+Deno.test("pretty printer", () => {
+  assertEquals(prettyPrint([2, 5, 2, 0, 5, 2, 0]), "(2 (0 3 6) (5 1 4))");
+});
 
 Deno.test("extracting expressions", () => {
   const automaton = new Automaton();
@@ -71,4 +78,14 @@ Deno.test("extracting labelled loops", () => {
 
 Deno.test("identifiers", () => {
   console.log(new StaticSingleAssignment("var y = x; y"));
+});
+
+Deno.test("identifiers", () => {
+  console.log(
+    new BasicBlocks(
+      new Data(
+        'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x',
+      ),
+    ),
+  );
 });

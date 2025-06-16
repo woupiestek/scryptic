@@ -2,8 +2,8 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { Automaton } from "./lexer.ts";
-import { Parser } from "./yap.ts";
+import { Automaton, TokenType } from "./lexer.ts";
+import { Op, Parser } from "./yap.ts";
 import { Trees, Trees2 } from "./prattify.ts";
 
 const goodCases = [
@@ -59,6 +59,21 @@ for (const testCode of goodCases) {
     automaton.readString(testCode);
     const parser = new Parser();
     parser.visitAll(automaton.types);
+  });
+}
+
+for (const testCode of goodCases) {
+  Deno.test(`Inspect '${testCode}'`, () => {
+    const automaton = new Automaton();
+    automaton.readString(testCode);
+    const parser = new Parser();
+    parser.visitAll(automaton.types);
+    const types: string[] = [];
+    for (let i = 0, l = parser.frames.size(); i < l; i++) {
+      if (parser.frames.op(i) !== Op.Stmts) continue;
+      types.push(TokenType[automaton.types[parser.frames.token(i)]]);
+    }
+    console.log(types);
   });
 }
 

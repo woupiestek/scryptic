@@ -2,42 +2,43 @@ import { NatSet } from "../collections/natset.ts";
 import { Automaton, TokenType } from "./lexer.ts";
 import { Frames, Op, Parser } from "./yap.ts";
 
-function prettyPrint(parents: number[]): string {
+export function prettyPrint(parents: number[]): string {
   // get roots, left child and right sibling vectors
   // for parent vector
   const roots: number[] = [];
-  const lc = parents.map(() => -1);
-  const rs = parents.map(() => -1);
+  const fc = parents.map(() => -1);
+  const ns = parents.map(() => -1);
   for (let i = parents.length - 1; i >= 0; i--) {
     if (parents[i] === undefined) continue;
     if (parents[i] === i) roots.push(i);
     else {
-      rs[i] = lc[parents[i]];
-      lc[parents[i]] = i;
+      ns[i] = fc[parents[i]];
+      fc[parents[i]] = i;
     }
   }
   if (roots.length === 0) return "";
 
   // traverse the tree to build the string
-  let res = "";
+  let result = "";
   for (let r = roots.length - 1; r >= 0; r--) {
     a: for (let i = roots[r];;) {
-      while (lc[i] >= 0) {
-        res += "(" + i + " ";
-        i = lc[i];
+      if (fc[i] >= 0) {
+        result += "(" + i + " ";
+        i = fc[i];
+        continue;
       }
-      res += i;
-      while (rs[i] == -1) {
+      result += i;
+      while (ns[i] < 0) {
         if (parents[i] === i) break a;
-        res += ")";
+        result += ")";
         i = parents[i];
       }
-      res += " ";
-      i = rs[i];
+      result += " ";
+      i = ns[i];
     }
-    if (r > 0) res += ";";
+    if (r > 0) result += ";";
   }
-  return res;
+  return result;
 }
 
 // respresent expressions as a parent vector for the tokens
@@ -165,24 +166,60 @@ export class Statements {
   }
 }
 
+export class Data {
+  // tokens
+  types: TokenType[];
+  indices: number[];
+  // frames
+  ops: Op[];
+  tokens: number[];
+  parents: number[];
+  expressions;
+
+  constructor(readonly source: string) {
+    const automaton = new Automaton();
+    automaton.readString(source);
+    this.types = automaton.types;
+    this.indices = automaton.indices;
+    const parser = new Parser();
+    parser.visitAll(this.types);
+    this.ops = parser.frames.ops;
+    this.tokens = parser.frames.tokens;
+    this.parents = parser.frames.parents;
+    this.expressions = new Expressions(parser.frames);
+  }
+
+  type(id: number) {
+    return this.types[this.tokens[id]];
+  }
+
+  name(id: number) {
+    return name(
+      this.source,
+      this.indices[this.tokens[id]],
+    );
+  }
+}
+
+function name(source: string, from: number) {
+  let to = from;
+  while (
+    to < source.length &&
+    /[0-9A-Za-z]/.test(source[++to])
+  );
+  return source.slice(from, to);
+}
+
 // small steps?
 export class StaticSingleAssignment {
-  #automaton = new Automaton();
-  #parser = new Parser();
-  #expressions;
-
-  constructor(private source: string) {
-    this.#automaton.readString(source);
-    this.#parser.visitAll(this.#automaton.types);
-    this.#expressions = new Expressions(this.#parser.frames);
+  #data;
+  constructor(source: string) {
+    this.#data = new Data(source);
     this.#register();
   }
 
   #name(token: number) {
-    const from = this.#automaton.indices[token];
-    let to = from;
-    while (to < this.source.length && /[0-9A-Za-z]/.test(this.source[++to]));
-    return this.source.slice(from, to);
+    return name(this.#data.source, this.#data.indices[token]);
   }
 
   identifiers: number[] = [];
@@ -194,22 +231,23 @@ export class StaticSingleAssignment {
   #register() {
     const rhs: Map<number, number> = new Map();
     const lhs: Map<string, number> = new Map();
-    for (let i = 0, l = this.#expressions.parents.length; i < l; i++) {
-      const parent = this.#expressions.parents[i];
+    for (let i = 0, l = this.#data.expressions.parents.length; i < l; i++) {
+      const parent = this.#data.expressions.parents[i];
       if (parent === undefined) continue;
 
-      if (this.#automaton.types[i] === TokenType.IDENTIFIER) {
+      if (this.#data.types[i] === TokenType.IDENTIFIER) {
         this.identifiers.push(i);
         const name = this.#name(i);
         const id = this.names.push(name) - 1;
 
         // check for assignment
-        if (this.#automaton.types[parent] === TokenType.BE && i < parent) {
+        if (this.#data.types[parent] === TokenType.BE && i < parent) {
           rhs.set(parent, id);
-        } else if (this.#automaton.types[parent] === TokenType.VAR) {
-          const grampaw = this.#expressions.parents[parent];
+        } else if (this.#data.types[parent] === TokenType.VAR) {
+          const grampaw = this.#data.expressions.parents[parent];
           if (
-            this.#automaton.types[grampaw] === TokenType.BE && parent < grampaw
+            this.#data.types[grampaw] === TokenType.BE &&
+            parent < grampaw
           ) {
             rhs.set(grampaw, id);
           }
@@ -224,12 +262,104 @@ export class StaticSingleAssignment {
         }
       }
 
-      if (this.#automaton.types[parent] === TokenType.BE && i > parent) {
+      if (this.#data.types[parent] === TokenType.BE && i > parent) {
         const id = rhs.get(parent);
         if (id === undefined) continue; // though something went wrong
         this.values[id] = i;
         lhs.set(this.names[id], i);
       }
     }
+  }
+}
+
+export class BasicBlocks {
+  constructor(private data: Data) {
+    this.#traverse();
+  }
+
+  #empty(id: number) {
+    switch (this.data.types[this.data.tokens[id]]) {
+      case TokenType.BRACE_RIGHT:
+      case TokenType.BREAK:
+      case TokenType.CONTINUE:
+      case TokenType.END:
+      case TokenType.RETURN:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  #labels: Map<number, number> = new Map();
+  readonly next: Map<number, number> = new Map();
+
+  #traverse() {
+    for (let i = this.data.ops.length - 1; i >= 0; i--) {
+      switch (this.data.ops[i]) {
+        case Op.Stmts: {
+          let id = i;
+          if (this.#empty(i)) {
+            // in case no 'next' is found
+            id = -1;
+            // go fetch!
+            for (
+              let j = this.parent(i);
+              this.parent(j) !== j;
+              j = this.parent(j)
+            ) {
+              const k = this.next.get(j);
+              if (k !== undefined) {
+                id = k;
+                break;
+              }
+            }
+          }
+          this.next.set(this.parent(i), id);
+          break;
+        }
+        case Op.Label: {
+          const label = this.data.type(i) === TokenType.LABEL
+            ? this.data.name(i)
+            : undefined;
+          // break or continue...
+          const parentType = this.data.type(this.parent(i));
+
+          // look for enclosing while statements
+          // problem: we need a label match
+          let target = -1; //  if not found...
+          for (
+            let j = this.parent(i);
+            this.parent(j) !== j;
+            j = this.parent(j)
+          ) {
+            if (
+              this.data.ops[j] === Op.Stmts
+            ) {
+              const type = this.data.type(j);
+              if (
+                (label === undefined &&
+                  (type === TokenType.LABEL || type === TokenType.WHILE)) ||
+                (type === TokenType.LABEL && label === this.data.name(j))
+              ) {
+                target = j;
+                break;
+              }
+            }
+          }
+          if (parentType === TokenType.CONTINUE) {
+            this.#labels.set(i, target);
+            this.next.set(i, target);
+          } else {
+            const n = this.next.get(target) ?? -1;
+            this.#labels.set(i, n);
+            this.next.set(i, n);
+          }
+        }
+      }
+    }
+  }
+
+  private parent(i: number) {
+    return this.data.parents[i];
   }
 }

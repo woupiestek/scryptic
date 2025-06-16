@@ -308,43 +308,43 @@ export class Parser {
 }
 
 export class Frames {
-  #ops: Op[] = [];
-  #tokens: number[] = [];
-  #depth: number[] = [];
-  #parents: number[] = [];
+  ops: Op[] = [];
+  tokens: number[] = [];
+  depths: number[] = [];
+  parents: number[] = [];
 
   size(): number {
-    return this.#depth.length;
+    return this.depths.length;
   }
 
   isLeaf(id: number) {
-    return !(this.#depth[id] < this.#depth[id + 1]);
+    return !(this.depths[id] < this.depths[id + 1]);
   }
 
   op(id: number) {
-    assert(id < this.#ops.length, "out of range");
-    return this.#ops[id] ?? -1;
+    assert(id < this.ops.length, "out of range");
+    return this.ops[id] ?? -1;
   }
 
   depth(id: number) {
-    return this.#depth[id] ?? 0;
+    return this.depths[id] ?? 0;
   }
 
   token(id: number) {
-    return this.#tokens[id] ?? -1;
+    return this.tokens[id] ?? -1;
   }
 
   parent(id: number) {
-    return this.#parents[id];
+    return this.parents[id];
   }
 
   children(id: number) {
-    assert(id < this.#depth.length);
-    const depth = this.#depth[id];
+    assert(id < this.depths.length);
+    const depth = this.depths[id];
     const result = [];
-    for (let i = id + 1, l = this.#depth.length; i < l; i++) {
-      if (this.#depth[i] <= depth) break;
-      if (this.#depth[i] === depth + 1) result.push(i);
+    for (let i = id + 1, l = this.depths.length; i < l; i++) {
+      if (this.depths[i] <= depth) break;
+      if (this.depths[i] === depth + 1) result.push(i);
     }
     return result;
   }
@@ -352,16 +352,16 @@ export class Frames {
   #is: number[] = [];
 
   push(op: Op, token: number, depth: number) {
-    this.#ops.push(op);
-    this.#depth.push(depth);
-    this.#tokens.push(token);
-    this.#is[depth] = this.#parents.push(depth && this.#is[depth - 1]) - 1;
+    this.ops.push(op);
+    this.depths.push(depth);
+    this.tokens.push(token);
+    this.#is[depth] = this.parents.push(depth && this.#is[depth - 1]) - 1;
   }
 
   toString(): string {
-    return this.#depth.keys().map((id) =>
+    return this.depths.keys().map((id) =>
       "  ".repeat(this.depth(id)) +
-      `${this.#tokens[id]}: ${Op[this.op(id)]}`
+      `${this.tokens[id]}: ${Op[this.op(id)]}`
     ).toArray().join("\n");
   }
 }
