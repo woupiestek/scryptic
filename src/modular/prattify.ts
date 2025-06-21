@@ -1,4 +1,4 @@
-import { NatSet } from "../collections/natset.ts";
+import { UIntSet } from "../collections/uintset.ts";
 import { Frames, Op } from "./yap.ts";
 
 export class Trees {
@@ -100,7 +100,7 @@ export class Trees {
 // this representation is a struggle.
 export class Trees2 {
   #parent: number[] = [];
-  #freed = new NatSet();
+  #freed = new UIntSet();
 
   #free(i: number) {
     this.#freed.add(i);

@@ -1,7 +1,7 @@
-import { NatSet } from "./natset.ts";
+import { UIntSet } from "./uintset.ts";
 
 export class RedBlackTreeMap<A> {
-  #red: NatSet = new NatSet();
+  #red: UIntSet = new UIntSet();
   #keys: number[] = [];
   #values: A[] = [];
   #lefts: number[] = [];

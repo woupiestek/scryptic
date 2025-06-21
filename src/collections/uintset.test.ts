@@ -1,11 +1,14 @@
-import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { NatSet } from "./natset.ts";
+import {
+  assert,
+  assertEquals,
+} from "https://deno.land/std@0.178.0/testing/asserts.ts";
+import { reverse, UIntSet } from "./uintset.ts";
 
 Deno.test("expected behavior", () => {
   const numbers = new Set(
     Array(1000).keys().map((i) => (997 + 7919 * i) % 1e5),
   );
-  const natSet = new NatSet();
+  const natSet = new UIntSet();
   for (const number of numbers) {
     natSet.add(number);
   }
@@ -27,4 +30,14 @@ Deno.test("expected behavior", () => {
   }
 
   assert(natSet.isEmpty());
+});
+
+Deno.test("scatter nats", () => {
+  const a: number[] = [];
+  const b: number[] = [];
+  for (let i = 0; i < 32; i++) {
+    a.push(reverse(1 << i));
+    b.push(2 ** (31 - i));
+  }
+  assertEquals(a, b);
 });

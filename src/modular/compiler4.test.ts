@@ -86,6 +86,6 @@ Deno.test("identifiers", () => {
       new Data(
         'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x',
       ),
-    ),
+    ).next,
   );
 });

@@ -1,5 +1,14 @@
 # Scryptic
 
+## 2025-06-17
+
+Parent vector as a way to deal with trees is an interesting idea, but seems
+mostly fun for the puzzles it introduces...
+
+The thing in this project was optimisations. I don't know how to do that now.
+The chore is that there must be intermediate representations that have different
+types of elements.
+
 ## 2025-06-16
 
 The static single assignment part is making less sense now...

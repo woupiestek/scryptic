@@ -1,4 +1,4 @@
-import { NatSet } from "../collections/natset.ts";
+import { UIntSet } from "../collections/uintset.ts";
 import { Automaton, TokenType } from "./lexer.ts";
 import { Frames, Op, Parser } from "./yap.ts";
 
@@ -47,7 +47,7 @@ export class Expressions {
   parents: number[] = [];
 
   constructor(readonly frames: Frames) {
-    const lParens = new NatSet();
+    const lParens = new UIntSet();
 
     for (let i = 0, l = frames.size(); i < l; i++) {
       switch (frames.op(i)) {
@@ -290,76 +290,25 @@ export class BasicBlocks {
     }
   }
 
-  #labels: Map<number, number> = new Map();
+  //#labels: Map<number, number> = new Map();
   readonly next: Map<number, number> = new Map();
 
   #traverse() {
-    for (let i = this.data.ops.length - 1; i >= 0; i--) {
-      switch (this.data.ops[i]) {
-        case Op.Stmts: {
-          let id = i;
-          if (this.#empty(i)) {
-            // in case no 'next' is found
-            id = -1;
-            // go fetch!
-            for (
-              let j = this.parent(i);
-              this.parent(j) !== j;
-              j = this.parent(j)
-            ) {
-              const k = this.next.get(j);
-              if (k !== undefined) {
-                id = k;
-                break;
-              }
-            }
-          }
-          this.next.set(this.parent(i), id);
-          break;
-        }
-        case Op.Label: {
-          const label = this.data.type(i) === TokenType.LABEL
-            ? this.data.name(i)
-            : undefined;
-          // break or continue...
-          const parentType = this.data.type(this.parent(i));
+    const stmts: number[] = [];
+    this.data.ops.forEach((op, i) => {
+      if (op === Op.Stmts) stmts.push(i);
+    });
 
-          // look for enclosing while statements
-          // problem: we need a label match
-          let target = -1; //  if not found...
-          for (
-            let j = this.parent(i);
-            this.parent(j) !== j;
-            j = this.parent(j)
-          ) {
-            if (
-              this.data.ops[j] === Op.Stmts
-            ) {
-              const type = this.data.type(j);
-              if (
-                (label === undefined &&
-                  (type === TokenType.LABEL || type === TokenType.WHILE)) ||
-                (type === TokenType.LABEL && label === this.data.name(j))
-              ) {
-                target = j;
-                break;
-              }
-            }
-          }
-          if (parentType === TokenType.CONTINUE) {
-            this.#labels.set(i, target);
-            this.next.set(i, target);
-          } else {
-            const n = this.next.get(target) ?? -1;
-            this.#labels.set(i, n);
-            this.next.set(i, n);
-          }
-        }
-      }
-    }
-  }
+    const set = new Set(
+      stmts.map((stmt) => this.data.indices[this.data.tokens[stmt]]),
+    );
+    console.log(set);
+    const str = Array(this.data.source.length).keys().map((i) =>
+      set.has(i) ? "*" : " "
+    ).toArray().join("");
+    console.log(this.data.source);
+    console.log(str);
 
-  private parent(i: number) {
-    return this.data.parents[i];
+    stmts.forEach((stmt) => this.next.set(this.data.parents[stmt], stmt));
   }
 }

@@ -3,7 +3,7 @@ import { TokenType } from "./lexer.ts";
 
 class Stack {
   #index = -1;
-  #instructions: number[] = [];
+  #instructions: Uint8Array = new Uint8Array(64);
   isEmpty() {
     return this.#index < 0;
   }
