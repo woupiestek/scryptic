@@ -1,4 +1,4 @@
-import { LinkedList } from "./collections/linkedList.ts";
+import { LinkedList, LinkedLists } from "./collections/linkedList.ts";
 import { Id, Term } from "./model.ts";
 import { RedBlackTreeMap } from "./collections/redBlack2.ts";
 
@@ -11,21 +11,23 @@ type Result = ["tuple", Id, number, Values] | [
   number,
 ];
 
+const LL = new LinkedLists<Object>();
+
 function concat(x: Values, y: Values): Values {
-  if (x.isEmpty) return y;
-  return concat(x.tail, y).prepend(x.head);
+  if (LL.isEmpty(x)) return y;
+  return LL.cons(LL.head(x), concat(LL.tail(x), y));
 }
 
 export function reduce(term: Term, values: Values, kappa: number): Result {
-  let operands: Values = LinkedList.EMPTY;
+  let operands: Values = LL.EMPTY;
   for (;;) {
     switch (term[0]) {
       case "ident": {
-        if (values.isEmpty) {
+        if (LL.isEmpty(values)) {
           // weak head normal form 1: tagged tuple
           return ["tuple", term[1], kappa, operands];
         }
-        const y: Result | undefined = values.head.get(term[1]);
+        const y: Result | undefined = LL.head(values).get(term[1]);
         if (y === undefined) {
           // unresolved variable
           return ["tuple", term[1], kappa, operands];
@@ -40,31 +42,32 @@ export function reduce(term: Term, values: Values, kappa: number): Result {
         continue;
       }
       case "where":
-        if (!operands.isEmpty) {
-          operands = operands.tail.prepend(
-            operands.head.add(term[2], reduce(term[3], values, kappa)),
+        if (!LL.isEmpty(operands)) {
+          operands = LL.cons(
+            LL.head(operands).add(term[2], reduce(term[3], values, kappa)),
+            LL.tail(operands),
           );
         } // else ignore?
         term = term[1];
         continue;
       case "lambda":
-        if (operands.isEmpty) {
+        if (LL.isEmpty(operands)) {
           // weak head normal form 2: closure
           return ["closure", term, values, kappa];
         }
-        values = values.prepend(operands.head);
-        operands = operands.tail;
+        values = LL.cons(LL.head(operands), values);
+        operands = LL.tail(operands);
         term = term[1];
         continue;
       case "alpha":
-        operands = operands.prepend(RedBlackTreeMap.EMPTY);
+        operands = LL.cons(RedBlackTreeMap.EMPTY, operands);
         term = term[1];
         continue;
       case "kappa":
-        if (values.isEmpty) {
+        if (LL.isEmpty(values)) {
           kappa++;
         } else {
-          values = values.tail;
+          values = LL.tail(values);
         }
         term = term[1];
         continue;

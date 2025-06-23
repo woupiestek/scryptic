@@ -1,5 +1,19 @@
 # Scryptic
 
+## 2025-06-22
+
+Have types like `obj0`, `obj8`, `obj16`, `obj32`, `obj64`: control size of
+handles, to control memory.
+
+Perhaps a second range of types for handles that are hash codes might be nice.
+
+Note: in SQL every table has a primary key. Maybe that is how it should work: A
+hash code is produced for the primary key, which is then used for storing the
+rest of the data associated with the object.
+
+Still feels like multiple strategies would be better: every lookup would be
+based on linear probing of a hash table. So, arrays are better?
+
 ## 2025-06-17
 
 Parent vector as a way to deal with trees is an interesting idea, but seems

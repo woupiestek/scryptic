@@ -338,9 +338,9 @@ export class Parser {
 
   static #string(list: LinkedList<number>): string {
     let s = "";
-    while (!list.isEmpty) {
-      s = String.fromCharCode(list.head) + s;
-      list = list.tail;
+    while (!Trie.LL.isEmpty(list)) {
+      s = String.fromCharCode(Trie.LL.head(list)) + s;
+      list = Trie.LL.tail(list);
     }
     return s;
   }

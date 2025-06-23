@@ -17,7 +17,7 @@
  * requires it.
  */
 
-import { LinkedList } from "./collections/linkedList.ts";
+import { LinkedList, LinkedLists } from "./collections/linkedList.ts";
 import { Id, Term } from "./model.ts";
 import { Parser } from "./parser.ts";
 import { RedBlackTreeMap } from "./collections/redBlack2.ts";
@@ -29,18 +29,20 @@ type Result = ["tuple", Id, number, Values] | [
   Reducend,
 ];
 
+const LL = new LinkedLists<RedBlackTreeMap<Reducend>>();
+// no garbage collection here
 export function reduce(term: Term): Result {
   let kappa = 0;
-  let values: Values = LinkedList.EMPTY;
-  let operands: Values = LinkedList.EMPTY;
+  let values: Values = LL.EMPTY;
+  let operands: Values = LL.EMPTY;
   for (;;) {
     switch (term[0]) {
       case "ident": {
-        if (values.isEmpty) {
+        if (LL.isEmpty(values)) {
           // weak head normal form 1: tagged tuple
           return ["tuple", term[1], kappa, operands];
         }
-        const y: Reducend | undefined = values.head.get(term[1]);
+        const y: Reducend | undefined = LL.head(values).get(term[1]);
         if (y === undefined) {
           // unresolved variable
           return ["tuple", term[1], kappa, operands];
@@ -49,31 +51,32 @@ export function reduce(term: Term): Result {
         continue;
       }
       case "lambda":
-        if (operands.isEmpty) {
+        if (LL.isEmpty(operands)) {
           // weak head normal form 2: closure
           return ["closure", [term, values, kappa]];
         }
-        values = values.prepend(operands.head); //[operands[0], values];
-        operands = operands.tail;
+        values = LL.cons(LL.head(operands), values); //[operands[0], values];
+        operands = LL.tail(operands);
         term = term[1];
         continue;
       case "where":
-        if (!operands.isEmpty) {
-          operands = operands.tail.prepend(
-            operands.head.add(term[2], [term[3], values, kappa]),
+        if (!LL.isEmpty(operands)) {
+          operands = LL.cons(
+            LL.head(operands).add(term[2], [term[3], values, kappa]),
+            LL.tail(operands),
           );
         } // else ignore?
         term = term[1];
         continue;
       case "alpha":
-        operands = operands.prepend(RedBlackTreeMap.EMPTY);
+        operands = LL.cons(RedBlackTreeMap.EMPTY, operands);
         term = term[1];
         continue;
       case "kappa":
-        if (values.isEmpty) {
+        if (LL.isEmpty(values)) {
           kappa++;
         } else {
-          values = values.tail;
+          values = LL.tail(values);
         }
         term = term[1];
         continue;
@@ -99,7 +102,7 @@ function stringifyResult(result: Result): string {
 function stringifyValues(values: Values): string {
   const objects: string[] = [];
   const pairs = [];
-  for (const r of values.entries()) {
+  for (const r of LL.entries(values)) {
     for (const [k, v] of r.entries()) {
       pairs.push(`${k}: ${stringifyReducend(v)}`);
     }

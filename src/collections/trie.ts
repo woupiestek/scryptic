@@ -1,7 +1,8 @@
-import { LinkedList } from "./linkedList.ts";
+import { LinkedList, LinkedLists } from "./linkedList.ts";
 import { Table } from "./table.ts";
 
 export class Trie<A> {
+  static LL = new LinkedLists<number>();
   value?: A;
   children: Table<Trie<A>> = new Table();
   getChild(index: number): Trie<A> {
@@ -22,11 +23,11 @@ export class Trie<A> {
   }
 
   *entries(
-    prefix: LinkedList<number> = LinkedList.EMPTY,
+    prefix: LinkedList<number> = Trie.LL.EMPTY,
   ): Generator<[LinkedList<number>, A]> {
     if (this.value !== undefined) yield [prefix, this.value];
     for (const [k, v] of this.children.entries()) {
-      yield* v.entries(prefix.prepend(k));
+      yield* v.entries(Trie.LL.cons(k, prefix));
     }
   }
 
