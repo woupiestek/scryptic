@@ -1,5 +1,199 @@
 # Scryptic
 
+## 2025-07-02
+
+### dispatch
+
+For static dispatch the compiler knows what the end result should be,
+package/class/field, the location in the vm can be filled in once when the
+module is loaded, and go form there. So what happens on dynamic dispatch?
+
+The Java solution is to have a method table in the class, than be be searched...
+The compiler knows by interface or class which methods are available, but not
+which implementation is relevant for the specific class or value.
+
+Type classes could be arranged that way... extreme case, the table has object
+handles and for each field, a pointer. The type class implementation describes
+how these are formed. This would be the first case of an object that contains
+pointers!
+
+So this vm is different in that instead of allocation space per instance, each
+class gets an array for values for each field. This reduces the number of raw
+pointers floating around. For dynamic dispatch, something more is needed.
+
+### what about closures?
+
+This might be a simpler approach to a similar goal. So, some columns contains
+virtual functions, which basically combine a handle and a method.
+
+Methods may use similar syntax, but unlike other fields, they are not mutable.
+Virtual methods are different: these can be assigned a value of
+
+Maybe this indirection should be the default?
+
+Function spaces are big, going on uncountable. The implementation comes down to
+a disjunction of classes (up to one for each closure producing function) with
+one method.
+
+So take the idea of a general closure type. It breaks down into one class per
+function that produces closures, joint together in some enum. So a function
+producing function has a
+
+Interesting to question now how useful different tables are. All you really need
+to know is how many bytes to allocate to each function. Well, then you run into
+all the old issues of not being data oriented, so a table for each function
+might be good.
+
+### bring it back to type classes
+
+One table per implementation and one master table, that pairs tables and rows.
+The table per implementation, does it actually have instances? Or just methods?
+
+A row of rows, an extra indirection. Probably not useful on its own, needs to
+combine with instances and tables. Maybe not tables? Why tables? The columns
+know what is up.
+
+Virtual methods and virtual fields.
+
+### complexing stuff
+
+images. into a type class.
+
+### types and pointers
+
+- primitives
+- structs
+- function spaces: closures, not function pointers
+- unions of images ~ more like dependent sums of functions
+- generics ~
+- type classes: specifies a list of methods and possible fields expected on an
+  instance, with each type class instance
+
+Generics is intreresting: generic functions are universally quantified, generic
+types are more existential. so, technically, generics are a type of image.
+
+I guess a type class doesn't keep track of instances, just of implementations.
+and where the type class is used, the instance, which is an index in an unknown
+table, the type class must accompany it.
+
+### radicality
+
+Maybe just have enums, other disjoint sums or algebraic types... question is, is
+is more than hype. I.e. will we look back on pattren matching as another tragic
+mistake?
+
+It could be an advantage...
+
+### other roads
+
+- this is oop like, but with type classes and joint images instead op
+  inheritance.
+- veering towards dropping the images: the idea is to just allow algebraic
+  types, so limited polymorphism can be implemented with pattern matching. One
+  variant is simply the union of classes.
+- perhaps there is more to do with arrays of arrays... like two arrays, one of
+  rows and one of columns independent of tables, except that the columns have
+  the same type. that is the bound method thing in fact.
+- but just like that, go fully lispy / lambda calculus: everything has a generic
+  type, which means that actually everything has a handle and a function pointer
+- special mix: yes structs, no to functions inside structs? also functions
+  inside structs, but is each its own closure?
+
+### lambda ideas
+
+Lambda calculus with images. Like, functions can be limited to certain types,
+then new types can be defined using the unions of images idea.
+
+Note: all closures still, the interface is a kind of closure of the types of the
+parts.
+
+Slow numbers: omega = { f -> x -> x } U { f -> x -> y f (f y) | y : omega }
+
+## 2025-07-01
+
+### apart
+
+Formerly there was an idea of putting the classpath on a server, but the client
+VM is a db in another sense: storing objects in tables, one per class basically.
+So there is a distinction possible between precompiled programs and repls, where
+the latter send queries to the database, and print the responses directly.
+
+The way the database looks is basically a table per class. A so enums, if at
+all,
+
+### type classes
+
+Dynamic or static? Static means that functions must be recompiled to work for
+different classes. Ah hoc polymorphism doesn't really suggest anything here.
+
+## 2025-06-30
+
+Some ideas about the Java successor. REPL is important, writing code while
+testing is the way to go. Methods have type annotations so declarations can fail
+if the annotatons don't work. Classes can change, by adding and maybe deleting
+fields and methods. Maybe not deleting, the garbage collector might do that...
+
+Classes are product, so enums need another construct.
+
+- primitives
+- struct, enum
+- generics: variables, type classes
+- methods
+
+Don't make it weirder than that.
+
+So, I think everything can be variables. Not entirely sure how this works
+accross modules.
+
+Top level and script have type declarations, methods, but those aren't
+necessarily first class.
+
+## 2025-06-26
+
+The first idea is to have a stuct of arrays per class of a statically typed OOP
+language, but in principle this can be any language. It is just another way to
+organize the data in memory, only that avoids working with pointers. The
+benefits might be in performance, especially when working with large sets of
+objects, the fact that object hanldes can be smaller, but perhaps there are
+other benefits.
+
+For example: generics are more flexible, as swpping out one array for another is
+more flexible than
+
+### Simplicity of implementation.
+
+So on one hand: no. There may be a lot of special bookkeeping needed to make a
+less obvious allocaton strategy work. On the other: yes, because anything
+dealing with raw pointers should be simpler. Pointer like errors would happen
+with indices instead.
+
+### language features
+
+Like obviously traits and such, no wrapper object if avoidable. Truly generic
+generics. Maybe stuff with ownership and borrowing. So what do ownership and
+borrowing do in an OOP language?
+
+My idea was that it put mutability and immutability in the type system.
+Obviosuly the same rules don;t apply, because a garbage collector and a heap
+makes the language more forgiving of keeping pointers around.
+
+### with java
+
+The idea is the build everything out of arrays of primitives, and letting
+classes be java objects.
+
+Maybe like an APL java system... Interesting question is how this would interct
+with java.
+
+Everything else can continue.
+
+## 2025-06-24
+
+Data oriented VM, so each class gets a struct of arrays to store values for all
+objects in. Outside of being good at certain kinds fo jobs, any language
+features? Mayeb just use this for worst case scenario: purely functional
+language, lots of temprary objects, lots of benefit from pure values.
+
 ## 2025-06-22
 
 Have types like `obj0`, `obj8`, `obj16`, `obj32`, `obj64`: control size of
