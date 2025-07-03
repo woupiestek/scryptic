@@ -1,4 +1,5 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
+import { UIntSet } from "./uintset.ts";
 
 export type LinkedList<_> = number & { readonly __tag: unique symbol };
 
@@ -6,13 +7,7 @@ export class LinkedLists<A> {
   #heads: A[] = [];
   #buffer = new ArrayBuffer(8, { maxByteLength: 2 ** 31 - 1 });
   #tails: Uint32Array = new Uint32Array(this.#buffer);
-
-  // cause that is what the buffer is automatically filled with
-  static readonly EMPTY = 0 as LinkedList<unknown>;
-
-  constructor() {
-    this.#tails[0] = 0;
-  }
+  #next = 0;
 
   get EMPTY(): LinkedList<A> {
     return 0 as LinkedList<A>;
@@ -31,14 +26,33 @@ export class LinkedLists<A> {
   }
 
   cons(head: A, tail: LinkedList<A>): LinkedList<A> {
-    const l = this.#heads.push(head);
-    if (this.#tails.length <= l) {
+    while (this.#heads[this.#next++] !== undefined);
+    this.#heads[this.#next - 1] = head;
+    if (this.#tails.length <= this.#next) {
       this.#buffer.resize(
         this.#buffer.byteLength * 2,
       );
     }
-    this.#tails[l] = tail;
-    return l as LinkedList<A>;
+    this.#tails[this.#next] = tail;
+    return this.#next as LinkedList<A>;
+  }
+
+  // for garbage collection...
+  retain(lists: LinkedList<A>[]) {
+    const set = new UIntSet();
+    for (const list of lists) {
+      set.add(list);
+    }
+    while (this.#next >= 0) {
+      if (set.has(this.#next)) {
+        set.add(this.#tails[this.#next]);
+      } else {
+        // please work
+        delete this.#heads[this.#next - 1];
+        this.#tails[this.#next] = 0;
+      }
+      this.#next--;
+    }
   }
 
   *entries(list: LinkedList<A>) {

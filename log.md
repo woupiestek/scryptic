@@ -1,5 +1,52 @@
 # Scryptic
 
+## 2025-07-03
+
+### inheritance as composition
+
+I guess using compositon has a clear performance downside in traditonal OOP
+memory management, but `super` can just be a member of the current object, and
+methods could just call `super` counterparts directly.
+
+Inheritance forces objects to carry their specific class...
+
+### outlines
+
+A toy implementation... so the mutable products are objects with array buffer
+elements. Well, maybe the functions are not array buffers. Is it possible to
+compile to javascript?
+
+### MVP
+
+Fully declarative. Just classes with fields and methods. Leave everything out,
+except a small thing to test.
+
+- (int|uint)(8|16|32)
+- float(16|32|64)
+- subtypes (maybe) (1|2|4)
+
+For classes: simple all args constructor. Maybe a no args constructors.
+basically let the methods decide which fields exist and what their types are.
+Methods:
+
+### in lox?
+
+So the idea would be that assigning any new member to any object immediate
+assign an array (of null) to its class.
+
+### break it down
+
+Every day a tiny step towards the machine. How?
+
+### the original scryptic
+
+Make this about implementing it efficiently...
+
+### recursive types and garbage collection
+
+Reference counting works for types that are not recursive, not generic? Sets of
+mutually recursive types can be marked and swept together.
+
 ## 2025-07-02
 
 ### dispatch
