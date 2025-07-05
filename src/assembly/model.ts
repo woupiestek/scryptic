@@ -1,5 +1,5 @@
 import { SplayMap } from "../collections/splay.ts";
-import { Token, TokenType } from "./lexer.ts";
+import { Lex, TokenType } from "./parser4.ts";
 import {
   Access,
   Binary,
@@ -19,6 +19,7 @@ import {
   Variable,
   WhileStatement,
 } from "./parser.ts";
+import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 
 export enum Kind {
   Access,
@@ -52,7 +53,7 @@ type Data =
   | [Kind.Then, Value];
 export class Entry {
   constructor(
-    readonly token: Token,
+    readonly token: number,
     readonly data?: Data,
     readonly world?: Value,
   ) {}
@@ -81,34 +82,36 @@ const KEYS = {
 
 export class Model {
   readonly entries: Entry[] = [];
-  static #error(token: Token, msg: string) {
+  constructor(private lex: Lex) {}
+  #error(token: number, msg: string) {
+    const [l, c] = this.lex.lineAndColumn(token);
     return new Error(
       `Compile error at ${
-        TokenType[token.type]
-      } [${token.line},${token.column}]: ${msg}`,
+        TokenType[this.lex.types[token]]
+      } [${l},${c}]: ${msg}`,
     );
   }
 
-  #enter(token: Token, data?: Data, world?: Value): number {
+  #enter(token: number, data?: Data, world?: Value): number {
     return this.entries.push(new Entry(token, data, world)) - 1;
   }
 
   assign(
     values: Values,
-    token: Token,
+    token: number,
     left: Expression,
     right: Expression,
   ): Alternatives {
-    switch (left.token.type) {
+    switch (this.lex.types[left.token]) {
       case TokenType.IDENTIFIER: {
         const { name } = left as Variable;
         const value = values.select(name);
         if (value === undefined) {
-          throw Model.#error(token, "Undeclared variable");
+          throw this.#error(token, "Undeclared variable");
         }
         const a = this.expression(values, right);
-        const b = Model.value(a);
-        return Model.lift(values.insert(name, b).insert(KEYS.value, b));
+        const b = this.value(a);
+        return this.lift(values.insert(name, b).insert(KEYS.value, b));
       }
       case TokenType.DOT: {
         const { token, object, field } = left as Access;
@@ -117,13 +120,13 @@ export class Model {
           a.select(KEYS.next) || SplayMap.empty(),
           right,
         );
-        return Model.set(
+        return this.set(
           b,
           KEYS.world,
           this.#enter(
             token,
-            [Kind.SetField, Model.value(a), field, Model.value(b)],
-            Model.world(b),
+            [Kind.SetField, this.value(a), field, this.value(b)],
+            this.world(b),
           ),
         );
       }
@@ -132,60 +135,61 @@ export class Model {
         const value = values.select(name);
         if (value !== undefined) {
           const token2 = this.entries[value].token;
-          throw Model.#error(
+          const [l, c] = this.lex.lineAndColumn(token2);
+          throw this.#error(
             token,
-            `Variable already declared at [${token2.line},${token2.column}]`,
+            `Variable already declared at [${l},${c}]`,
           );
         }
         const b = this.expression(values, right);
-        return Model.set(
-          Model.set(b, name, Model.value(b)),
+        return this.set(
+          this.set(b, name, this.value(b)),
           KEYS.value,
-          Model.value(b),
+          this.value(b),
         );
       }
       default:
-        throw Model.#error(token, "Illegal assignment");
+        throw this.#error(token, "Illegal assignment");
     }
   }
 
-  static value(alternatives: Alternatives): Value {
-    return Model.get(alternatives, KEYS.value);
+  value(alternatives: Alternatives): Value {
+    return this.get(alternatives, KEYS.value);
   }
-  static world(alternatives: Alternatives): Value {
-    return Model.get(alternatives, KEYS.world);
+  world(alternatives: Alternatives): Value {
+    return this.get(alternatives, KEYS.world);
   }
-  static get(alternatives: Alternatives, key: string): Value {
+  get(alternatives: Alternatives, key: string): Value {
     return alternatives.select(KEYS.next)?.select(key) ?? -1;
   }
-  static next(alternatives: Alternatives): Values {
+  next(alternatives: Alternatives): Values {
     return alternatives.select(KEYS.next) || SplayMap.empty();
   }
-  static set(
+  set(
     alternatives: Alternatives,
     key: string,
     value: Value,
   ): Alternatives {
-    return Model.flatMap(
+    return this.flatMap(
       alternatives,
-      (next) => Model.lift(next.insert(key, value)),
+      (next) => this.lift(next.insert(key, value)),
     );
   }
 
-  static lift(values: Values): Alternatives {
+  lift(values: Values): Alternatives {
     return SplayMap.empty<Values>().insert(KEYS.next, values);
   }
 
-  static flatMap(
+  flatMap(
     alternatives: Alternatives,
     f: (values: Values) => Alternatives,
   ): Alternatives {
-    const x = f(Model.next(alternatives));
+    const x = f(this.next(alternatives));
     return alternatives.delete(KEYS.next).merge(x);
   }
 
   expression(values: Values, expression: Expression): Alternatives {
-    switch (expression.token.type) {
+    switch (this.lex.types[expression.token]) {
       case TokenType.BE: {
         const { token, left, right } = expression as Binary;
         return this.assign(values, token, left, right);
@@ -193,13 +197,13 @@ export class Model {
       case TokenType.DOT: {
         const { token, object, field } = expression as Access;
         const o = this.expression(values, object);
-        return Model.set(
+        return this.set(
           o,
           KEYS.value,
           this.#enter(
             token,
-            [Kind.Access, Model.value(o), field],
-            Model.get(o, KEYS.world),
+            [Kind.Access, this.value(o), field],
+            this.get(o, KEYS.world),
           ),
         );
       }
@@ -207,7 +211,7 @@ export class Model {
       case TokenType.STRING:
       case TokenType.TRUE: {
         const { token, value } = expression as Literal;
-        return Model.lift(
+        return this.lift(
           values.insert(
             KEYS.value,
             this.#enter(token, [Kind.Literal, value]),
@@ -218,12 +222,12 @@ export class Model {
       case TokenType.THIS: {
         const value = values.select((expression as Variable).name);
         if (value === undefined) {
-          throw Model.#error(expression.token, "Undeclared variable");
+          throw this.#error(expression.token, "Undeclared variable");
         }
         if (this.entries[value].data === undefined) {
-          throw Model.#error(expression.token, "Unassigned variable");
+          throw this.#error(expression.token, "Unassigned variable");
         }
-        return Model.lift(values.insert(KEYS.value, value));
+        return this.lift(values.insert(KEYS.value, value));
       }
       case TokenType.IS_NOT:
       case TokenType.IS:
@@ -233,64 +237,65 @@ export class Model {
       case TokenType.NOT_MORE: {
         const { token, left, right } = expression as Binary;
         const l = this.expression(values, left);
-        const r = Model.flatMap(l, (it) => this.expression(it, right));
-        return Model.set(
+        const r = this.flatMap(l, (it) => this.expression(it, right));
+        return this.set(
           r,
           KEYS.value,
           this.#enter(token, [
             Kind.Comparison,
-            Model.value(l),
-            Model.value(r),
+            this.value(l),
+            this.value(r),
           ]),
         );
       }
       case TokenType.LOG: {
         const { token, value } = expression as Log;
         const values2 = this.expression(values, value);
-        return Model.set(
+        return this.set(
           values2,
           KEYS.world,
           this.#enter(
             token,
-            [Kind.Log, Model.value(values2)],
-            Model.world(values2),
+            [Kind.Log, this.value(values2)],
+            this.world(values2),
           ),
         );
       }
       case TokenType.NEW: {
         const { token, klaz } = expression as New;
-        return Model.lift(
+        return this.lift(
           values.insert(KEYS.value, this.#enter(token, [Kind.New, klaz])),
         );
       }
       case TokenType.PAREN_LEFT: {
         const { token, operator, operands } = expression as Call;
         let w = this.expression(values, operator);
-        const x = Model.value(w);
+        const x = this.value(w);
         const y: Value[] = [];
         for (const operand of operands) {
-          w = w.merge(this.expression(Model.next(w), operand));
-          y.push(Model.value(w));
+          w = w.merge(this.expression(this.next(w), operand));
+          y.push(this.value(w));
         }
         const value: Value = this.#enter(token, [
           Kind.Call,
           x,
           y,
-        ], Model.world(w));
-        return Model.set(Model.set(w, KEYS.world, value), KEYS.value, value);
+        ], this.world(w));
+        return this.set(this.set(w, KEYS.world, value), KEYS.value, value);
       }
       case TokenType.VAR: {
         const { key: { name } } = expression as VarDeclaration;
         const check = values.select(name);
         if (check !== undefined) {
           const token = this.entries[check].token;
-          throw Model.#error(
+          const [l, c] = this.lex.lineAndColumn(token);
+          throw this.#error(
             expression.token,
-            `variable already defined at ${[token.line, token.column]}`,
+            `variable already defined at ${[l, c]}`,
           );
         }
         const u = this.#enter(expression.token);
-        return Model.lift(values.insert(name, u).insert(KEYS.value, u));
+        return this.lift(values.insert(name, u).insert(KEYS.value, u));
       }
       case TokenType.AND: {
         const { left, right } = expression as Binary;
@@ -298,7 +303,7 @@ export class Model {
           left,
           (it: Values) => this.expression(it, right),
           (it: Values) =>
-            Model.lift(
+            this.lift(
               it.insert(
                 KEYS.value,
                 this.#enter(expression.token, [Kind.Literal, false]),
@@ -312,7 +317,7 @@ export class Model {
         return this.ifThenElse(
           left,
           (it: Values) =>
-            Model.lift(
+            this.lift(
               it.insert(
                 KEYS.value,
                 this.#enter(expression.token, [Kind.Literal, true]),
@@ -323,7 +328,7 @@ export class Model {
         );
       }
       default:
-        throw Model.#error(expression.token, "Illegal expression in boolean");
+        throw this.#error(expression.token, "Illegal expression in boolean");
     }
   }
 
@@ -333,7 +338,7 @@ export class Model {
     if (next === undefined) return alternatives;
     if (block.jump) {
       //alternatives = alternatives.delete(KEYS.next);
-      switch (block.jump.token.type) {
+      switch (this.lex.types[block.jump.token]) {
         case TokenType.BREAK: {
           const { label } = block.jump as Break;
           return alternatives.delete(KEYS.next).insert(
@@ -353,11 +358,11 @@ export class Model {
           if (expression === undefined) {
             return alternatives.delete(KEYS.next).insert(KEYS.return, next);
           }
-          alternatives = Model.flatMap(
+          alternatives = this.flatMap(
             alternatives,
             (next) => this.expression(next, expression),
           );
-          const _next = Model.next(alternatives);
+          const _next = this.next(alternatives);
           return alternatives.delete(KEYS.next).insert(KEYS.return, _next);
         }
       }
@@ -386,25 +391,24 @@ export class Model {
   }
 
   interpret(values: Values, statements: Statement[]): Alternatives {
-    let alternatives = Model.lift(values);
+    let alternatives = this.lift(values);
     for (const statement of statements) {
-      switch (statement.token.type) {
-        case TokenType.BRACE_LEFT: {
-          // todo: delete variables out of scope
-          alternatives = Model.flatMap(
-            alternatives,
-            (next) => this.#block(next, statement as Block),
-          );
-          if (alternatives.select(KEYS.next) === undefined) return alternatives;
-          continue;
-        }
+      if (statement instanceof Block) {
+        alternatives = this.flatMap(
+          alternatives,
+          (next) => this.#block(next, statement as Block),
+        );
+        if (alternatives.select(KEYS.next) === undefined) return alternatives;
+        continue;
+      }
+      switch (this.lex.types[statement.token]) {
         case TokenType.IF: {
           const { condition, onTrue, onFalse } = statement as IfStatement;
-          alternatives = Model.flatMap(alternatives, (next) =>
+          alternatives = this.flatMap(alternatives, (next) =>
             this.ifThenElse(
               condition,
               (it) => this.#block(it, onTrue),
-              onFalse ? (it) => this.#block(it, onFalse) : Model.lift,
+              onFalse ? (it) => this.#block(it, onFalse) : this.lift,
               next,
             ));
           if (alternatives.select(KEYS.next) === undefined) return alternatives;
@@ -417,7 +421,7 @@ export class Model {
           // the painful one...
           // varaibles are not tracked, which is why we need so many phonies here.
           let values: Values = SplayMap.empty();
-          for (const [k, v] of Model.next(alternatives).entries()) {
+          for (const [k, v] of this.next(alternatives).entries()) {
             phonies[k] = [v];
             values = values.insert(
               k,
@@ -427,7 +431,7 @@ export class Model {
           alternatives = alternatives.insert(KEYS.next, values);
           // ready
           const { condition, onTrue, label } = statement as WhileStatement;
-          alternatives = Model.flatMap(
+          alternatives = this.flatMap(
             alternatives,
             (next) =>
               this.ifThenElse(
@@ -438,7 +442,7 @@ export class Model {
                   if (next === undefined) return alt;
                   return alt.delete(KEYS.next).insert(KEYS.continue, next);
                 },
-                Model.lift,
+                this.lift,
                 next,
               ),
           );
@@ -469,7 +473,7 @@ export class Model {
           if (br !== undefined) {
             alternatives = alternatives.delete(KEYS.break).insert(
               KEYS.next,
-              this.phi(Model.next(alternatives), br),
+              this.phi(this.next(alternatives), br),
             );
           }
           if (label !== undefined) {
@@ -478,7 +482,7 @@ export class Model {
             if (brl !== undefined) {
               alternatives = alternatives.delete(key).insert(
                 KEYS.next,
-                this.phi(Model.next(alternatives), brl),
+                this.phi(this.next(alternatives), brl),
               );
             }
           }
@@ -487,7 +491,7 @@ export class Model {
           continue;
         }
         default:
-          alternatives = Model.flatMap(
+          alternatives = this.flatMap(
             alternatives,
             (next) => this.expression(next, statement as Expression),
           );
@@ -516,7 +520,7 @@ export class Model {
     values: Values,
   ): Alternatives {
     const alt0 = this.expression(values, condition);
-    const altT = Model.flatMap(
+    const altT = this.flatMap(
       alt0,
       (next) =>
         thenBlock(
@@ -524,13 +528,13 @@ export class Model {
             KEYS.world,
             this.#enter(
               condition.token,
-              [Kind.Then, Model.value(alt0)],
+              [Kind.Then, this.value(alt0)],
               next.select(KEYS.world),
             ),
           ),
         ),
     );
-    const altF = Model.flatMap(
+    const altF = this.flatMap(
       alt0,
       (next) =>
         elseBlock(
@@ -538,7 +542,7 @@ export class Model {
             KEYS.world,
             this.#enter(
               condition.token,
-              [Kind.Else, Model.value(alt0)],
+              [Kind.Else, this.value(alt0)],
               next.select(KEYS.world),
             ),
           ),
@@ -553,10 +557,10 @@ export class Model {
     elseBlock: (_: Values) => Alternatives,
     values: Values,
   ): Alternatives {
-    switch (condition.token.type) {
+    switch (this.lex.types[condition.token]) {
       case TokenType.AND: {
-        const key =
-          `<goto [${condition.token.line},${condition.token.column}]>`;
+        const [l, c] = this.lex.lineAndColumn(condition.token);
+        const key = `<goto [${l},${c}]>`;
         const elseBlock2 = (it: Values) =>
           SplayMap.empty<Values>().insert(key, it);
         const { left, right } = condition as Binary;
@@ -579,7 +583,7 @@ export class Model {
         return this.ifThenElse(
           right,
           (it) =>
-            Model.flatMap(
+            this.flatMap(
               this.assign(
                 it,
                 condition.token,
@@ -589,7 +593,7 @@ export class Model {
               thenBlock,
             ),
           (it) =>
-            Model.flatMap(
+            this.flatMap(
               this.assign(
                 it,
                 condition.token,
@@ -643,8 +647,8 @@ export class Model {
           values,
         );
       case TokenType.OR: {
-        const key =
-          `<goto [${condition.token.line},${condition.token.column}]>`;
+        const [l, c] = this.lex.lineAndColumn(condition.token);
+        const key = `<goto [${l},${c}]>`;
         const thenBlock2 = (it: Values) =>
           SplayMap.empty<Values>().insert(key, it);
         const { left, right } = condition as Binary;
@@ -663,7 +667,7 @@ export class Model {
       case TokenType.TRUE:
         return thenBlock(values);
       default:
-        throw Model.#error(condition.token, "Illegal condition expression");
+        throw this.#error(condition.token, "Illegal condition expression");
     }
   }
 }

@@ -1,5 +1,5 @@
 import { Class, Instruction, Label, Method, Op } from "./class.ts";
-import { Token, TokenType } from "./lexer.ts";
+import { TokenType } from "./parser4.ts";
 import {
   Access,
   Binary,
@@ -51,7 +51,10 @@ export class Compiler {
   #locals: Local[] = [];
   #names: NamedLabel[] = [];
 
-  constructor(private readonly classes: Record<string, Class> = {}) {}
+  constructor(
+    readonly types: Uint8Array,
+    private readonly classes: Record<string, Class> = {},
+  ) {}
 
   #emit(...instructions: Instruction[]) {
     this.#current.label.instructions.push(
@@ -59,9 +62,9 @@ export class Compiler {
     );
   }
 
-  #error(token: Token, msg: string) {
+  #error(token: number, msg: string) {
     return new Error(
-      `Compile error at [${token.line},${token.column}]: ${msg}`,
+      `Compile error at [${token}]: ${msg}`,
     );
   }
 
@@ -136,7 +139,7 @@ export class Compiler {
     expression: Binary,
     onFalse: Label,
   ) {
-    const a = Compiler.#BOOL_BI[expression.token.type];
+    const a = Compiler.#BOOL_BI[this.types[expression.token]];
     if (a) {
       const [op, negate, reverse] = a;
       const target = negate ? this.#switch(onFalse) : onFalse;
@@ -151,7 +154,7 @@ export class Compiler {
       return;
     }
 
-    switch (expression.token.type) {
+    switch (this.types[expression.token]) {
       case TokenType.AND: {
         this.#boolean(expression.left, onFalse);
         const b = new Label(this.#next());
@@ -296,7 +299,7 @@ export class Compiler {
   }
 
   #binary(expression: Binary): Register {
-    switch (expression.token.type) {
+    switch (this.types[expression.token]) {
       case TokenType.BE:
         return this.#assignment(expression);
       case TokenType.AND:
@@ -419,7 +422,7 @@ export class Compiler {
     if (resolve !== null) {
       throw this.#error(
         variable.token,
-        `Variable '${variable.name}' already in scope since [${resolve.variable.token.line},${resolve.variable.token.column}]`,
+        `Variable '${variable.name}' already in scope since [${resolve.variable.token}]`,
       );
     }
   }
@@ -438,6 +441,7 @@ export class Compiler {
         methodDeclaration,
         this.classes,
         klaz.method(methodDeclaration.name),
+        this.types,
       );
     }
   }
@@ -446,9 +450,10 @@ export class Compiler {
     declaration: MethodDeclaration,
     classes: Record<string, Class>,
     method: Method,
+    types: Uint8Array,
   ) {
     method.arity = declaration.args.length;
-    const compiler = new Compiler(classes);
+    const compiler = new Compiler(types, classes);
     method.start = compiler.#current.label;
     compiler.#current.written.add(compiler.#declare(
       new Variable(declaration.token, "this"),
@@ -477,7 +482,7 @@ export class Compiler {
     }
   }
 
-  #getNamedLabel(token: Token, name?: string): NamedLabel {
+  #getNamedLabel(token: number, name?: string): NamedLabel {
     if (name === undefined) {
       if (this.#names.length > 0) return this.#names[this.#names.length - 1];
     } else {

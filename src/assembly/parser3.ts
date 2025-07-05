@@ -1,11 +1,11 @@
-import { Lexer, Token, TokenType } from "./lexer2.ts";
+import { Lex, TokenType } from "./parser4.ts";
 
 type ListId = number & { readonly __tag: unique symbol };
 type NodeId = number & { readonly __tag: unique symbol };
 
 export type Node = {
   lhs: number;
-  op: Token;
+  op: number;
   rhs: number;
 };
 
@@ -14,7 +14,7 @@ export class AST {
   #nodes: Node[] = [];
   #lists: NodeId[][] = [];
 
-  addNode(lhs: number, op: Token, rhs: number): NodeId {
+  addNode(lhs: number, op: number, rhs: number): NodeId {
     return this.#nodes.push({ lhs, op, rhs }) - 1 as NodeId;
   }
 
@@ -25,33 +25,30 @@ export class AST {
 }
 
 export class Parser {
-  private next: Token;
-  private lexer: Lexer;
+  private next = 0;
+  private lex: Lex;
   private output = new AST();
 
   constructor(private input: string) {
-    this.lexer = new Lexer(input);
-    this.next = this.lexer.next();
+    this.lex = new Lex(input);
   }
 
   #pop() {
-    const token = this.next;
-    this.next = this.lexer.next();
-    return token;
+    return ++this.next;
   }
 
-  #error(token: Token, msg: string) {
-    const [l, c] = this.lexer.lineAndColumn(token.from);
+  #error(token: number, msg: string) {
+    const [l, c] = this.lex.lineAndColumn(token);
     return new Error(
-      `Error at line ${l}, column ${c}, token ${TokenType[token.type]} "\u2026${
-        this.input.slice(token.from - 3, token.from + 3)
-      }\u2026": ${msg}`,
+      `Error at line ${l}, column ${c}, token ${
+        TokenType[this.lex.types[token]]
+      } "\u2026${this.input.slice(token - 3, token + 3)}\u2026": ${msg}`,
     );
   }
 
   #consume(type: TokenType) {
     const token = this.#pop();
-    if (token.type !== type) {
+    if (this.lex.types[token] !== type) {
       throw this.#error(token, `expected ${TokenType[type]}`);
     }
     return token;
@@ -75,7 +72,7 @@ export class Parser {
       return p.output.addNode(
         0,
         t,
-        p.#consume(TokenType.IDENTIFIER).from,
+        p.#consume(TokenType.IDENTIFIER),
       );
     };
     Parser.#PREFIX[TokenType.NOT] = (p) =>
@@ -103,12 +100,12 @@ export class Parser {
       p.output.addNode(
         0,
         p.#pop(),
-        p.#consume(TokenType.IDENTIFIER).from,
+        p.#consume(TokenType.IDENTIFIER),
       );
   }
 
   #unary(): NodeId {
-    const prefix = Parser.#PREFIX[this.next.type];
+    const prefix = Parser.#PREFIX[this.lex.types[this.next]];
     if (!prefix) {
       throw this.#error(this.next, "Expected expression");
     }
@@ -121,15 +118,15 @@ export class Parser {
   }
 
   #match(type: TokenType) {
-    if (this.next.type === type) {
-      this.next = this.lexer.next();
+    if (this.lex.types[this.next] === type) {
+      this.next++;
       return true;
     }
     return false;
   }
 
   #popOnMatch(type: TokenType) {
-    if (this.next.type === type) {
+    if (this.lex.types[this.next] === type) {
       return this.#pop();
     }
     return undefined;
@@ -138,7 +135,7 @@ export class Parser {
   static #__call(that: Parser, operator: NodeId): NodeId {
     const token = that.#pop();
     const operands: NodeId[] = [];
-    while (that.next.type !== TokenType.PAREN_RIGHT) {
+    while (that.lex.types[that.next] !== TokenType.PAREN_RIGHT) {
       operands.push(that.#expression());
       if (!that.#match(TokenType.COMMA)) break;
     }
@@ -150,7 +147,7 @@ export class Parser {
     return that.output.addNode(
       expression,
       that.#pop(),
-      that.#consume(TokenType.IDENTIFIER).from,
+      that.#consume(TokenType.IDENTIFIER),
     );
   }
 
@@ -172,7 +169,7 @@ export class Parser {
   #binary(precedence: number): NodeId {
     let left = this.#unary();
     for (;;) {
-      const a = Parser.#INFIX[this.next.type];
+      const a = Parser.#INFIX[this.lex.types[this.next]];
       if (!a) return left;
       const [b, c] = a;
       if (b < precedence) return left;
@@ -184,10 +181,10 @@ export class Parser {
     return this.#binary(0);
   }
 
-  #block(braceLeft: Token): NodeId {
+  #block(braceLeft: number): NodeId {
     const statements: NodeId[] = [];
     for (;;) {
-      switch (this.next.type) {
+      switch (this.lex.types[this.next]) {
         case TokenType.BRACE_LEFT:
           statements.push(this.#block(this.#pop()));
           this.#consume(TokenType.BRACE_RIGHT);
@@ -206,7 +203,7 @@ export class Parser {
             this.output.addNode(
               0,
               token,
-              label ? label.from : -1,
+              label ? label : -1,
             ),
           );
           return this.output.addNode(
@@ -238,7 +235,7 @@ export class Parser {
           continue;
         }
         case TokenType.LABEL: {
-          const label = this.#pop().from;
+          const label = this.#pop();
           const token = this.#consume(TokenType.WHILE);
           const condition = this.#expression();
           const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
@@ -257,12 +254,12 @@ export class Parser {
         }
         case TokenType.RETURN: {
           const token = this.next;
-          this.next = this.lexer.next();
+          this.next++;
           // optional expression
           let value = -1;
           if (
-            this.next.type !== TokenType.END &&
-            this.next.type !== TokenType.BRACE_RIGHT
+            this.lex.types[this.next] !== TokenType.END &&
+            this.lex.types[this.next] !== TokenType.BRACE_RIGHT
           ) {
             value = this.#expression();
           }
@@ -313,7 +310,7 @@ export class Parser {
   script(): NodeId[] {
     const script: NodeId[] = [];
     while (!this.#match(TokenType.END)) {
-      script.push(this.#block(new Token(TokenType.BRACE_LEFT, 0)));
+      script.push(this.#block(0));
     }
     return script;
   }

@@ -6,12 +6,14 @@ import { Compiler } from "./compiler.ts";
 import { Parser } from "./parser.ts";
 import { VM } from "./vm.ts";
 import { Value } from "./object.ts";
+import { Lex } from "./parser4.ts";
 
-function parse(input: string) {
-  return new Parser(input).script();
-}
 function compile(input: string) {
-  return new Compiler().compile(parse(input));
+  console.log(input);
+  const lex = new Lex(input);
+  console.log(lex.toString());
+  const parser = new Parser(lex);
+  return new Compiler(lex.types).compile(parser.script());
 }
 function run(input: string) {
   const log: Value[] = [];

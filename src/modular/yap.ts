@@ -3,25 +3,37 @@ import { TokenType } from "./lexer.ts";
 
 class Stack {
   #index = -1;
-  #instructions: Uint8Array = new Uint8Array(64);
-  isEmpty() {
-    return this.#index < 0;
-  }
+  #ops: Uint8Array = new Uint8Array(64);
+  #depths: Uint8Array = new Uint8Array(64);
+  #depth = 0;
+
   push(...instructions: number[]) {
     for (let i = instructions.length - 1; i >= 0; i--) {
-      this.#instructions[++this.#index] = instructions[i];
+      this.#ops[++this.#index] = instructions[i];
+      this.#depths[this.#index] = this.#depth;
     }
   }
+
+  get depth() {
+    assert(this.#index >= 0);
+    return this.#depths[this.#index];
+  }
+
   pop() {
     assert(this.#index >= 0);
-    return this.#instructions[this.#index--];
+    // could easily producte the parent vector as well...
+    // the trouble is just that tokens & precedences are thrown in here as well.
+    this.#depth = 1 + this.#depths[this.#index];
+    return this.#ops[this.#index--];
   }
+
   top() {
     assert(this.#index >= 0);
-    return this.#instructions[this.#index];
+    return this.#ops[this.#index];
   }
-  size() {
-    return this.#index + 1;
+
+  stop() {
+    assert(this.#index === -1);
   }
 }
 
@@ -73,8 +85,7 @@ export class Parser {
     for (const type of types) {
       this.visit(type);
     }
-    assert(this.#stack.size() === 0);
-    assert(this.#sizes.length === 2);
+    this.#stack.stop();
   }
 
   visit(type: TokenType) {
@@ -87,8 +98,8 @@ export class Parser {
   }
 
   #accept(type: TokenType) {
-    this.#popFrames();
-    switch (this.#pushFrame(this.#stack.pop())) {
+    this.#pushFrame();
+    switch (this.#stack.pop()) {
       case Op.Label:
         return type === TokenType.LABEL;
       case Op.ExprTail:
@@ -284,26 +295,8 @@ export class Parser {
     }
   }
 
-  // the parser still determines the shape of the tree
-  #sizes: number[] = [];
-
-  #popFrames() {
-    if (this.#sizes.length === 0) return;
-    const size = this.#stack.size();
-    for (let i = 0; i + 1 < this.#sizes.length;) {
-      const k = (i + this.#sizes.length) >> 1;
-      if (this.#sizes[k] < size) {
-        i = k;
-      } else {
-        this.#sizes.length = k;
-      }
-    }
-  }
-
-  #pushFrame(op: Op) {
-    this.frames.push(op, this.#token, this.#sizes.length);
-    this.#sizes.push(this.#stack.size());
-    return op;
+  #pushFrame() {
+    this.frames.push(this.#stack.top(), this.#token, this.#stack.depth);
   }
 }
 

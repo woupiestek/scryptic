@@ -6,6 +6,8 @@ Deno.test("stringify some", () => {
   const term = Term.get("x").alpha().set("y", Term.get("z").kappa().lambda());
   assertEquals(term.nodes, ["x", "α", "y", "z", "κ", "λ", "="]);
   assertEquals(term.toString(), "[x·α y z·κ·λ]");
+  assertEquals(term.toString(5), "z·κ·λ");
+  assertEquals(term.toString(1), "x·α");
 });
 
 Deno.test("reduce", () => {

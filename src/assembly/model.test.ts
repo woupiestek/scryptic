@@ -2,6 +2,7 @@ import { assertThrows } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Model } from "./model.ts";
 import { Block, Parser } from "./parser.ts";
 import { SplayMap } from "../collections/splay.ts";
+import { Lex } from "./parser4.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
@@ -12,9 +13,11 @@ function columnnumbers(length: number) {
 function run(input: string) {
   console.log(columnnumbers(input.length));
   console.log(input);
-  const parseResult = new Parser(input).script();
+  const lex = new Lex(input);
+  const parser = new Parser(lex);
+  const parseResult = parser.script();
 
-  const model = new Model();
+  const model = new Model(lex);
   const result = model.interpret(
     SplayMap.empty(),
     parseResult.filter((it) => it instanceof Block),
@@ -29,8 +32,10 @@ function throws(input: string) {
   Deno.test(`throws on '${input}'`, () => {
     console.log(columnnumbers(input.length));
     console.log(input);
-    const parseResult = new Parser(input).script();
-    const model = new Model();
+    const lex = new Lex(input);
+    const parser = new Parser(lex);
+    const parseResult = parser.script();
+    const model = new Model(lex);
     assertThrows(() =>
       model.interpret(
         SplayMap.empty(),

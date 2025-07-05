@@ -1,5 +1,40 @@
 # Scryptic
 
+## 2025-07-05
+
+### types classes
+
+On the face of it, a type class argument simply is an instance plus
+implementations of all the functions or fields. Two ways to do this, depending
+on whether to put the arrays of data on the stack or on the heap, but
+considering that the contents may be pointers, the heap seems more convenient.
+
+### tree representations
+
+Arity vectors: works with different traversals. Stack based assumes trees are
+put on a stack an then popped off by indeicated ariry. Queus based does the same
+which a queue. in both cases the root follows its children, but the stack based
+is an easy traversal, while the queue based goes from the deepest to the more
+shallow nodes.
+
+Size vector--I like this one for term rewriting, because you can use a count of
+nodes in each tree to skip to siblings.
+
+### more ideas
+
+- nominal: a crazy language where types are used to refer to instances. This
+  does mean only one instance of each type can be in scope, or some work arounds
+  are needed.
+- images: define a new type as the union of images for several functions, in
+  order to get encapsulation. by necessity, all functions must return the same
+  previously existing type. The benefit of this would be that knowlegde of how
+  elements are contructed could be used to safely make certain moves. i.e. null
+  safety by preventing non initialization, and allowing nulls to be set.
+- data orientation: object are generally just indices for a struct of arrays. no
+  values is every a pointer, to simplify data safety and garbage collection
+- scryptic: modify de bruijn index based lambda calculus as a way to have
+  functions literals without lists of arguments.
+
 ## 2025-07-03
 
 ### inheritance as composition
@@ -1262,7 +1297,7 @@ The whole compotation of the dominator tree: it seems like structured
 programming languages make this trivial, leaving such points aat the end of if
 statements and as the beginning and end of while statements, and not really
 anywhere else, exception perhaps in boolean expressions. Or perhaps computing
-the control flow graphs and then the dominator tree is actuuly more much more
+the control flow graphs and then the dominator tree is actualy more much more
 efficient.
 
 Interestingly, the extra world variable introdcued to keep side effects under
@@ -2071,7 +2106,7 @@ On the flip side, how will encapsulation actually work? I am defaulting to more
 of the examples, of just declaring a list of fields with modifiers like `public`
 to create an interface.
 
-Oblidatorily private fields might be good as well. Though this raises new
+Obligatorily private fields might be good as well. Though this raises new
 questions about dynamic dispatch.
 
 Note: the inlining of objects and the stack and in each other runs into the same

@@ -5,16 +5,16 @@ export const KAPPA = "\u03ba";
 export const LAMBDA = "\u03bb";
 export const IS = "=";
 
+// assume root at end
 export class Term {
   nodes: string[] = [];
-  // assume root at end?
-  parents: number[] = [];
+  sizes: number[] = [];
 
   static get(name: string) {
     assert(/^[A-Z_a-z]+$/.test(name));
     const that = new Term();
     that.nodes.push(name);
-    that.parents.push(0);
+    that.sizes.push(1);
     return that;
   }
 
@@ -22,28 +22,19 @@ export class Term {
     assert(/^[A-Z_a-z]+$/.test(name));
     const thatToo = new Term();
     thatToo.nodes.push(...this.nodes, name, ...that.nodes, IS);
-    // alles verschuift...
-    // toch!?
-    thatToo.parents.push(
-      ...this.parents,
-      0,
-      ...that.parents.map((p) => p + this.parents.length + 1),
-      0,
+    thatToo.sizes.push(
+      ...this.sizes,
+      1,
+      ...that.sizes,
+      this.sizes.length + that.sizes.length + 2,
     );
-    const rootI = thatToo.parents.length - 1;
-    thatToo.parents[rootI] = rootI;
-    thatToo.parents[rootI - 1] = rootI;
-    const nameI = this.parents.length;
-    thatToo.parents[nameI] = rootI;
-    thatToo.parents[nameI - 1] = rootI;
     return thatToo;
   }
 
   #unary(root: string) {
     const that = new Term();
     that.nodes.push(...this.nodes, root);
-    that.parents.push(...this.parents, this.parents.length);
-    that.parents[this.parents.length - 1] = this.parents.length;
+    that.sizes.push(...this.sizes, this.sizes.length + 1);
     return that;
   }
 
@@ -59,26 +50,30 @@ export class Term {
     return this.#unary(LAMBDA);
   }
 
-  toString(index = this.nodes.length - 1) {
+  toString(index = this.sizes.length - 1) {
     const strings: string[] = [];
-    for (let i = 0, l = this.nodes.length; i < l; i++) {
-      let s;
-      switch (this.nodes[i]) {
+    const j = 1 + index - this.sizes[index];
+    for (let i = 0, l = this.sizes[index]; i < l; i++) {
+      switch (this.nodes[i + j]) {
         case ALPHA:
         case KAPPA:
         case LAMBDA:
-          s = strings[i] + "\u00b7" + this.nodes[i];
+          strings[i] = strings[i - 1] + "\u00b7" + this.nodes[i + j];
           break;
         case "=":
-          s = " [" + strings[i].substring(1) + "]";
+          {
+            const i2 = i - 1;
+            const i1 = i2 - this.sizes[i2 + j];
+            strings[i] = "[" + strings[i1 - this.sizes[i1 + j]] + " " +
+              strings[i1] +
+              " " + strings[i2] + "]";
+          }
           break;
         default:
-          s = " " + this.nodes[i];
+          strings[i] = this.nodes[i + j];
           break;
       }
-      if (i === index) return s.substring(1);
-      strings[this.parents[i]] ??= "";
-      strings[this.parents[i]] += s;
     }
+    return strings.pop();
   }
 }

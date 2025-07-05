@@ -1,7 +1,7 @@
 import { NumberTrie } from "../collections/numberTrie2.ts";
 import { Table } from "../collections/table.ts";
 import { Trie } from "../collections/trie.ts";
-import { Token, TokenType } from "./lexer.ts";
+import { TokenType } from "./parser4.ts";
 import {
   Access,
   Binary,
@@ -57,7 +57,7 @@ type Data =
 export class Value {
   constructor(
     readonly key: number,
-    readonly token: Token,
+    readonly token: number,
     readonly data: Data,
   ) {
     if (typeof key !== "number" || key < 0 || (key | 0) !== key) {
@@ -110,7 +110,7 @@ class Store {
         throw new Error("Problem node " + key);
     }
   }
-  literal(token: Token, data: boolean | string): Value {
+  literal(token: number, data: boolean | string): Value {
     return this.value(token, [ValueType.Literal, data]);
   }
   #stringKey = 0;
@@ -127,7 +127,7 @@ class Store {
     return this.#targetKey++;
   }
 
-  value(token: Token, data: Data): Value {
+  value(token: number, data: Data): Value {
     return this.values.getTrie(data.length, (i) => this.__index(data[i]))
       .value ||= new Value(this.__key++, token, data);
   }
@@ -155,7 +155,7 @@ export enum LabelType {
 export class Target {
   constructor(
     readonly data:
-      | [LabelType.ERROR, Token, string]
+      | [LabelType.ERROR, number, string]
       | [LabelType.GOTO, number, NumberTrie<Value>]
       | [LabelType.IF, Value, Target, Target]
       | [LabelType.RETURN, ValueQ, ValueQ],
@@ -164,9 +164,7 @@ export class Target {
   toString(): string {
     switch (this.data[0]) {
       case LabelType.ERROR:
-        return `¡Error at ${TokenType[this.data[1].type]}(${
-          this.data[1].line
-        },${this.data[1].column}): ${this.data[2]}!`;
+        return `¡Error at token ${this.data[1]}: ${this.data[2]}!`;
       case LabelType.GOTO:
         return `${this.data[1]}(${
           [...this.data[2].entries()].map(([k, v]) => `${k}: ${v.key}`).join(
@@ -226,7 +224,9 @@ export class Optimizer {
   __next = this.store.string("<next>");
   __world = this.store.string("<world>");
 
-  #error<A>(token: Token, message: string): CPS<A> {
+  constructor(readonly types: Uint8Array) {}
+
+  #error<A>(token: number, message: string): CPS<A> {
     return new CPS(() => new Target([LabelType.ERROR, token, message]));
   }
 
@@ -237,7 +237,7 @@ export class Optimizer {
   assign(
     node: Binary,
   ): CPS<Value> {
-    switch (node.left.token.type) {
+    switch (this.types[node.left.token]) {
       case TokenType.DOT: {
         const { object, field } = node.left as Access;
         return this.expression(object).bind(
@@ -281,7 +281,7 @@ export class Optimizer {
           if (other !== undefined) {
             return this.#error(
               token,
-              `Variable ${name} already declared at (${other.token.line},${other.token.column})`,
+              `Variable ${name} already declared at token ${other.token}`,
             );
           }
           return this.expression(node.right).bind((it) => CPS.set(index, it));
@@ -292,7 +292,7 @@ export class Optimizer {
     }
   }
 
-  negate(token: Token, value?: Value): Value {
+  negate(token: number, value?: Value): Value {
     if (value === undefined) throw this.#error(token, `Cannot negate`);
     switch (value.data[0]) {
       case ValueType.Call:
@@ -338,7 +338,7 @@ export class Optimizer {
   }
 
   bool(
-    token: Token,
+    token: number,
     value: boolean,
   ): CPS<Value> {
     return CPS.unit(
@@ -349,7 +349,7 @@ export class Optimizer {
   expression(
     node: Expression,
   ): CPS<Value> {
-    switch (node.token.type) {
+    switch (this.types[node?.token]) {
       case TokenType.AND: {
         const { left, right } = node as Binary;
         return this.__bool(left).bind((l) =>
@@ -408,7 +408,7 @@ export class Optimizer {
         const { token, left, right } = node as Binary;
         return this.expression(left).bind((l) =>
           this.expression(right).map((r) =>
-            this.compare(token, l, node.token.type, r)
+            this.compare(token, l, this.types[node.token], r)
           )
         );
       }
@@ -472,7 +472,7 @@ export class Optimizer {
           if (value) {
             return this.#error(
               varDecl.token,
-              `Variable ${name} already existed at (${value.token.line},${value.token.column})`,
+              `Variable ${name} already existed at token ${value.token}`,
             );
           }
           return CPS.set(
@@ -487,7 +487,7 @@ export class Optimizer {
   }
 
   compare(
-    token: Token,
+    token: number,
     left: Value | undefined,
     comparison: TokenType,
     right: Value | undefined,
@@ -553,13 +553,13 @@ export class Optimizer {
   }
 
   _jump(
-    token: Token,
+    token: number,
     jump: Jump | undefined,
   ): CPS<number> {
     if (!jump) {
       return CPS.unit(this.__next);
     }
-    switch (jump.token.type) {
+    switch (this.types[jump.token]) {
       case TokenType.BREAK: {
         const { label } = jump as Break;
         return CPS.unit(
@@ -630,7 +630,7 @@ export class Optimizer {
   __bool(
     condition: Expression,
   ): CPS<boolean> {
-    switch (condition.token.type) {
+    switch (this.types[condition.token]) {
       case TokenType.AND: {
         const { left, right } = condition as Binary;
         return this.__bool(left).bind((l) =>
@@ -719,7 +719,7 @@ export class Optimizer {
     node: Statement,
   ): CPS<number> {
     // jump target
-    switch (node.token.type) {
+    switch (this.types[node.token]) {
       case TokenType.BRACE_LEFT: {
         return this.block(node as Block);
       }

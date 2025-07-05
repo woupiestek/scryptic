@@ -18,25 +18,33 @@ export function reduce(term: Term) {
         slice--;
         break;
       case KAPPA:
-        // what if stack is empty?
+        if (stack.length === 0) {
+          return [slice, context];
+        }
         stack.pop();
         slice--;
         break;
       case LAMBDA:
-        if (stack.length === 0) return [slice, context];
+        if (stack.length === 0) {
+          return [slice, context];
+        }
         context = stack.pop() as Context;
         slice--;
         break;
-      case IS: {
-        const [x, y, z] = Array(term.parents.length).keys().filter((i) =>
-          term.parents[i] === slice
-        ).toArray();
-        slice = x;
-        stack[stack.length - 1][term.nodes[y]] = [z, context];
-        break;
-      }
+      case IS:
+        if (stack.length === 0) {
+          return [slice, context];
+        } else {
+          const z = slice - 1;
+          const y = z - term.sizes[z];
+          slice = y - term.sizes[y];
+          // stack empty?
+          stack[stack.length - 1][term.nodes[y]] = [z, context];
+          break;
+        }
       default: {
         if (!context[tag]) {
+          // technically a variable resolution failure!
           return [stack, tag];
         }
         [slice, context] = context[tag];
