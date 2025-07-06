@@ -185,7 +185,7 @@ export class Parse {
         case TokenType.NOT_MORE:
         case TokenType.OR:
           this.next++;
-          this.#expr();
+          this.#exprHead();
           continue;
         case TokenType.DOT:
           this.next++;
@@ -196,10 +196,8 @@ export class Parse {
           if (this.#match(TokenType.PAREN_RIGHT)) {
             continue;
           }
-          this.#expr();
-          while (this.#match(TokenType.COMMA)) {
-            this.#expr();
-          }
+         do  this.#expr();
+          while (this.#match(TokenType.COMMA));
           this.#consume(TokenType.PAREN_RIGHT);
           continue;
         default:
@@ -244,5 +242,24 @@ export class Parse {
     this.#consume(TokenType.BRACE_LEFT);
     this.#block();
     this.#close();
+  }
+
+  toString() {
+    const depths: number[] = new Array(this.size).keys().map(() => 0).toArray();
+    for (let i = 0; i < this.size; i++) {
+      for (let j = 1; j < this.sizes[i]; j++) {
+        depths[i + j]++;
+      }
+    }
+    const lines: string[] = [];
+    for (let i = 0; i < this.size; i++) {
+      lines.push(
+        "  ".repeat(depths[i]) +
+          `${this.lex.indices[this.token[i]]}:${
+            TokenType[this.lex.types[this.token[i]]]
+          }:${NodeType[this.types[i]]}`,
+      );
+    }
+    return lines.join("\n");
   }
 }

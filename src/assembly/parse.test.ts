@@ -51,6 +51,6 @@ for (const goodCase of goodCases) {
   Deno.test(`no failure in good case ${goodCase}`, () => {
     const lex = new Lex(goodCase);
     const parse = new Parse(lex);
-    console.log(parse);
+    console.log(parse.toString());
   });
 }
