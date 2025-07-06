@@ -1,55 +1,46 @@
 import { LinkedList } from "../collections/linkedList.ts";
 import { Table } from "../collections/table.ts";
 import { Trie } from "../collections/trie.ts";
-import { Lexer, Token, TokenType } from "./lexer.ts";
+import { Lex, TokenType } from "./lex.ts";
 
 export class ParseError extends Error {
-  constructor(readonly token: Token, msg: string) {
+  constructor(readonly token: number, msg: string) {
     super(msg);
   }
 }
 
 export class Node {
   constructor(
-    readonly token: Token,
+    readonly token: number,
     readonly children: Node[],
     readonly parameter?: number,
   ) {}
 }
 
 export class Parser {
-  private next: Token;
-  private lexer: Lexer;
+  private next = 0;
   private stringKey = 0;
   private strings: Trie<number> = new Trie();
 
-  constructor(private input: string) {
-    this.lexer = new Lexer(input);
-    this.next = this.lexer.next();
-  }
-
-  #lexeme(token: Token) {
-    return this.input.substring(token.from, token.to);
-  }
+  constructor(private lex: Lex) {}
 
   #pop() {
-    const token = this.next;
-    this.next = this.lexer.next();
-    return token;
+    return this.next++;
   }
 
-  #error(token: Token, msg: string) {
+  #error(token: number, msg: string) {
+    const [l, c] = this.lex.lineAndColumn(token);
     return new ParseError(
       token,
-      `Error at line ${token.line}, column ${token.column}, token ${
-        TokenType[token.type]
-      } "${this.#lexeme(token)}": ${msg}`,
+      `Error at line ${l}, column ${c}, token ${
+        TokenType[this.lex.types[token]]
+      } "${this.lex.lexeme(token)}": ${msg}`,
     );
   }
 
   #consume(type: TokenType) {
     const token = this.#pop();
-    if (token.type !== type) {
+    if (this.lex.types[token] !== type) {
       throw this.#error(token, `expected ${TokenType[type]}`);
     }
     return token;
@@ -65,7 +56,7 @@ export class Parser {
     Parser.#PREFIX[TokenType.FALSE] = (p) => new Node(p.#pop(), []);
     Parser.#PREFIX[TokenType.IDENTIFIER] = (p) => {
       const t = p.#pop();
-      return new Node(t, [], p.#store(p.#lexeme(t)));
+      return new Node(t, [], p.#store(p.lex.lexeme(t)));
     };
     Parser.#PREFIX[TokenType.LOG] = (p) => new Node(p.#pop(), [p.#unary()]);
     Parser.#PREFIX[TokenType.NEW] = (p) => {
@@ -73,7 +64,7 @@ export class Parser {
       return new Node(
         t,
         [],
-        p.#store(p.#lexeme(p.#consume(TokenType.IDENTIFIER))),
+        p.#store(p.lex.lexeme(p.#consume(TokenType.IDENTIFIER))),
       );
     };
     Parser.#PREFIX[TokenType.NOT] = (p) => new Node(p.#pop(), [p.#unary()]);
@@ -85,7 +76,7 @@ export class Parser {
     };
     Parser.#PREFIX[TokenType.STRING] = (p) => {
       const t = p.#pop();
-      return new Node(t, [], p.#store(JSON.parse(p.#lexeme(t))));
+      return new Node(t, [], p.#store(JSON.parse(p.lex.lexeme(t))));
     };
     Parser.#PREFIX[TokenType.THIS] = (p) => {
       const t = p.#pop();
@@ -96,13 +87,13 @@ export class Parser {
       return new Node(
         p.#pop(),
         [],
-        p.#store(p.#lexeme(p.#consume(TokenType.IDENTIFIER))),
+        p.#store(p.lex.lexeme(p.#consume(TokenType.IDENTIFIER))),
       );
     };
   }
 
   #unary(): Node {
-    const prefix = Parser.#PREFIX[this.next.type];
+    const prefix = Parser.#PREFIX[this.lex.types[this.next]];
     if (!prefix) {
       throw this.#error(this.next, "Expected expression");
     }
@@ -115,8 +106,8 @@ export class Parser {
   }
 
   #match(type: TokenType) {
-    if (this.next.type === type) {
-      this.next = this.lexer.next();
+    if (this.lex.types[this.next] === type) {
+      this.next++;
       return true;
     }
     return false;
@@ -125,7 +116,7 @@ export class Parser {
   static #__call(that: Parser, operator: Node): Node {
     const token = that.#pop();
     const nodes: Node[] = [operator];
-    while (that.next.type !== TokenType.PAREN_RIGHT) {
+    while (that.lex.types[that.next] !== TokenType.PAREN_RIGHT) {
       nodes.push(that.#expression());
       if (!that.#match(TokenType.COMMA)) break;
     }
@@ -135,7 +126,9 @@ export class Parser {
 
   static #__access(that: Parser, expression: Node): Node {
     const token = that.#pop();
-    const name = that.#store(that.#lexeme(that.#consume(TokenType.IDENTIFIER)));
+    const name = that.#store(
+      that.lex.lexeme(that.#consume(TokenType.IDENTIFIER)),
+    );
     return new Node(token, [expression], name);
   }
 
@@ -157,7 +150,7 @@ export class Parser {
   #binary(precedence: number): Node {
     let left = this.#unary();
     for (;;) {
-      const a = Parser.#INFIX[this.next.type];
+      const a = Parser.#INFIX[this.lex.types[this.next]];
       if (!a) return left;
       const [b, c] = a;
       if (b < precedence) return left;
@@ -169,10 +162,10 @@ export class Parser {
     return this.#binary(0);
   }
 
-  #block(braceLeft: Token): Node {
+  #block(braceLeft: number): Node {
     const statements: (Node)[] = [];
     for (;;) {
-      switch (this.next.type) {
+      switch (this.lex.types[this.next]) {
         case TokenType.BRACE_LEFT:
           statements.push(this.#block(this.#pop()));
           this.#consume(TokenType.BRACE_RIGHT);
@@ -189,11 +182,15 @@ export class Parser {
             statements,
           );
           const token = this.next;
-          this.next = this.lexer.next();
+          this.next++;
           // note: break & continue on the outside!
           // throw out brace left?
-          return this.next.type === TokenType.LABEL
-            ? new Node(token, [block], this.#store(this.#lexeme(this.#pop())))
+          return this.lex.types[this.next] === TokenType.LABEL
+            ? new Node(
+              token,
+              [block],
+              this.#store(this.lex.lexeme(this.#pop())),
+            )
             : new Node(token, [block]);
         }
         case TokenType.END:
@@ -221,7 +218,7 @@ export class Parser {
           continue;
         }
         case TokenType.LABEL: {
-          const label = this.#store(this.#lexeme(this.#pop()));
+          const label = this.#store(this.lex.lexeme(this.#pop()));
           const token = this.#consume(TokenType.WHILE);
           const condition = this.#expression();
           const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
@@ -237,11 +234,11 @@ export class Parser {
         }
         case TokenType.RETURN: {
           const token = this.next;
-          this.next = this.lexer.next();
+          this.next++;
           // returning on the outside too...
           if (
-            this.next.type !== TokenType.END &&
-            this.next.type !== TokenType.BRACE_RIGHT
+            this.lex.types[this.next] !== TokenType.END &&
+            this.lex.types[this.next] !== TokenType.BRACE_RIGHT
           ) {
             return new Node(token, [
               new Node(
@@ -291,12 +288,12 @@ export class Parser {
     while (!this.#match(TokenType.BRACE_RIGHT)) {
       methods.push(this.#method());
     }
-    return new Node(token, methods, this.#store(this.#lexeme(ident)));
+    return new Node(token, methods, this.#store(this.lex.lexeme(ident)));
   }
 
   #consumeOneOf(...types: TokenType[]) {
     const token = this.#pop();
-    if (!types.includes(token.type)) {
+    if (!types.includes(this.lex.types[token])) {
       throw this.#error(
         token,
         `expected one of ${types.map((it) => TokenType[it])}`,
@@ -309,9 +306,9 @@ export class Parser {
     const ident = this.#consumeOneOf(TokenType.IDENTIFIER, TokenType.NEW);
     const pl = this.#consume(TokenType.PAREN_LEFT);
     const operands: Node[] = [];
-    while (this.next.type !== TokenType.PAREN_RIGHT) {
+    while (this.lex.types[this.next] !== TokenType.PAREN_RIGHT) {
       const ident = this.#consume(TokenType.IDENTIFIER);
-      operands.push(new Node(ident, [], this.#store(this.#lexeme(ident))));
+      operands.push(new Node(ident, [], this.#store(this.lex.lexeme(ident))));
       if (!this.#match(TokenType.COMMA)) break;
     }
     this.#consume(TokenType.PAREN_RIGHT);
@@ -320,17 +317,17 @@ export class Parser {
     return new Node(
       ident,
       [new Node(pl, operands), body],
-      this.#store(this.#lexeme(ident)),
+      this.#store(this.lex.lexeme(ident)),
     );
   }
 
   script(): (Node)[] {
     const script: (Node)[] = [];
     while (!this.#match(TokenType.END)) {
-      if (this.next.type === TokenType.CLASS) {
+      if (this.lex.types[this.next] === TokenType.CLASS) {
         script.push(this.#class());
       } else {
-        script.push(this.#block(new Token(TokenType.BRACE_LEFT, 0, 0, 1, 1)));
+        script.push(this.#block(-1));
       }
     }
     return script;

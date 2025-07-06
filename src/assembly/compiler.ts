@@ -1,5 +1,5 @@
 import { Class, Instruction, Label, Method, Op } from "./class.ts";
-import { TokenType } from "./parser4.ts";
+import { TokenType } from "./lex.ts";
 import {
   Access,
   Binary,
@@ -52,7 +52,7 @@ export class Compiler {
   #names: NamedLabel[] = [];
 
   constructor(
-    readonly types: Uint8Array,
+    readonly types: TokenType[],
     private readonly classes: Record<string, Class> = {},
   ) {}
 
@@ -450,7 +450,7 @@ export class Compiler {
     declaration: MethodDeclaration,
     classes: Record<string, Class>,
     method: Method,
-    types: Uint8Array,
+    types: TokenType[],
   ) {
     method.arity = declaration.args.length;
     const compiler = new Compiler(types, classes);

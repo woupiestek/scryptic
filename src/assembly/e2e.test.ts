@@ -6,7 +6,7 @@ import { Compiler } from "./compiler.ts";
 import { Parser } from "./parser.ts";
 import { VM } from "./vm.ts";
 import { Value } from "./object.ts";
-import { Lex } from "./parser4.ts";
+import { Lex } from "./lex.ts";
 
 function compile(input: string) {
   console.log(input);

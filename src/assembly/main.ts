@@ -1,6 +1,6 @@
 import { Compiler } from "./compiler.ts";
 import { Parser } from "./parser.ts";
-import { Lex } from "./parser4.ts";
+import { Lex } from "./lex.ts";
 import { VM } from "./vm.ts";
 
 export function rep(input: string) {

@@ -1,4 +1,4 @@
-import { Lex, TokenType } from "./parser4.ts";
+import { Lex, TokenType } from "./lex.ts";
 
 export class ParseError extends Error {
   constructor(readonly token: number, msg: string) {
@@ -196,12 +196,12 @@ export class Parser {
     Parser.#PREFIX[TokenType.FALSE] = (p) => new Literal(p.#pop(), false);
     Parser.#PREFIX[TokenType.IDENTIFIER] = (p) => {
       const t = p.#pop();
-      return new Variable(t, p.lex.name(t));
+      return new Variable(t, p.lex.lexeme(t));
     };
     Parser.#PREFIX[TokenType.LOG] = (p) => new Log(p.#pop(), p.#unary());
     Parser.#PREFIX[TokenType.NEW] = (p) => {
       const t = p.#pop();
-      const name = p.lex.name(p.#consume(TokenType.IDENTIFIER));
+      const name = p.lex.lexeme(p.#consume(TokenType.IDENTIFIER));
       return new New(t, name);
     };
     Parser.#PREFIX[TokenType.NOT] = (p) => new Not(p.#pop(), p.#unary());
@@ -213,17 +213,17 @@ export class Parser {
     };
     Parser.#PREFIX[TokenType.STRING] = (p) => {
       const t = p.#pop();
-      return new Literal(t, JSON.parse(p.lex.string(t)));
+      return new Literal(t, JSON.parse(p.lex.lexeme(t)));
     };
     Parser.#PREFIX[TokenType.THIS] = (p) => {
       const t = p.#pop();
-      return new Variable(t, p.lex.name(t));
+      return new Variable(t, p.lex.lexeme(t));
     };
     Parser.#PREFIX[TokenType.TRUE] = (p) => new Literal(p.#pop(), true);
     Parser.#PREFIX[TokenType.VAR] = (p) => {
       const t = p.#pop();
       const v = p.#consume(TokenType.IDENTIFIER);
-      return new VarDeclaration(t, new Variable(v, p.lex.name(v)));
+      return new VarDeclaration(t, new Variable(v, p.lex.lexeme(v)));
     };
   }
 
@@ -256,7 +256,7 @@ export class Parser {
 
   static #__access(that: Parser, expression: Expression) {
     const token = that.#pop();
-    const name = that.lex.name(that.#consume(TokenType.IDENTIFIER));
+    const name = that.lex.lexeme(that.#consume(TokenType.IDENTIFIER));
     return new Access(token, expression, name);
   }
 
@@ -311,7 +311,7 @@ export class Parser {
             braceLeft,
             statements,
             this.lex.types[this.next] === TokenType.LABEL
-              ? new Break(token, this.lex.name(this.#pop()))
+              ? new Break(token, this.lex.lexeme(this.#pop()))
               : new Break(token),
           );
         }
@@ -322,7 +322,7 @@ export class Parser {
             braceLeft,
             statements,
             this.lex.types[this.next] === TokenType.LABEL
-              ? new Continue(token, this.lex.name(this.#pop()))
+              ? new Continue(token, this.lex.lexeme(this.#pop()))
               : new Continue(token),
           );
         }
@@ -353,7 +353,7 @@ export class Parser {
           continue;
         }
         case TokenType.LABEL: {
-          const label = this.lex.name(this.#pop());
+          const label = this.lex.lexeme(this.#pop());
           const token = this.#consume(TokenType.WHILE);
           const condition = this.#expression();
           const ifTrue = this.#block(this.#consume(TokenType.BRACE_LEFT));
@@ -421,7 +421,7 @@ export class Parser {
     while (!this.#match(TokenType.BRACE_RIGHT)) {
       methods.push(this.#method());
     }
-    return new ClassDeclaration(token, this.lex.name(ident), methods);
+    return new ClassDeclaration(token, this.lex.lexeme(ident), methods);
   }
 
   #method(): MethodDeclaration {
@@ -430,7 +430,7 @@ export class Parser {
     const operands: Variable[] = [];
     while (this.lex.types[this.next] !== TokenType.PAREN_RIGHT) {
       const ident = this.#consume(TokenType.IDENTIFIER);
-      operands.push(new Variable(ident, this.lex.name(ident)));
+      operands.push(new Variable(ident, this.lex.lexeme(ident)));
       if (!this.#match(TokenType.COMMA)) break;
     }
     this.#consume(TokenType.PAREN_RIGHT);
@@ -438,7 +438,7 @@ export class Parser {
     this.#consume(TokenType.BRACE_RIGHT);
     return new MethodDeclaration(
       ident,
-      this.lex.name(ident),
+      this.lex.lexeme(ident),
       operands,
       body,
     );

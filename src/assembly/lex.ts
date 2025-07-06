@@ -1,5 +1,3 @@
-import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-
 export enum TokenType {
   AND,
   BE,
@@ -55,8 +53,8 @@ const KEYWORDS: Record<string, TokenType> = {
   while: TokenType.WHILE,
 };
 export class Lex {
-  types: Uint8Array;
-  indices: Uint16Array;
+  types: TokenType[] = [];
+  indices: number[] = [];
   size = 0;
 
   lineAndColumn(token: number) {
@@ -71,28 +69,9 @@ export class Lex {
     return [line, this.indices[token] - index + 1];
   }
 
-  name(token: number) {
-    let to = this.indices[token] + 1;
-    for (
-      ;
-      to < this.source.length && /[0-9A-Z_a-z]/.test(this.source[to]);
-      to++
-    );
-    return this.source.slice(this.indices[token], to);
-  }
-
-  string(token: number) {
-    assert(this.types[token] === TokenType.STRING);
-    let to = this.indices[token];
-    for (;;) {
-      to++;
-      if (this.source[to] === '"') {
-        return this.source.slice(this.indices[token], to + 1);
-      }
-      if (this.source[to] === "\\") {
-        to++;
-      }
-    }
+  lexeme(token: number) {
+    return this.source.slice(this.indices[token], this.indices[token + 1])
+      .trim();
   }
 
   #token(type: TokenType, from: number) {
@@ -101,8 +80,6 @@ export class Lex {
   }
 
   constructor(private source: string) {
-    this.types = new Uint8Array(source.length);
-    this.indices = new Uint16Array(source.length);
     let index = 0;
     while (index < source.length) {
       while (index < source.length && /[\n\r\s]/.test(source[index])) {

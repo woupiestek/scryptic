@@ -2,7 +2,7 @@ import { Block, Parser } from "./parser.ts";
 import { LabelType, Optimizer, Target, Value } from "./intermediate.ts";
 import { NumberTrie } from "../collections/numberTrie2.ts";
 import { Table } from "../collections/table.ts";
-import { Lex } from "./parser4.ts";
+import { Lex } from "./lex.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +

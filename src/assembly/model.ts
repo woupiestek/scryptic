@@ -1,5 +1,5 @@
 import { SplayMap } from "../collections/splay.ts";
-import { Lex, TokenType } from "./parser4.ts";
+import { Lex, TokenType } from "./lex.ts";
 import {
   Access,
   Binary,

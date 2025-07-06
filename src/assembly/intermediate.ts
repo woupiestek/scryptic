@@ -1,7 +1,7 @@
 import { NumberTrie } from "../collections/numberTrie2.ts";
 import { Table } from "../collections/table.ts";
 import { Trie } from "../collections/trie.ts";
-import { TokenType } from "./parser4.ts";
+import { TokenType } from "./lex.ts";
 import {
   Access,
   Binary,
@@ -224,7 +224,7 @@ export class Optimizer {
   __next = this.store.string("<next>");
   __world = this.store.string("<world>");
 
-  constructor(readonly types: Uint8Array) {}
+  constructor(readonly types: TokenType[]) {}
 
   #error<A>(token: number, message: string): CPS<A> {
     return new CPS(() => new Target([LabelType.ERROR, token, message]));

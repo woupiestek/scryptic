@@ -1,5 +1,5 @@
 import { Table } from "../collections/table.ts";
-import { Token, TokenType } from "./lexer.ts";
+import { TokenType } from "./lex.ts";
 import { Node } from "./parser2.ts";
 
 export enum ValueT {
@@ -28,7 +28,7 @@ export type Value =
   | [ValueT.Compare, TokenType, Value, Value]
   | [ValueT.Declare, number]
   | [ValueT.Define, number, Value, Value]
-  | [ValueT.Error, Token, string]
+  | [ValueT.Error, number, string]
   | [ValueT.Goto, number]
   | [ValueT.If, Value, Value, Value]
   | [ValueT.Log, Value]
@@ -42,7 +42,6 @@ export const Value = {
   stringify(value: Value): string {
     const [h, ...t] = value;
     const u = t.map((it: unknown) => {
-      if (it instanceof Token) return it.toString();
       if (it instanceof Array) return Value.stringify(it as Value);
       return it;
     });
@@ -93,6 +92,8 @@ export class Modest {
   #next = this.#label++;
   #labels = new Table<number>();
 
+  constructor(private types: TokenType[]) {}
+
   static #error<A>(node: Node, message: string): CPS<A> {
     return new CPS(
       (
@@ -106,7 +107,7 @@ export class Modest {
   }
 
   bool(node: Node): CPS<boolean> {
-    switch (node.token.type) {
+    switch (this.types[node.token]) {
       case TokenType.AND:
         return this.bool(node.children[0]).bind((value) =>
           value ? this.bool(node.children[1]) : CPS.unit(false)
@@ -152,7 +153,7 @@ export class Modest {
     }
   }
   expression(node: Node): CPS<Value> {
-    switch (node.token.type) {
+    switch (this.types[node.token]) {
       case TokenType.AND:
         return this.bool(node.children[0]).bind((value) =>
           value
@@ -183,7 +184,7 @@ export class Modest {
         // todo: use proper compare function?
         return this.expression(node.children[0]).bind((a) =>
           this.expression(node.children[1]).map(
-            (b) => [ValueT.Compare, node.token.type, a, b],
+            (b) => [ValueT.Compare, this.types[node.token], a, b],
           )
         );
       case TokenType.LOG:
@@ -229,7 +230,7 @@ export class Modest {
     return cps;
   }
   statement(node: Node): CPS<number> {
-    switch (node.token.type) {
+    switch (this.types[node.token]) {
       case TokenType.AND:
       case TokenType.BE:
       case TokenType.DOT:
@@ -285,20 +286,7 @@ export class Modest {
           }
           return new CPS((_) => [ValueT.Return, undefined]);
         });
-      case TokenType.BRACE_RIGHT:
-      case TokenType.CLASS:
-      case TokenType.COLON:
-      case TokenType.COMMA:
-      case TokenType.ELSE:
-      case TokenType.END:
-      case TokenType.ERROR:
-      case TokenType.LABEL:
-      case TokenType.PAREN_RIGHT:
-      case TokenType.SEMICOLON:
-        return Modest.#error(
-          node,
-          "Invalid token type for statement",
-        );
+
       case TokenType.IF:
         // todo: break up blocks?
         return this.bool(node.children[0]).bind((value) => {
@@ -344,6 +332,11 @@ export class Modest {
           ],
         ]);
       }
+      default:
+        return Modest.#error(
+          node,
+          "Invalid token type for statement",
+        );
     }
   }
 }
