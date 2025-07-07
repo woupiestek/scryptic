@@ -5,15 +5,35 @@ enum NodeType {
   BLOCK,
   CLASS,
   CONTROL,
+  //  EXPR_HEAD,
+  //  EXPR_TAIL,
   EXPR,
-  EXPR_HEAD,
-  EXPR_TAIL,
   IDENTIFIER,
   JUMP,
   METHOD,
   RETURN,
   STMT,
+  NULLLARY,
+  UNARY,
+  BINARY,
 }
+
+const PRECEDENCE_A: number[] = [];
+PRECEDENCE_A[TokenType.AND] = 2;
+PRECEDENCE_A[TokenType.BE] = 1;
+PRECEDENCE_A[TokenType.DOT] = 4;
+PRECEDENCE_A[TokenType.IS_NOT] = 3;
+PRECEDENCE_A[TokenType.IS] = 3;
+PRECEDENCE_A[TokenType.LESS] = 3;
+PRECEDENCE_A[TokenType.MORE] = 3;
+PRECEDENCE_A[TokenType.NOT_LESS] = 3;
+PRECEDENCE_A[TokenType.NOT_MORE] = 3;
+PRECEDENCE_A[TokenType.OR] = 2;
+PRECEDENCE_A[TokenType.PAREN_LEFT] = 4;
+
+const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
+PRECEDENCE_B[TokenType.BE] = 0;
+PRECEDENCE_B[TokenType.PAREN_LEFT] = 3;
 
 export class Parse {
   types: number[] = [];
@@ -66,11 +86,8 @@ export class Parse {
 
   #consume(type: TokenType) {
     if (this.#match(type)) return;
-    const [l, c] = this.lex.lineAndColumn(this.next);
-    throw new Error(
-      `Expected ${TokenType[type]}, found ${
-        TokenType[this.#top()]
-      } at (${l},${c})`,
+    throw this.#error(
+      `expected ${TokenType[type]}, found ${TokenType[this.#top()]}`,
     );
   }
 
@@ -88,7 +105,7 @@ export class Parse {
         break;
       case TokenType.IF:
         this.#open(NodeType.CONTROL, this.next - 1);
-        this.#expr();
+        this.#expr(0);
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
         if (this.#match(TokenType.ELSE)) {
@@ -100,7 +117,7 @@ export class Parse {
       case TokenType.LABEL:
         this.#open(NodeType.CONTROL, this.next - 1);
         this.#consume(TokenType.WHILE);
-        this.#expr();
+        this.#expr(0);
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
         this.#close();
@@ -108,13 +125,13 @@ export class Parse {
       case TokenType.RETURN:
         this.#open(NodeType.JUMP, this.next - 1);
         if (this.#top() !== TokenType.BRACE_RIGHT) {
-          this.#expr();
+          this.#expr(0);
         }
         this.#close();
         break;
       case TokenType.WHILE:
         this.#open(NodeType.CONTROL, this.next - 1);
-        this.#expr();
+        this.#expr(0);
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
         this.#close();
@@ -122,7 +139,7 @@ export class Parse {
       default:
         // back up!
         this.next--;
-        this.#expr();
+        this.#expr(0);
         if (
           this.#top() !== TokenType.BRACE_RIGHT && this.#top() !== TokenType.END
         ) {
@@ -148,33 +165,39 @@ export class Parse {
   }
 
   #exprHead() {
-    this.#open(NodeType.EXPR_HEAD, this.next);
     switch (this.#pop()) {
       case TokenType.FALSE:
       case TokenType.IDENTIFIER:
       case TokenType.STRING:
       case TokenType.THIS:
       case TokenType.TRUE:
+        this.#open(NodeType.NULLLARY, this.next - 1);
+        this.#close();
         break;
       case TokenType.LOG:
       case TokenType.NOT:
       case TokenType.NEW:
+        this.#open(NodeType.UNARY, this.next - 1);
         this.#exprHead();
+        this.#close();
         break;
       case TokenType.VAR:
         this.#identifier();
         break;
       case TokenType.PAREN_LEFT:
-        this.#expr();
+        this.#expr(0);
         this.#consume(TokenType.PAREN_RIGHT);
+        break;
+      default:
+        throw this.#error("expression expected");
     }
-    this.#close();
   }
 
-  #exprTail() {
-    this.#open(NodeType.EXPR_TAIL, this.next);
+  #exprTail(precedence: number) {
+    this.#open(NodeType.BINARY, this.next);
     for (;;) {
-      switch (this.#top()) {
+      const bin = this.#pop();
+      switch (bin) {
         case TokenType.AND:
         case TokenType.BE:
         case TokenType.IS_NOT:
@@ -184,35 +207,34 @@ export class Parse {
         case TokenType.NOT_LESS:
         case TokenType.NOT_MORE:
         case TokenType.OR:
-          this.next++;
-          this.#exprHead();
+          if (PRECEDENCE_A[bin] > precedence) {
+            this.#expr(PRECEDENCE_B[bin]);
+          } else {
+            precedence = PRECEDENCE_A[bin];
+            this.#exprHead();
+          }
           continue;
         case TokenType.DOT:
-          this.next++;
           this.#identifier();
           continue;
         case TokenType.PAREN_LEFT:
-          this.next++;
           if (this.#match(TokenType.PAREN_RIGHT)) {
             continue;
           }
-         do  this.#expr();
-          while (this.#match(TokenType.COMMA));
+          do this.#expr(0); while (this.#match(TokenType.COMMA));
           this.#consume(TokenType.PAREN_RIGHT);
           continue;
         default:
+          this.next--;
           this.#close();
           return;
       }
     }
   }
 
-  // skip the precedence part for now
-  #expr() {
-    this.#open(NodeType.EXPR, this.next);
+  #expr(precedence: number) {
     this.#exprHead();
-    this.#exprTail();
-    this.#close();
+    this.#exprTail(precedence);
   }
 
   #class() {
@@ -225,12 +247,16 @@ export class Parse {
     this.#close();
   }
 
+  #error(msg: string) {
+    const [l, c] = this.lex.lineAndColumn(this.next);
+    return new Error(
+      `Error: '${msg}' at (${l},${c})`,
+    );
+  }
+
   #method() {
     if (this.#top() !== TokenType.IDENTIFIER && this.#top() !== TokenType.NEW) {
-      const [l, c] = this.lex.lineAndColumn(this.next);
-      throw new Error(
-        `Expected method, found ${TokenType[this.#top()]} at (${l},${c})`,
-      );
+      throw this.#error(`expected method, found ${TokenType[this.#top()]}`);
     }
     this.#open(NodeType.METHOD, this.next++);
     // args lists

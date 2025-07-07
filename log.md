@@ -1,5 +1,12 @@
 # Scryptic
 
+## 2025-07-06
+
+### regex in lexers
+
+Accept the non determinisom with transitions matrices (for each character)
+applied to bit vectors whose entries represent states of the state machine.
+
 ## 2025-07-05
 
 ### types classes
