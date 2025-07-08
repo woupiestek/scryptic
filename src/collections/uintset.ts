@@ -52,6 +52,17 @@ export class UIntSet {
     }
     return true;
   }
+
+  toString() {
+    return `{${this.iterate().toArray().join(", ")}}`;
+  }
+
+  constructor(that?: Iterable<number>) {
+    if (!that) return;
+    for (const i of that) {
+      this.add(i);
+    }
+  }
 }
 
 export function reverse(int: number) {

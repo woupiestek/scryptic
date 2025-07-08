@@ -1,21 +1,18 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Lex, TokenType } from "./lex.ts";
 
-enum NodeType {
+export enum NodeType {
   BLOCK,
+  CALL,
   CLASS,
   CONTROL,
-  //  EXPR_HEAD,
-  //  EXPR_TAIL,
+  PREFIX,
+  INFIX,
   EXPR,
-  IDENTIFIER,
   JUMP,
   METHOD,
   RETURN,
   STMT,
-  NULLLARY,
-  UNARY,
-  BINARY,
 }
 
 const PRECEDENCE_A: number[] = [];
@@ -35,30 +32,36 @@ const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
 PRECEDENCE_B[TokenType.BE] = 0;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 3;
 
+type Expr = {
+  tokens: number[];
+  sizes: number[];
+};
+
 export class Parse {
   types: number[] = [];
-  token: number[] = [];
+  tokens: number[] = [];
   // record the number of nodes in each sub tree... hopefully.
   sizes: number[] = [];
   private next = 0;
-  private size = 0;
+  size = 0;
 
   #opened: number[] = [];
 
   #open(type: NodeType, token: number) {
-    this.token[this.size] = token;
+    this.tokens[this.size] = token;
     this.types[this.size] = type;
     this.sizes[this.size] = -this.size;
     this.#opened.push(this.size++);
   }
 
-  #close() {
+  #close(type?: NodeType) {
     const i = this.#opened.pop();
     assert(i !== undefined);
+    if (type !== undefined) assert(this.types[i] === type, NodeType[type]);
     this.sizes[i] += this.size;
   }
 
-  constructor(private lex: Lex) {
+  constructor(readonly lex: Lex) {
     while (!this.#match(TokenType.END)) {
       if (this.#top() === TokenType.CLASS) {
         this.#class();
@@ -66,6 +69,7 @@ export class Parse {
         this.#stmt();
       }
     }
+    assert(this.#opened.length === 0, "" + this.#opened.length);
   }
 
   #top() {
@@ -105,7 +109,7 @@ export class Parse {
         break;
       case TokenType.IF:
         this.#open(NodeType.CONTROL, this.next - 1);
-        this.#expr(0);
+        this.#exprRoot();
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
         if (this.#match(TokenType.ELSE)) {
@@ -117,7 +121,7 @@ export class Parse {
       case TokenType.LABEL:
         this.#open(NodeType.CONTROL, this.next - 1);
         this.#consume(TokenType.WHILE);
-        this.#expr(0);
+        this.#exprRoot();
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
         this.#close();
@@ -125,13 +129,13 @@ export class Parse {
       case TokenType.RETURN:
         this.#open(NodeType.JUMP, this.next - 1);
         if (this.#top() !== TokenType.BRACE_RIGHT) {
-          this.#expr(0);
+          this.#exprRoot();
         }
         this.#close();
         break;
       case TokenType.WHILE:
         this.#open(NodeType.CONTROL, this.next - 1);
-        this.#expr(0);
+        this.#exprRoot();
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
         this.#close();
@@ -139,12 +143,13 @@ export class Parse {
       default:
         // back up!
         this.next--;
-        this.#expr(0);
+        this.#exprRoot();
         if (
           this.#top() !== TokenType.BRACE_RIGHT && this.#top() !== TokenType.END
         ) {
           this.#consume(TokenType.SEMICOLON);
         }
+        break;
     }
     this.#close();
   }
@@ -158,28 +163,27 @@ export class Parse {
     this.#close();
   }
 
+  // I need something better
+
   #identifier() {
-    this.#open(NodeType.IDENTIFIER, this.next);
+    this.#open(NodeType.PREFIX, this.next);
     this.#consume(TokenType.IDENTIFIER);
     this.#close();
   }
 
-  #exprHead() {
+  #prefix() {
+    this.#open(NodeType.PREFIX, this.next);
     switch (this.#pop()) {
       case TokenType.FALSE:
       case TokenType.IDENTIFIER:
       case TokenType.STRING:
       case TokenType.THIS:
       case TokenType.TRUE:
-        this.#open(NodeType.NULLLARY, this.next - 1);
-        this.#close();
         break;
       case TokenType.LOG:
       case TokenType.NOT:
       case TokenType.NEW:
-        this.#open(NodeType.UNARY, this.next - 1);
-        this.#exprHead();
-        this.#close();
+        this.#prefix();
         break;
       case TokenType.VAR:
         this.#identifier();
@@ -191,10 +195,17 @@ export class Parse {
       default:
         throw this.#error("expression expected");
     }
+    this.#close();
   }
 
-  #exprTail(precedence: number) {
-    this.#open(NodeType.BINARY, this.next);
+  #exprRoot() {
+    this.#open(NodeType.EXPR, this.next);
+    this.#expr(0);
+    this.#close(NodeType.EXPR);
+  }
+
+  #expr(precedence: number) {
+    this.#prefix();
     for (;;) {
       const bin = this.#pop();
       switch (bin) {
@@ -208,33 +219,32 @@ export class Parse {
         case TokenType.NOT_MORE:
         case TokenType.OR:
           if (PRECEDENCE_A[bin] > precedence) {
+            this.#open(NodeType.INFIX, this.next - 1);
             this.#expr(PRECEDENCE_B[bin]);
-          } else {
-            precedence = PRECEDENCE_A[bin];
-            this.#exprHead();
-          }
-          continue;
-        case TokenType.DOT:
-          this.#identifier();
-          continue;
-        case TokenType.PAREN_LEFT:
-          if (this.#match(TokenType.PAREN_RIGHT)) {
+            this.#close();
             continue;
           }
-          do this.#expr(0); while (this.#match(TokenType.COMMA));
-          this.#consume(TokenType.PAREN_RIGHT);
+          break;
+        case TokenType.DOT:
+          this.#open(NodeType.INFIX, this.next - 1);
+          this.#identifier();
+          this.#close();
+          continue;
+        case TokenType.PAREN_LEFT:
+          this.#open(NodeType.CALL, this.next - 1);
+          if (!this.#match(TokenType.PAREN_RIGHT)) {
+            do this.#expr(0); while (this.#match(TokenType.COMMA));
+            this.#consume(TokenType.PAREN_RIGHT);
+          }
+          this.#close();
           continue;
         default:
-          this.next--;
-          this.#close();
-          return;
+          break;
       }
+      this.next--;
+      break;
     }
-  }
-
-  #expr(precedence: number) {
-    this.#exprHead();
-    this.#exprTail(precedence);
+    return;
   }
 
   #class() {
@@ -278,11 +288,13 @@ export class Parse {
       }
     }
     const lines: string[] = [];
+    const l = this.size.toString().length;
     for (let i = 0; i < this.size; i++) {
       lines.push(
-        "  ".repeat(depths[i]) +
-          `${this.lex.indices[this.token[i]]}:${
-            TokenType[this.lex.types[this.token[i]]]
+        (" ".repeat(l - 1) + i).slice(-l) + ": " +
+          "  ".repeat(depths[i]) +
+          `${this.lex.indices[this.tokens[i]]}:${
+            TokenType[this.lex.types[this.tokens[i]]]
           }:${NodeType[this.types[i]]}`,
       );
     }

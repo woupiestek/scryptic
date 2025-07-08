@@ -1,5 +1,30 @@
 # Scryptic
 
+## 2025-07-11
+
+Better approach: use `deno test ./src/assembly/e2e.test.ts --fail-fast`
+
+## 2025-07-09
+
+Deno has crap in output. Use `\[\d+(;\d+)*m` to remove.
+
+## 2025-07-08
+
+### embeddings
+
+This is a versions of allocating object inside each other, which requires
+mathcing lifeltimes, and ownership. The idea is that arrays can be pushes to the
+leaves of the type-tree, to create a bigger type that does not contain
+references.
+
+References are not bad though...
+
+### enums
+
+Another reduction takes an array of enum, and turns it into a struct of arrays
+as well. I don't know where that helps. Effectively, all the sums types are just
+dependent sums, like structs are dependent products.
+
 ## 2025-07-06
 
 ### regex in lexers

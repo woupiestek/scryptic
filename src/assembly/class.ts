@@ -43,6 +43,11 @@ export type Instruction =
   | [Op.Return, Register?] // return
 ;
 
+export function insString(instruction: Instruction) {
+  const [h, ...t] = instruction;
+  return `${Op[h]} ${t.map((x) => x?.toString()).join(" ")}`;
+}
+
 export class Label {
   readonly instructions: Instruction[] = [];
   next?: Label;
@@ -53,9 +58,7 @@ export class Label {
 
 export class Method {
   arity = 0;
-
   size = 0;
-
   start: Label = new Label();
 
   _strings() {

@@ -45,6 +45,7 @@ const goodCases = [
   'var x = "wrong!"; while x != "right!" { x = "right!" } log x',
   "x && y == z;",
   "z = f(x, y);",
+  "!!a && !b && c",
 ];
 
 for (const goodCase of goodCases) {
