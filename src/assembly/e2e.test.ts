@@ -3,17 +3,19 @@ import {
   assertThrows,
 } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Compiler } from "./compiler.ts";
-import { Parser } from "./parser.ts";
 import { VM } from "./vm.ts";
 import { Value } from "./object.ts";
 import { Lex } from "./lex.ts";
+import { Parse } from "./parse.ts";
 
 function compile(input: string) {
-  console.log(input);
-  const lex = new Lex(input);
-  console.log(lex.toString());
-  const parser = new Parser(lex);
-  return new Compiler(lex.types).compile(parser.script());
+  const compiler = new Compiler(new Parse(new Lex(input)));
+  console.log(
+    ...Object.entries(compiler).map(([k, v]) =>
+      `=== ${k} ===\n${v.toString()}\n`
+    ),
+  );
+  return compiler.method;
 }
 function run(input: string) {
   const log: Value[] = [];

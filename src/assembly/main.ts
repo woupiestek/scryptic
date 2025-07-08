@@ -1,12 +1,10 @@
 import { Compiler } from "./compiler.ts";
-import { Parser } from "./parser.ts";
 import { Lex } from "./lex.ts";
 import { VM } from "./vm.ts";
+import { Parse } from "./parse.ts";
 
 export function rep(input: string) {
-  const lex = new Lex(input);
-  const parser = new Parser(lex);
-  new VM().run(new Compiler(lex.types).compile(parser.script()));
+  new VM().run(new Compiler(new Parse(new Lex(input))).method);
 }
 
 rep('log "Hello, World!"');
