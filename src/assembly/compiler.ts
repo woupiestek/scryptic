@@ -1,5 +1,13 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { Class, Instruction, Label, Method, Op } from "./class.ts";
+import {
+  Class,
+  Instruction,
+  Label,
+  Labels,
+  Method,
+  NULL_LABEL,
+  Op,
+} from "./class.ts";
 import { TokenType } from "./lex.ts";
 import { NodeType, Parse } from "./parse.ts";
 import { UIntSet } from "../collections/uintset.ts";
@@ -79,7 +87,8 @@ class Locals {
 }
 
 export class Compiler {
-  #current: TypedLabel = { label: new Label(), written: new UIntSet() };
+  labels = new Labels();
+  #current: TypedLabel = { label: this.labels.label(), written: new UIntSet() };
   #names: NamedLabel[] = [];
   #locals = new Locals();
 
@@ -91,7 +100,9 @@ export class Compiler {
   }
 
   #emit(...instructions: Instruction[]) {
-    this.#current.label.instructions.push(
+    this.labels.instructions(
+      this.#current.label,
+    ).push(
       ...instructions,
     );
   }
@@ -152,7 +163,7 @@ export class Compiler {
   }
 
   #next() {
-    return this.#current.label.next;
+    return this.labels.next(this.#current.label);
   }
 
   #goto(label: Label) {
@@ -199,14 +210,14 @@ export class Compiler {
     switch (this.#tokenType(y)) {
       case TokenType.AND: {
         this.#boolean(x, onFalse);
-        const b = new Label(this.#next());
-        this.#current.label.next = b;
+        const b = this.labels.label(this.#next());
+        this.labels.next(this.#current.label, b);
         this.#goto(b);
         this.#boolean(this.#children(y).toArray(), onFalse);
         return;
       }
       case TokenType.OR: {
-        const b = new Label(this.#next());
+        const b = this.labels.label(this.#next());
         this.#boolean(x, b);
         this.#goto(b);
         this.#boolean(this.#children(y).toArray(), onFalse);
@@ -227,9 +238,8 @@ export class Compiler {
   }
 
   #switch(onFalse: Label): Label {
-    const next = this.#current.label.next || new Label();
-    this.#current.label.next = onFalse;
-    return next;
+    const next = this.labels.next(this.#current.label, onFalse);
+    return next === -1 ? this.labels.label() : next;
   }
 
   #boolean(
@@ -267,7 +277,7 @@ export class Compiler {
       case TokenType.TRUE:
         return;
       case TokenType.FALSE:
-        this.#current.label.next = onFalse;
+        this.labels.next(this.#current.label, onFalse);
         return;
       case TokenType.NOT: {
         this.#boolean(
@@ -365,9 +375,9 @@ export class Compiler {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR: {
-        const continuation = new Label(this.#next());
-        const falseBranch = new Label(continuation);
-        this.#current.label.next = continuation;
+        const continuation = this.labels.label(this.#next());
+        const falseBranch = this.labels.label(continuation);
+        this.labels.next(this.#current.label, continuation);
         const index = this.#locals.alloc();
         this.#emit([Op.Constant, index, true]);
         this.#booleanBinary(lhs, rest, falseBranch);
@@ -417,7 +427,7 @@ export class Compiler {
       );
       this.#emit([
         Op.InvokeStatic,
-        this.classes[klaz].method("new"),
+        this.classes[klaz].method("new", this.labels),
         [index, ...args],
       ]);
       args.forEach((it) => this.#repay(it));
@@ -545,7 +555,7 @@ export class Compiler {
     for (const methodDeclaration of t) {
       this.#method(
         methodDeclaration,
-        klaz.method(this.#lexeme(methodDeclaration)),
+        klaz.method(this.#lexeme(methodDeclaration), this.labels),
       );
     }
   }
@@ -608,21 +618,27 @@ export class Compiler {
     assert(this.parse.types[statement] === NodeType.JUMP);
     switch (this.#tokenType(statement)) {
       case TokenType.BREAK:
-        this.#current.label.next = this.#getNamedLabel(
-          statement,
-          this.#label(statement),
-        )
-          .break;
+        this.labels.next(
+          this.#current.label,
+          this.#getNamedLabel(
+            statement,
+            this.#label(statement),
+          )
+            .break,
+        );
         return;
       case TokenType.CONTINUE:
-        this.#current.label.next = this.#getNamedLabel(
-          statement,
-          this.#label(statement),
-        )
-          .continue;
+        this.labels.next(
+          this.#current.label,
+          this.#getNamedLabel(
+            statement,
+            this.#label(statement),
+          )
+            .continue,
+        );
         return;
       case TokenType.RETURN: {
-        delete this.#current.label.next;
+        this.labels.next(this.#current.label, NULL_LABEL);
         if (this.parse.sizes[statement] === 1) return;
         const reg = this.#expression(this.#children(statement + 1).toArray());
         this.#emit([Op.Return, reg]);
@@ -642,10 +658,10 @@ export class Compiler {
         return;
       case TokenType.IF: {
         const [condition, onTrue, onFalse] = this.#children(statement + 1);
-        const continuation = new Label(this.#next());
-        const thenBranch = new Label(continuation);
-        const elseBranch = new Label(continuation);
-        this.#current.label.next = thenBranch;
+        const continuation = this.labels.label(this.#next());
+        const thenBranch = this.labels.label(continuation);
+        const elseBranch = this.labels.label(continuation);
+        this.labels.next(this.#current.label, thenBranch);
         this.#boolean(this.#children(condition).toArray(), elseBranch);
         // record assignments for the else branch
         const we = new UIntSet(
@@ -673,11 +689,11 @@ export class Compiler {
       // similar needed for label
       case TokenType.WHILE: {
         const [condition, onTrue] = this.#children(statement + 1);
-        const continuation = new Label(this.#next());
-        const loopA = new Label(this.#next());
-        const loopB = new Label(loopA);
-        this.#current.label.next = loopA;
-        loopA.next = loopB;
+        const continuation = this.labels.label(this.#next());
+        const loopA = this.labels.label(this.#next());
+        const loopB = this.labels.label(loopA);
+        this.labels.next(this.#current.label, loopA);
+        this.labels.next(loopA, loopB);
 
         this.#goto(loopA);
         this.#boolean(this.#children(condition).toArray(), continuation);
@@ -698,11 +714,11 @@ export class Compiler {
       case TokenType.LABEL: {
         const label = this.#lexeme(statement);
         const [condition, onTrue] = this.#children(statement + 1);
-        const continuation = new Label(this.#next());
-        const loopA = new Label(this.#next());
-        const loopB = new Label(loopA);
-        this.#current.label.next = loopA;
-        loopA.next = loopB;
+        const continuation = this.labels.label(this.#next());
+        const loopA = this.labels.label(this.#next());
+        const loopB = this.labels.label(loopA);
+        this.labels.next(this.#current.label, loopA);
+        this.labels.next(loopA, loopB);
         this.#goto(loopA);
         this.#boolean(this.#children(condition).toArray(), continuation);
         const written = new UIntSet(
@@ -730,7 +746,7 @@ export class Compiler {
     }
   }
 
-  method = new Method();
+  method = new Method(this.labels);
 
   #compile() {
     this.method.start = this.#current.label;
@@ -751,37 +767,7 @@ export class Compiler {
           );
       }
     }
-    Compiler.mergeLabels(this.method.start);
+    this.labels.merge();
     this.method.size = this.#locals.size;
-  }
-
-  static mergeLabels(start: Label) {
-    // collect all labels.
-    const labels = [start];
-    for (let i = 0; i < labels.length; i++) {
-      while (labels[i].next?.instructions?.length === 0) {
-        labels[i].next = labels[i].next?.next;
-      }
-      const next = labels[i].next;
-      if (next && !labels.includes(next)) labels.push(next);
-
-      for (const ins of [...labels[i].instructions]) {
-        switch (ins[0]) {
-          case Op.JumpIfLess:
-          case Op.JumpIfEqual:
-          case Op.JumpIfFalse:
-            break;
-          default:
-            continue;
-        }
-        // eliminate the empty labels
-        while (ins[1].instructions.length === 0) {
-          if (ins[1].next) {
-            ins[1] = ins[1].next;
-          }
-        }
-        if (ins[1] && !labels.includes(ins[1])) labels.push(ins[1]);
-      }
-    }
   }
 }

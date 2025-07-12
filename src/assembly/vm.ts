@@ -1,22 +1,29 @@
-import { Class, Instruction, Label, Method, Op } from "./class.ts";
+import {
+  Class,
+  Instruction,
+  Label,
+  Labels,
+  Method,
+  NULL_LABEL,
+  Op,
+} from "./class.ts";
 import { CLASS, Instance, Value } from "./object.ts";
 
 class Frame {
-  static #null = null as unknown;
-  #body: Label = Frame.#null as Label;
+  #body: Label = NULL_LABEL;
   #ip = 0;
   stackTop = 0;
   goto(label: Label) {
     this.#body = label;
     this.#ip = 0;
   }
-  next(): Instruction {
-    if (this.#ip < this.#body.instructions.length) {
-      return this.#body.instructions[this.#ip++];
+  next(labels: Labels): Instruction {
+    if (this.#ip < labels.instructions(this.#body).length) {
+      return labels.instructions(this.#body)[this.#ip++];
     }
-    if (this.#body.next) {
-      this.goto(this.#body.next);
-      return this.next();
+    if (labels.next(this.#body) !== NULL_LABEL) {
+      this.goto(labels.next(this.#body));
+      return this.next(labels);
     }
     return [Op.Return];
   }
@@ -33,7 +40,9 @@ export class VM {
   stack: Value[] = [new Instance()];
   fp = 0;
   // good old dependency injection...
-  constructor(readonly log: (_: Value) => void = console.log) {
+  constructor(
+    readonly log: (_: Value) => void = console.log,
+  ) {
     this.frames = Array.from({ length: VM.MAX_FRAMES }).map((_) => new Frame());
   }
   get(i: number): Value {
@@ -58,11 +67,11 @@ export class VM {
     this.stack[this.frames[this.fp].stackTop - i] = value;
   }
   #result: Value = null;
-  run(method: Method) {
+  run(method: Method, labels: Labels) {
     this.fp = 0;
     this.frames[this.fp].load(method, 0);
     for (;;) {
-      const instruction = this.frames[this.fp].next();
+      const instruction = this.frames[this.fp].next(labels);
       switch (instruction[0]) {
         case Op.Constant:
           this.set(instruction[1], instruction[2]);

@@ -15,11 +15,13 @@ function compile(input: string) {
       `=== ${k} ===\n${v.toString()}\n`
     ),
   );
-  return compiler.method;
+  return compiler;
 }
+
 function run(input: string) {
   const log: Value[] = [];
-  new VM((x) => log.push(x)).run(compile(input));
+  const compiler = compile(input);
+  new VM((x) => log.push(x)).run(compiler.method, compiler.labels);
   return log;
 }
 
@@ -286,6 +288,7 @@ Deno.test(function nestedVarDeclaration() {
 });
 
 Deno.test(function classesAndMethods() {
+  // something wrong with this.#current
   const script = 'class A { run(){ log "right!" } } new A().run()';
   console.log(compile(script).toString());
   assertEquals(run(script), ["right!"]);
