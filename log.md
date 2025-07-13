@@ -1,5 +1,14 @@
 # Scryptic
 
+## 2025-07-13
+
+### next steps
+
+Breaking up into 'blocks' of 'values'. Values are like expressions, but broken
+down in small steps. ok, if bools are disregarded now, some of the graph is
+missing but if bools are included, tany statment may break apart into many
+little nodes.
+
 ## 2025-07-11
 
 Better approach: use `deno test ./src/assembly/e2e.test.ts --fail-fast`

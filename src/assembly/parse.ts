@@ -32,15 +32,9 @@ const PRECEDENCE_B: number[] = [...PRECEDENCE_A];
 PRECEDENCE_B[TokenType.BE] = 0;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 3;
 
-type Expr = {
-  tokens: number[];
-  sizes: number[];
-};
-
 export class Parse {
   types: number[] = [];
   tokens: number[] = [];
-  // record the number of nodes in each sub tree... hopefully.
   sizes: number[] = [];
   private next = 0;
   size = 0;
@@ -162,8 +156,6 @@ export class Parse {
     this.#consume(TokenType.BRACE_RIGHT);
     this.#close();
   }
-
-  // I need something better
 
   #identifier() {
     this.#open(NodeType.PREFIX, this.next);

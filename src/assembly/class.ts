@@ -45,11 +45,6 @@ export type Instruction =
   | [Op.Return, Register?] // return
 ;
 
-export function insString(instruction: Instruction) {
-  const [h, ...t] = instruction;
-  return `${Op[h]} ${t.map((x) => x?.toString()).join(" ")}`;
-}
-
 export type Label = number & { readonly __tag: unique symbol };
 export const NULL_LABEL = -1 as Label;
 
