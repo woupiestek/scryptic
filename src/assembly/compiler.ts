@@ -27,8 +27,7 @@ type Register = number & { readonly __tag: unique symbol };
 
 type Local = number & { readonly __tag: unique symbol };
 
-// lost which local owns which variable?
-// or use reference counting?
+// removed ownership logic, which means more registers are needed now
 class Locals {
   #minFree = 0;
   #occupied = new UIntSet();
@@ -53,9 +52,9 @@ class Locals {
   size = 0;
   static #EMPTY = -1 as Register;
 
-  add(name: string, register?: Register): Local {
+  add(name: string, register: Register = Locals.#EMPTY): Local {
     this.#names[this.size] = name;
-    this.#registers[this.size] = register ?? Locals.#EMPTY;
+    this.#registers[this.size] = register;
     return this.size++ as Local;
   }
 
@@ -167,7 +166,7 @@ export class Compiler {
   }
 
   #goto(label: Label) {
-    const written = new UIntSet(this.#current.written.iterate());
+    const written = new UIntSet(this.#current.written);
     this.#current = {
       label,
       written,
@@ -206,7 +205,6 @@ export class Compiler {
       return;
     }
 
-    // left and right no longer work
     switch (this.#tokenType(y)) {
       case TokenType.AND: {
         this.#boolean(x, onFalse);
@@ -400,16 +398,16 @@ export class Compiler {
     if (this.#tokenType(node) === TokenType.DOT) {
       const args = [
         this.#expression(operator),
-        ...this.#children(operands).map((it) =>
-          this.#expression(this.#children(it).toArray())
-        ),
       ];
+      const children = [...this.#children(operands)];
+      if (children.length > 0) args.push(this.#expression(children));
+      // what about multiple parameters?
       this.#emit([
         Op.InvokeVirtual,
         this.#lexeme(node + 1),
         args,
       ]);
-      args.forEach((it) => this.#repay(it));
+      // args.forEach((it) => this.#repay(it));
       const index = this.#locals.alloc();
       this.#emit([Op.MoveResult, index]);
       return index;
@@ -422,15 +420,16 @@ export class Compiler {
         index,
         this.classes[klaz] ||= new Class(),
       ]);
-      const args = this.#children(operands).map((it) =>
-        this.#expression(this.#children(it).toArray())
-      );
+
+      const args = [index];
+      const children = [...this.#children(operands)];
+      if (children.length) args.push(this.#expression(children));
       this.#emit([
         Op.InvokeStatic,
         this.classes[klaz].method("new", this.labels),
-        [index, ...args],
+        args,
       ]);
-      args.forEach((it) => this.#repay(it));
+      // args.forEach((it) => this.#repay(it));
       return index;
     }
     throw this.#error(node, "uncallable operand");
@@ -552,15 +551,16 @@ export class Compiler {
   #class(declaration: number) {
     const [h, ...t] = this.#children(declaration);
     const klaz = this.classes[this.#lexeme(h)] ||= new Class();
+    const _this = this.#locals.add("this", this.#locals.alloc());
     for (const methodDeclaration of t) {
       this.#method(
         methodDeclaration,
         klaz.method(this.#lexeme(methodDeclaration), this.labels),
       );
     }
+    this.#locals.truncate(_this);
   }
 
-  // note: was static for some reason
   #method(
     declaration: number,
     method: Method,
@@ -569,9 +569,11 @@ export class Compiler {
     const args = [...this.#children(declaration)];
     const block = args.pop() ?? -1;
     method.arity = args.length;
-    // const compiler = new Compiler(this.parse, classes);
-    method.start = this.#current.label;
-    this.#locals.add("this", this.#locals.alloc());
+    const current = this.#current;
+    this.#current = {
+      label: method.start,
+      written: new UIntSet(this.#current.written),
+    };
     for (const variable of args) {
       this.#current.written.add(
         this.#declare(variable, this.#locals.alloc()),
@@ -579,6 +581,7 @@ export class Compiler {
     }
     this.#block(block);
     method.size = this.#locals.size;
+    this.#current = current;
   }
 
   #block(block: number) {
@@ -650,7 +653,6 @@ export class Compiler {
     }
   }
 
-  // not good enough?
   #statement(statement: number) {
     switch (this.#tokenType(statement)) {
       case TokenType.BRACE_LEFT:
@@ -665,12 +667,12 @@ export class Compiler {
         this.#boolean(this.#children(condition).toArray(), elseBranch);
         // record assignments for the else branch
         const we = new UIntSet(
-          this.#current.written.iterate(),
+          this.#current.written,
         );
         this.#goto(thenBranch);
         this.#block(onTrue);
         // record assignment after for continuation
-        const assignedOnTrue = this.#current.written.iterate().toArray();
+        const assignedOnTrue = [...this.#current.written];
         this.#current = { label: elseBranch, written: we };
         if (onFalse) {
           this.#block(onFalse);
@@ -679,7 +681,7 @@ export class Compiler {
         this.#current = {
           label: continuation,
           written: new UIntSet(
-            this.#current.written.iterate().filter((it) =>
+            [...this.#current.written].filter((it) =>
               assignedOnTrue.includes(it)
             ),
           ),
@@ -698,7 +700,7 @@ export class Compiler {
         this.#goto(loopA);
         this.#boolean(this.#children(condition).toArray(), continuation);
         const written = new UIntSet(
-          this.#current.written.iterate(),
+          this.#current.written,
         );
         this.#goto(loopB);
         this.#names.push({
@@ -722,7 +724,7 @@ export class Compiler {
         this.#goto(loopA);
         this.#boolean(this.#children(condition).toArray(), continuation);
         const written = new UIntSet(
-          this.#current.written.iterate(),
+          this.#current.written,
         );
         this.#goto(loopB);
         this.#names.push({

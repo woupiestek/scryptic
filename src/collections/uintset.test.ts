@@ -17,7 +17,7 @@ Deno.test("expected behavior", () => {
     assert(natSet.has(number));
   }
 
-  for (const number of natSet.iterate()) {
+  for (const number of natSet) {
     assert(numbers.has(number));
   }
 
@@ -25,7 +25,7 @@ Deno.test("expected behavior", () => {
     natSet.remove(number);
   }
 
-  for (const number of natSet.iterate()) {
+  for (const number of natSet) {
     assert(!numbers.has(number));
   }
 

@@ -39,7 +39,7 @@ export class UIntSet {
   clear() {
     this.#entries.fill(0, 0, this.#entries.length); // = 0;
   }
-  *iterate() {
+  *[Symbol.iterator]() {
     for (let i = 0, l = 8 * this.#entries.length; i < l; i++) {
       if (this.has(i)) {
         yield i;
@@ -54,7 +54,7 @@ export class UIntSet {
   }
 
   toString() {
-    return `{${this.iterate().toArray().join(", ")}}`;
+    return `{${[...this].join(", ")}}`;
   }
 
   constructor(that?: Iterable<number>) {

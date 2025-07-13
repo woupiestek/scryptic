@@ -56,10 +56,10 @@ export const NULL_LABEL = -1 as Label;
 export class Labels {
   #instructions: Instruction[][] = [[]];
   #next: Label[] = [NULL_LABEL];
-  label(_next?: Label) {
+  label(_next: Label = NULL_LABEL) {
     const l = this.#next.length;
     this.#instructions[l] = [];
-    this.#next[l] = _next ?? NULL_LABEL;
+    this.#next[l] = _next;
     return l as Label;
   }
   instructions(label: Label) {
