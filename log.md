@@ -1,5 +1,11 @@
 # Scryptic
 
+## 2025-07-14
+
+### depth first post order
+
+Genrate the tree that way, hopefully getting better structures that way.
+
 ## 2025-07-13
 
 ### next steps
