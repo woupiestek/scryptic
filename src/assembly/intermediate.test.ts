@@ -1,8 +1,8 @@
-import { Block, Parser } from "./parser.ts";
 import { LabelType, Optimizer, Target, Value } from "./intermediate.ts";
 import { NumberTrie } from "../collections/numberTrie2.ts";
 import { Table } from "../collections/table.ts";
 import { Lex } from "./lex.ts";
+import { NodeType, Parse } from "./parse2.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
@@ -13,11 +13,10 @@ function run(input: string) {
   console.log(columnnumbers(input.length));
   console.log(input);
   const lex = new Lex(input);
-  const parser = new Parser(lex);
-  const parseResult = parser.script();
-  const optimizer = new Optimizer(lex.types);
+  const parse = new Parse(lex);
+  const optimizer = new Optimizer(parse);
   const label = optimizer.statements(
-    parseResult.filter((it) => it instanceof Block),
+    (parse.children()).filter((it) => parse.types[it] !== NodeType.CLASS),
   ).complete(NumberTrie.empty(), (vs, _) =>
     new Target([
       LabelType.RETURN,

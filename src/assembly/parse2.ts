@@ -262,15 +262,16 @@ export class Parse {
   }
 
   // in reverses order, ideal for pop, though...
-  children(node: number): number[] {
+  children(node: number = this.size): number[] {
     const result: number[] = [];
     for (
-      let i = node - 1, i0 = node - this.sizes[node];
-      i >= i0;
+      let i = node - 1, i0 = node - (this.sizes[node] ?? node);
+      i > i0;
       i -= this.sizes[i]
     ) {
       result.push(i);
     }
+    result.reverse();
     return result;
   }
 
