@@ -1,4 +1,3 @@
-import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { NumberTrie } from "../collections/numberTrie2.ts";
 import { Table } from "../collections/table.ts";
 import { Trie } from "../collections/trie.ts";

@@ -1,25 +1,6 @@
 import { SplayMap } from "../collections/splay.ts";
-import { Lex, TokenType } from "./lex.ts";
-import {
-  Access,
-  Binary,
-  Block,
-  Break,
-  Call,
-  Continue,
-  Expression,
-  IfStatement,
-  Literal,
-  Log,
-  New,
-  Not,
-  Return,
-  Statement,
-  VarDeclaration,
-  Variable,
-  WhileStatement,
-} from "./parser.ts";
-import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
+import { TokenType } from "./lex.ts";
+import { NodeType, Parse } from "./parse2.ts";
 
 export enum Kind {
   Access,
@@ -34,7 +15,7 @@ export enum Kind {
   SetField,
   Then,
 }
-export type Value = number;
+export type Value = number & { readonly __tag: unique symbol };
 
 function tupleString(...members: unknown[]): string {
   return `(${members.join(" ")})`;
@@ -51,6 +32,7 @@ type Data =
   | [Kind.Phi, Value[]]
   | [Kind.SetField, Value, string, Value]
   | [Kind.Then, Value];
+
 export class Entry {
   constructor(
     readonly token: number,
@@ -80,72 +62,80 @@ const KEYS = {
   world: "<world>",
 };
 
+const NULL = -1 as Value;
 export class Model {
   readonly entries: Entry[] = [];
-  constructor(private lex: Lex) {}
+  constructor(private parse: Parse) {}
   #error(token: number, msg: string) {
-    const [l, c] = this.lex.lineAndColumn(token);
+    const [l, c] = this.parse.lex.lineAndColumn(token);
     return new Error(
       `Compile error at ${
-        TokenType[this.lex.types[token]]
+        TokenType[this.parse.lex.types[token]]
       } [${l},${c}]: ${msg}`,
     );
   }
 
-  #enter(token: number, data?: Data, world?: Value): number {
-    return this.entries.push(new Entry(token, data, world)) - 1;
+  #enter(token: number, data?: Data, world?: Value) {
+    return this.entries.push(new Entry(token, data, world)) - 1 as Value;
+  }
+
+  #tokenType(node: number) {
+    return this.parse.lex.types[this.parse.tokens[node]];
+  }
+
+  #lexeme(node: number) {
+    return this.parse.lex.lexeme(this.parse.tokens[node]);
   }
 
   assign(
     values: Values,
     token: number,
-    left: Expression,
-    right: Expression,
+    left: number,
+    right: (_: Values) => Alternatives,
   ): Alternatives {
-    switch (this.lex.types[left.token]) {
+    switch (this.#tokenType(left)) {
       case TokenType.IDENTIFIER: {
-        const { name } = left as Variable;
+        const name = this.#lexeme(left);
         const value = values.select(name);
         if (value === undefined) {
-          throw this.#error(token, "Undeclared variable");
+          throw this.#error(token, `Undeclared variable '${name}'`);
         }
-        const a = this.expression(values, right);
-        const b = this.value(a);
+        const b = this.value(right(values));
         return this.lift(values.insert(name, b).insert(KEYS.value, b));
       }
       case TokenType.DOT: {
-        const { token, object, field } = left as Access;
+        const [object, field] = this.parse.children(left);
         const a = this.expression(values, object);
-        const b = this.expression(
+        const b = right(
           a.select(KEYS.next) || SplayMap.empty(),
-          right,
         );
         return this.set(
           b,
           KEYS.world,
           this.#enter(
             token,
-            [Kind.SetField, this.value(a), field, this.value(b)],
+            [Kind.SetField, this.value(a), this.#lexeme(field), this.value(b)],
             this.world(b),
           ),
         );
       }
       case TokenType.VAR: {
-        const { key: { name } } = left as VarDeclaration;
+        const name = this.#lexeme(left - 1);
         const value = values.select(name);
         if (value !== undefined) {
           const token2 = this.entries[value].token;
-          const [l, c] = this.lex.lineAndColumn(token2);
+          const [l, c] = this.parse.lex.lineAndColumn(token2);
           throw this.#error(
             token,
             `Variable already declared at [${l},${c}]`,
           );
         }
-        const b = this.expression(values, right);
+        const b = right(values);
+        const a = this.value(b);
         return this.set(
-          this.set(b, name, this.value(b)),
+          this.set(b, name, a),
           KEYS.value,
-          this.value(b),
+          a,
         );
       }
       default:
@@ -160,7 +150,7 @@ export class Model {
     return this.get(alternatives, KEYS.world);
   }
   get(alternatives: Alternatives, key: string): Value {
-    return alternatives.select(KEYS.next)?.select(key) ?? -1;
+    return alternatives.select(KEYS.next)?.select(key) ?? NULL;
   }
   next(alternatives: Alternatives): Values {
     return alternatives.select(KEYS.next) || SplayMap.empty();
@@ -188,44 +178,60 @@ export class Model {
     return alternatives.delete(KEYS.next).merge(x);
   }
 
-  expression(values: Values, expression: Expression): Alternatives {
-    switch (this.lex.types[expression.token]) {
+  literal(
+    token: number,
+    value: boolean | string,
+    values: Values,
+  ): Alternatives {
+    return this.lift(
+      values.insert(
+        KEYS.value,
+        this.#enter(token, [Kind.Literal, value]),
+      ),
+    );
+  }
+
+  expression(values: Values, expression: number): Alternatives {
+    const token = this.parse.tokens[expression];
+    switch (this.#tokenType(expression)) {
       case TokenType.BE: {
-        const { token, left, right } = expression as Binary;
-        return this.assign(values, token, left, right);
+        const [left, right] = this.parse.children(expression);
+        return this.assign(
+          values,
+          token,
+          left,
+          (v) => this.expression(v, right),
+        );
       }
       case TokenType.DOT: {
-        const { token, object, field } = expression as Access;
+        const [object, field] = this.parse.children(expression);
         const o = this.expression(values, object);
         return this.set(
           o,
           KEYS.value,
           this.#enter(
             token,
-            [Kind.Access, this.value(o), field],
+            [Kind.Access, this.value(o), this.#lexeme(field)],
             this.get(o, KEYS.world),
           ),
         );
       }
       case TokenType.FALSE:
+        return this.literal(token, false, values);
       case TokenType.STRING:
-      case TokenType.TRUE: {
-        const { token, value } = expression as Literal;
-        return this.lift(
-          values.insert(
-            KEYS.value,
-            this.#enter(token, [Kind.Literal, value]),
-          ),
-        );
-      }
+        return this.literal(token, this.parse.lex.lexeme(token), values);
+      case TokenType.TRUE:
+        return this.literal(token, true, values);
       case TokenType.IDENTIFIER:
       case TokenType.THIS: {
-        const value = values.select((expression as Variable).name);
+        const name = this.#lexeme(expression);
+        const value = values.select(name);
         if (value === undefined) {
-          throw this.#error(expression.token, "Undeclared variable");
+          throw this.#error(token, `Undeclared variable '${name}'`);
         }
         if (this.entries[value].data === undefined) {
-          throw this.#error(expression.token, "Unassigned variable");
+          // i don't get it. why is no value asigned?
+          throw this.#error(token, `Unassigned variable '${name}'`);
         }
         return this.lift(values.insert(KEYS.value, value));
       }
@@ -235,7 +241,7 @@ export class Model {
       case TokenType.MORE:
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE: {
-        const { token, left, right } = expression as Binary;
+        const [left, right] = this.parse.children(expression);
         const l = this.expression(values, left);
         const r = this.flatMap(l, (it) => this.expression(it, right));
         return this.set(
@@ -249,7 +255,7 @@ export class Model {
         );
       }
       case TokenType.LOG: {
-        const { token, value } = expression as Log;
+        const [value] = this.parse.children(expression);
         const values2 = this.expression(values, value);
         return this.set(
           values2,
@@ -262,13 +268,16 @@ export class Model {
         );
       }
       case TokenType.NEW: {
-        const { token, klaz } = expression as New;
+        const [klaz] = this.parse.children(expression);
         return this.lift(
-          values.insert(KEYS.value, this.#enter(token, [Kind.New, klaz])),
+          values.insert(
+            KEYS.value,
+            this.#enter(token, [Kind.New, this.#lexeme(klaz)]),
+          ),
         );
       }
       case TokenType.PAREN_LEFT: {
-        const { token, operator, operands } = expression as Call;
+        const [operator, ...operands] = this.parse.children(expression);
         let w = this.expression(values, operator);
         const x = this.value(w);
         const y: Value[] = [];
@@ -284,21 +293,21 @@ export class Model {
         return this.set(this.set(w, KEYS.world, value), KEYS.value, value);
       }
       case TokenType.VAR: {
-        const { key: { name } } = expression as VarDeclaration;
+        const name = this.#lexeme(expression - 1);
         const check = values.select(name);
         if (check !== undefined) {
           const token = this.entries[check].token;
-          const [l, c] = this.lex.lineAndColumn(token);
+          const [l, c] = this.parse.lex.lineAndColumn(token);
           throw this.#error(
-            expression.token,
+            token,
             `variable already defined at ${[l, c]}`,
           );
         }
-        const u = this.#enter(expression.token);
+        const u = this.#enter(token);
         return this.lift(values.insert(name, u).insert(KEYS.value, u));
       }
       case TokenType.AND: {
-        const { left, right } = expression as Binary;
+        const [left, right] = this.parse.children(expression);
         return this.ifThenElse(
           left,
           (it: Values) => this.expression(it, right),
@@ -306,21 +315,21 @@ export class Model {
             this.lift(
               it.insert(
                 KEYS.value,
-                this.#enter(expression.token, [Kind.Literal, false]),
+                this.#enter(token, [Kind.Literal, false]),
               ),
             ),
           values,
         );
       }
       case TokenType.OR: {
-        const { left, right } = expression as Binary;
+        const [left, right] = this.parse.children(expression);
         return this.ifThenElse(
           left,
           (it: Values) =>
             this.lift(
               it.insert(
                 KEYS.value,
-                this.#enter(expression.token, [Kind.Literal, true]),
+                this.#enter(token, [Kind.Literal, true]),
               ),
             ),
           (it) => this.expression(it, right),
@@ -328,33 +337,43 @@ export class Model {
         );
       }
       default:
-        throw this.#error(expression.token, "Illegal expression in boolean");
+        throw this.#error(token, "Illegal expression in boolean");
     }
   }
 
-  #block(values: Values, block: Block): Alternatives {
-    let alternatives = this.interpret(values, block.statements);
+  #block(values: Values, block: number): Alternatives {
+    const statements = this.parse.children(block);
+    console.log("what!?", TokenType[this.#tokenType(block)]);
+    const jump =
+      this.parse.types[statements[statements.length - 1]] === NodeType.JUMP
+        ? statements.pop()
+        : undefined;
+    let alternatives = this.interpret(values, statements);
     const next = alternatives.select(KEYS.next);
     if (next === undefined) return alternatives;
-    if (block.jump) {
+    if (jump) {
       //alternatives = alternatives.delete(KEYS.next);
-      switch (this.lex.types[block.jump.token]) {
+      switch (this.#tokenType(jump)) {
         case TokenType.BREAK: {
-          const { label } = block.jump as Break;
+          const label = this.parse.sizes[jump] > 1
+            ? this.#lexeme(jump - 1)
+            : undefined;
           return alternatives.delete(KEYS.next).insert(
             label ? `<break ${label}>` : KEYS.break,
             next,
           );
         }
         case TokenType.CONTINUE: {
-          const { label } = block.jump as Continue;
+          const label = this.parse.sizes[jump] > 1
+            ? this.#lexeme(jump - 1)
+            : undefined;
           return alternatives.delete(KEYS.next).insert(
             label ? `<continue ${label}>` : KEYS.continue,
             next,
           );
         }
         case TokenType.RETURN: {
-          const { expression } = block.jump as Return;
+          const expression = this.parse.sizes[jump] > 1 ? jump - 1 : undefined;
           if (expression === undefined) {
             return alternatives.delete(KEYS.next).insert(KEYS.return, next);
           }
@@ -390,20 +409,20 @@ export class Model {
     return left;
   }
 
-  interpret(values: Values, statements: Statement[]): Alternatives {
+  interpret(values: Values, statements: number[]): Alternatives {
     let alternatives = this.lift(values);
     for (const statement of statements) {
-      if (statement instanceof Block) {
-        alternatives = this.flatMap(
-          alternatives,
-          (next) => this.#block(next, statement as Block),
-        );
-        if (alternatives.select(KEYS.next) === undefined) return alternatives;
-        continue;
-      }
-      switch (this.lex.types[statement.token]) {
+      console.log(NodeType[this.parse.types[statement]]);
+      switch (this.#tokenType(statement)) {
+        case TokenType.BRACE_LEFT:
+          alternatives = this.flatMap(
+            alternatives,
+            (next) => this.#block(next, statement),
+          );
+          if (alternatives.select(KEYS.next) === undefined) return alternatives;
+          continue;
         case TokenType.IF: {
-          const { condition, onTrue, onFalse } = statement as IfStatement;
+          const [condition, onTrue, onFalse] = this.parse.children(statement);
           alternatives = this.flatMap(alternatives, (next) =>
             this.ifThenElse(
               condition,
@@ -425,12 +444,15 @@ export class Model {
             phonies[k] = [v];
             values = values.insert(
               k,
-              this.#enter(statement.token, [Kind.Phi, phonies[k]]),
+              this.#enter(this.parse.tokens[statement], [Kind.Phi, phonies[k]]),
             );
           }
           alternatives = alternatives.insert(KEYS.next, values);
-          // ready
-          const { condition, onTrue, label } = statement as WhileStatement;
+          const children = this.parse.children(statement);
+          const onTrue = children.pop() ?? -1;
+          const condition = children.pop() ?? -1;
+          const label = children.pop();
+
           alternatives = this.flatMap(
             alternatives,
             (next) =>
@@ -493,7 +515,7 @@ export class Model {
         default:
           alternatives = this.flatMap(
             alternatives,
-            (next) => this.expression(next, statement as Expression),
+            (next) => this.expression(next, statement),
           );
           continue;
       }
@@ -514,7 +536,7 @@ export class Model {
   }
 
   __ifThenElse(
-    condition: Expression,
+    condition: number,
     thenBlock: (_: Values) => Alternatives,
     elseBlock: (_: Values) => Alternatives,
     values: Values,
@@ -527,7 +549,7 @@ export class Model {
           next.insert(
             KEYS.world,
             this.#enter(
-              condition.token,
+              this.parse.tokens[condition],
               [Kind.Then, this.value(alt0)],
               next.select(KEYS.world),
             ),
@@ -541,7 +563,7 @@ export class Model {
           next.insert(
             KEYS.world,
             this.#enter(
-              condition.token,
+              this.parse.tokens[condition],
               [Kind.Else, this.value(alt0)],
               next.select(KEYS.world),
             ),
@@ -552,18 +574,20 @@ export class Model {
   }
 
   ifThenElse(
-    condition: Expression,
+    condition: number,
     thenBlock: (_: Values) => Alternatives,
     elseBlock: (_: Values) => Alternatives,
     values: Values,
   ): Alternatives {
-    switch (this.lex.types[condition.token]) {
+    switch (this.#tokenType(condition)) {
       case TokenType.AND: {
-        const [l, c] = this.lex.lineAndColumn(condition.token);
+        const [l, c] = this.parse.lex.lineAndColumn(
+          this.parse.tokens[condition],
+        );
         const key = `<goto [${l},${c}]>`;
         const elseBlock2 = (it: Values) =>
           SplayMap.empty<Values>().insert(key, it);
-        const { left, right } = condition as Binary;
+        const [left, right] = this.parse.children(condition);
         // replace the else block with the continuation
         // do the expression
         const alt0 = this.ifThenElse(
@@ -579,16 +603,17 @@ export class Model {
         return alt0;
       }
       case TokenType.BE: {
-        const { left, right } = condition as Binary;
+        const [left, right] = this.parse.children(condition);
         return this.ifThenElse(
           right,
           (it) =>
             this.flatMap(
               this.assign(
                 it,
-                condition.token,
+                this.parse.tokens[condition],
                 left,
-                new Literal(right.token, true),
+                (values) =>
+                  this.literal(this.parse.tokens[right], true, values),
               ),
               thenBlock,
             ),
@@ -596,9 +621,10 @@ export class Model {
             this.flatMap(
               this.assign(
                 it,
-                condition.token,
+                this.parse.tokens[condition],
                 left,
-                new Literal(right.token, false),
+                (values) =>
+                  this.literal(this.parse.tokens[right], false, values),
               ),
               elseBlock,
             ),
@@ -618,7 +644,8 @@ export class Model {
       case TokenType.FALSE:
         return elseBlock(values);
       case TokenType.LOG: {
-        const { token, value } = condition as Log;
+        const token = this.parse.tokens[condition];
+        const [value] = this.parse.children(condition);
         return this.ifThenElse(value, (model) =>
           thenBlock(
             model.insert(
@@ -641,17 +668,19 @@ export class Model {
       }
       case TokenType.NOT:
         return this.ifThenElse(
-          (condition as Not).expression,
+          condition - 1,
           elseBlock,
           thenBlock,
           values,
         );
       case TokenType.OR: {
-        const [l, c] = this.lex.lineAndColumn(condition.token);
+        const [l, c] = this.parse.lex.lineAndColumn(
+          this.parse.tokens[condition],
+        );
         const key = `<goto [${l},${c}]>`;
         const thenBlock2 = (it: Values) =>
           SplayMap.empty<Values>().insert(key, it);
-        const { left, right } = condition as Binary;
+        const [left, right] = this.parse.children(condition);
         const alt0 = this.ifThenElse(
           left,
           thenBlock2,
@@ -667,7 +696,10 @@ export class Model {
       case TokenType.TRUE:
         return thenBlock(values);
       default:
-        throw this.#error(condition.token, "Illegal condition expression");
+        throw this.#error(
+          this.parse.tokens[condition],
+          "Illegal condition expression",
+        );
     }
   }
 }

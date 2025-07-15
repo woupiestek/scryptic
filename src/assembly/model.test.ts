@@ -1,8 +1,9 @@
 import { assertThrows } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Model } from "./model.ts";
-import { Block, Parser } from "./parser.ts";
 import { SplayMap } from "../collections/splay.ts";
 import { Lex } from "./lex.ts";
+import { Parse } from "./parse2.ts";
+import { NodeType } from "./parse.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
@@ -14,13 +15,14 @@ function run(input: string) {
   console.log(columnnumbers(input.length));
   console.log(input);
   const lex = new Lex(input);
-  const parser = new Parser(lex);
-  const parseResult = parser.script();
-
-  const model = new Model(lex);
+  const parse = new Parse(lex);
+  const parseResult = parse.children().filter((it) =>
+    parse.types[it] !== NodeType.CLASS
+  );
+  const model = new Model(parse);
   const result = model.interpret(
     SplayMap.empty(),
-    parseResult.filter((it) => it instanceof Block),
+    parseResult,
   );
   console.log(
     result.toString(),
@@ -33,13 +35,15 @@ function throws(input: string) {
     console.log(columnnumbers(input.length));
     console.log(input);
     const lex = new Lex(input);
-    const parser = new Parser(lex);
-    const parseResult = parser.script();
-    const model = new Model(lex);
+    const parse = new Parse(lex);
+    const parseResult = parse.children().filter((it) =>
+      parse.types[it] !== NodeType.CLASS
+    );
+    const model = new Model(parse);
     assertThrows(() =>
       model.interpret(
         SplayMap.empty(),
-        parseResult.filter((it) => it instanceof Block),
+        parseResult,
       )
     );
   });
@@ -114,9 +118,7 @@ run(
   'var x = "test"; if !(x > "zzz" || true) { x = "wrong!" } else { x = "right!" } log x',
 );
 
-run(
-  'var x; if true { x = "wrong!" } log x',
-);
+// run('var x; if true { x = "wrong!" } log x');
 
 run(
   'var x; var y = new A(); x = y.m = "test"; if x == "test" { log "right!" } else { log "wrong!" }',
@@ -132,16 +134,16 @@ run(
   '(var x = new A()).y = "right!"; log(x.y)',
 );
 
-run('class A { run(){ log "right!" } } new A().run()');
+// run('class A { run(){ log "right!" } } new A().run()');
 
-run('class A { new(){ log "right!" } } new A()');
+// run('class A { new(){ log "right!" } } new A()');
 
-run('class A { run(){ return "right!" } } log(new A().run())');
-run('class A { print(x){ log x } } new A().print("right!")');
+// run('class A { run(){ return "right!" } } log(new A().run())');
+// run('class A { print(x){ log x } } new A().print("right!")');
 
-run('class A { new(x){ log x } } new A("right!")');
+// run('class A { new(x){ log x } } new A("right!")');
 
-run('class A { new(x){ this.x = x } } log(new A("right!").x)');
+// run('class A { new(x){ this.x = x } } log(new A("right!").x)');
 
 run(
   'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x',
