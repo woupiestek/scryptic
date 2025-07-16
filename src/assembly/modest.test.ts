@@ -1,6 +1,6 @@
 import { Modest, Value, ValueT } from "./modest.ts";
 import { Lex } from "./lex.ts";
-import { Parse } from "./parse2.ts";
+import { Parse } from "./parse.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +

@@ -2,7 +2,7 @@ import { assertThrows } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Model } from "./model.ts";
 import { SplayMap } from "../collections/splay.ts";
 import { Lex } from "./lex.ts";
-import { Parse } from "./parse2.ts";
+import { Parse } from "./parse.ts";
 import { NodeType } from "./parse.ts";
 
 function columnnumbers(length: number) {

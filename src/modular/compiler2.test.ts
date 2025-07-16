@@ -1,3 +1,5 @@
+import { Lex } from "../assembly/lex.ts";
+import { Parse } from "../assembly/parse.ts";
 import { Compiler } from "./compiler2.ts";
 
 const goodCases = [
@@ -43,6 +45,8 @@ const goodCases = [
 
 for (const testCode of goodCases) {
   Deno.test(`No blow up on '${testCode}'`, () => {
-    console.log(new Compiler(testCode).show());
+    const parse = new Parse(new Lex(testCode));
+    console.log(parse.toString());
+    console.log(new Compiler(parse).show());
   });
 }

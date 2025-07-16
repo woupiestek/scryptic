@@ -79,7 +79,7 @@ export class Lex {
     this.types[this.size++] = type;
   }
 
-  constructor(private source: string) {
+  constructor(readonly source: string) {
     let index = 0;
     while (index < source.length) {
       while (index < source.length && /[\n\r\s]/.test(source[index])) {
