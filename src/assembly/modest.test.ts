@@ -1,6 +1,6 @@
-import { Parser } from "./parser2.ts";
 import { Modest, Value, ValueT } from "./modest.ts";
 import { Lex } from "./lex.ts";
+import { Parse } from "./parse2.ts";
 
 function columnnumbers(length: number) {
   return "col:5   " +
@@ -10,13 +10,11 @@ function columnnumbers(length: number) {
 function run(input: string) {
   console.log(columnnumbers(input.length));
   console.log(input);
-  const lex = new Lex(input);
-  const parseResult = new Parser(lex).script();
-  const modest = new Modest(lex.types);
-  const label = modest.statements(
-    parseResult,
-  ).complete((_) => [ValueT.Return, undefined]);
-  console.log(Value.stringify(label));
+  console.log(Value.stringify(
+    new Modest(new Parse(new Lex(input))).statements(
+      new Parse(new Lex(input)).children(),
+    ).complete((_) => [ValueT.Return, undefined]),
+  ));
 }
 
 run('log "Hello, World!"');

@@ -1,6 +1,6 @@
 import { Table } from "../collections/table.ts";
 import { TokenType } from "./lex.ts";
-import { Node } from "./parser2.ts";
+import { Parse } from "./parse2.ts";
 
 export enum ValueT {
   Access,
@@ -85,36 +85,57 @@ export class CPS<A> {
 
 // modest transformation
 // just make it longer, don't know what else to do yet
+
+class Strings {
+  #back: { [_: string]: number } = {};
+  #forth: string[] = [];
+  store(string: string): number {
+    if (this.#back[string] === undefined) {
+      this.#back[string] = this.#forth.push(string) - 1;
+    }
+    return this.#back[string];
+  }
+  fetch(id: number) {
+    return this.#forth[id];
+  }
+}
+
 export class Modest {
   #label = 0;
   #break = this.#label++;
   #continue = this.#label++;
   #next = this.#label++;
   #labels = new Table<number>();
+  #strings = new Strings();
 
-  constructor(private types: TokenType[]) {}
+  constructor(private parse: Parse) {}
 
-  static #error<A>(node: Node, message: string): CPS<A> {
+  #error<A>(node: number, message: string): CPS<A> {
     return new CPS(
       (
         _,
       ) => [
         ValueT.Error,
-        node.token,
+        this.parse.tokens[node],
         message,
       ],
     );
   }
 
-  bool(node: Node): CPS<boolean> {
-    switch (this.types[node.token]) {
+  #tokenType(node: number) {
+    return this.parse.lex.types[this.parse.tokens[node]];
+  }
+
+  bool(node: number): CPS<boolean> {
+    const children = this.parse.children(node);
+    switch (this.#tokenType(node)) {
       case TokenType.AND:
-        return this.bool(node.children[0]).bind((value) =>
-          value ? this.bool(node.children[1]) : CPS.unit(false)
+        return this.bool(node - 1).bind((value) =>
+          value ? this.bool(children[1]) : CPS.unit(false)
         );
       case TokenType.BE:
-        return this.expression(node.children[0]).bind((a) =>
-          this.bool(node.children[1]).bind(
+        return this.expression(node - 1).bind((a) =>
+          this.bool(children[1]).bind(
             (b) =>
               new CPS((
                 next,
@@ -141,40 +162,49 @@ export class Modest {
       case TokenType.FALSE:
         return CPS.unit(false);
       case TokenType.NOT:
-        return this.expression(node.children[0]).map((v) => !v);
+        return this.expression(node - 1).map((v) => !v);
       case TokenType.OR:
-        return this.bool(node.children[0]).bind((value) =>
-          value ? CPS.unit(true) : this.bool(node.children[1])
+        return this.bool(node - 1).bind((value) =>
+          value ? CPS.unit(true) : this.bool(children[1])
         );
       case TokenType.TRUE:
         return CPS.unit(true);
       default:
-        return Modest.#error(node, "Invalid token type for boolean expression");
+        return this.#error(node, "Invalid token type for boolean expression");
     }
   }
-  expression(node: Node): CPS<Value> {
-    switch (this.types[node.token]) {
+  #lexeme(node: number) {
+    return this.parse.lex.lexeme(this.parse.tokens[node]);
+  }
+  expression(node: number): CPS<Value> {
+    const children = this.parse.children(node);
+    switch (this.#tokenType(node)) {
       case TokenType.AND:
-        return this.bool(node.children[0]).bind((value) =>
+        return this.bool(node - 1).bind((value) =>
           value
-            ? this.expression(node.children[1])
+            ? this.expression(children[1])
             : CPS.unit([ValueT.Boolean, false])
         );
       case TokenType.BE:
-        return this.expression(node.children[0]).bind((a) =>
-          this.expression(node.children[1]).bind(
+        return this.expression(node - 1).bind((a) =>
+          this.expression(children[1]).bind(
             (b) => new CPS((next) => [ValueT.Be, a, b, next(b)]),
           )
         );
       case TokenType.DOT:
-        return this.expression(node.children[0]).map(
-          (value) => [ValueT.Access, value, node.parameter as number],
+        return this.expression(node - 1).map(
+          (
+            value,
+          ) => [ValueT.Access, value, this.#strings.store(this.#lexeme(node))],
         );
       case TokenType.FALSE:
         return CPS.unit([ValueT.Boolean, false]);
       case TokenType.IDENTIFIER:
         // do the ssa here by renaming the variable?
-        return CPS.unit([ValueT.Variable, node.parameter as number]);
+        return CPS.unit([
+          ValueT.Variable,
+          this.#strings.store(this.#lexeme(node)),
+        ]);
       case TokenType.IS_NOT:
       case TokenType.IS:
       case TokenType.LESS:
@@ -182,37 +212,43 @@ export class Modest {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
         // todo: use proper compare function?
-        return this.expression(node.children[0]).bind((a) =>
-          this.expression(node.children[1]).map(
-            (b) => [ValueT.Compare, this.types[node.token], a, b],
+        return this.expression(node - 1).bind((a) =>
+          this.expression(children[1]).map(
+            (b) => [ValueT.Compare, this.#tokenType(node), a, b],
           )
         );
       case TokenType.LOG:
-        return this.expression(node.children[0]).map((v) => [ValueT.Log, v]);
+        return this.expression(node - 1).map((v) => [ValueT.Log, v]);
       case TokenType.NEW:
-        return CPS.unit([ValueT.New, node.parameter as number]);
+        return CPS.unit([ValueT.New, this.#strings.store(this.#lexeme(node))]);
       case TokenType.NOT:
         // todo: negate function?
-        return this.expression(node.children[0]).map((v) => [ValueT.Not, v]);
+        return this.expression(node - 1).map((v) => [ValueT.Not, v]);
       case TokenType.OR:
-        return this.bool(node.children[0]).bind((value) =>
+        return this.bool(node - 1).bind((value) =>
           value
             ? CPS.unit([ValueT.Boolean, true])
-            : this.expression(node.children[1])
+            : this.expression(children[1])
         );
       case TokenType.PAREN_LEFT:
-        return CPS.sequence(node.children.map((it) => this.expression(it))).map(
+        return CPS.sequence(children.map((it) => this.expression(it))).map(
           (it) => [ValueT.Call, ...it],
         );
       case TokenType.STRING:
-        return CPS.unit([ValueT.String, node.parameter as number]);
+        return CPS.unit([
+          ValueT.String,
+          this.#strings.store(this.#lexeme(node)),
+        ]);
       // case TokenType.THIS:
       case TokenType.TRUE:
         return CPS.unit([ValueT.Boolean, true]);
       case TokenType.VAR:
-        return CPS.unit([ValueT.Declare, node.parameter as number]);
+        return CPS.unit([
+          ValueT.Declare,
+          this.#strings.store(this.#lexeme(node)),
+        ]);
       default:
-        return Modest.#error(
+        return this.#error(
           node,
           "Invalid token type for expression",
         );
@@ -220,7 +256,7 @@ export class Modest {
   }
 
   // not quite traverse
-  statements(nodes: Node[]): CPS<number> {
+  statements(nodes: number[]): CPS<number> {
     let cps = CPS.unit(this.#next);
     for (const node of nodes) {
       cps = cps.bind((goto) =>
@@ -229,8 +265,9 @@ export class Modest {
     }
     return cps;
   }
-  statement(node: Node): CPS<number> {
-    switch (this.types[node.token]) {
+  statement(node: number): CPS<number> {
+    const children = this.parse.children(node);
+    switch (this.#tokenType(node)) {
       case TokenType.AND:
       case TokenType.BE:
       case TokenType.DOT:
@@ -253,46 +290,52 @@ export class Modest {
       case TokenType.VAR:
         return this.expression(node).map(() => this.#next);
       case TokenType.BRACE_LEFT:
-        return this.statements(node.children);
+        return this.statements(children);
       case TokenType.BREAK: {
         let n = this.#break;
-        if (node.parameter !== undefined) {
-          const l = this.#labels.get(node.parameter * 2);
-          if (l === undefined) return Modest.#error(node, "unresolved label");
+        if (children.length) {
+          const l = this.#labels.get(
+            this.#strings.store(this.#lexeme(node - 1)) * 2,
+          );
+          if (l === undefined) return this.#error(node, "unresolved label");
           n = l;
         }
-        return this.statements(node.children[0].children).map((goto) =>
+        return this.statements(this.parse.children(node - 1)).map((goto) =>
           goto === this.#next ? n : goto
         );
       }
       case TokenType.CONTINUE: {
         let n = this.#continue;
-        if (node.parameter !== undefined) {
-          const l = this.#labels.get(node.parameter * 2);
-          if (l === undefined) return Modest.#error(node, "unresolved label");
+        if (children.length) {
+          const l = this.#labels.get(
+            this.#strings.store(this.#lexeme(node - 1)) * 2,
+          );
+          if (l === undefined) return this.#error(node, "unresolved label");
           n = l;
         }
-        return this.statements(node.children[0].children).map((goto) =>
+        return this.statements(this.parse.children(node - 1)).map((goto) =>
           goto === this.#next ? n : goto
         );
       }
       case TokenType.RETURN:
-        return this.statements(node.children[0].children).bind((goto) => {
-          if (goto !== this.#next) return CPS.unit(goto);
-          if (node.children[1] !== undefined) {
-            return this.expression(node.children[1]).bind((value) =>
-              new CPS((_) => [ValueT.Return, value])
-            );
-          }
-          return new CPS((_) => [ValueT.Return, undefined]);
-        });
+        return this.statements(this.parse.children(node - 1)).bind(
+          (goto) => {
+            if (goto !== this.#next) return CPS.unit(goto);
+            if (children[1] !== undefined) {
+              return this.expression(children[1]).bind((value) =>
+                new CPS((_) => [ValueT.Return, value])
+              );
+            }
+            return new CPS((_) => [ValueT.Return, undefined]);
+          },
+        );
 
       case TokenType.IF:
         // todo: break up blocks?
-        return this.bool(node.children[0]).bind((value) => {
-          if (value) return this.statement(node.children[1]);
-          if (node.children[2] !== undefined) {
-            return this.statement(node.children[2]);
+        return this.bool(node - 1).bind((value) => {
+          if (value) return this.statement(children[1]);
+          if (children[2] !== undefined) {
+            return this.statement(children[2]);
           }
           return CPS.unit(this.#next);
         });
@@ -300,14 +343,17 @@ export class Modest {
         // mess may not be needed if labels etc. are renamed as well...
         const breakLabel = this.#label++;
         const continueLabel = this.#label++;
-        if (node.parameter !== undefined) {
-          this.#labels.set(node.parameter * 2, breakLabel);
-          this.#labels.set(node.parameter * 2 + 1, continueLabel);
+        if (children.length > 2) {
+          const parameter = this.#strings.store(
+            this.#lexeme(children.shift() ?? -1),
+          );
+          this.#labels.set(parameter * 2, breakLabel);
+          this.#labels.set(parameter * 2 + 1, continueLabel);
         }
-        const loop: CPS<number> = this.bool(node.children[0]).bind(
+        const loop: CPS<number> = this.bool(node - 1).bind(
           (value) => {
             if (!value) return CPS.unit(this.#next);
-            return this.statement(node.children[1]).bind((goto) => {
+            return this.statement(children[1]).bind((goto) => {
               if (
                 goto === this.#next || goto === this.#continue ||
                 goto === continueLabel
@@ -333,7 +379,7 @@ export class Modest {
         ]);
       }
       default:
-        return Modest.#error(
+        return this.#error(
           node,
           "Invalid token type for statement",
         );

@@ -1,5 +1,11 @@
 # Scryptic
 
+## 2025-07-16
+
+At run time that is a limited number of implementations for each 'trait' or
+whatever the system has. So dispatch only needs to pick from a very small number
+of option each time. Well, maybe there is an optimization in that.
+
 ## 2025-07-14
 
 ### depth first post order
