@@ -16,10 +16,9 @@ export enum Op {
   SetField,
 }
 
-type Register = number;
+export type Register = number & { readonly __tag: unique symbol };
 type Constant = string | number | Class | null | boolean;
-export type Identifier = string;
-export type Record<A> = { [_: Identifier]: A };
+export type Identifier = string & { readonly __tag: unique symbol };
 
 export type Instruction =
   | [Op.Constant, Register, Constant] // y = 1
@@ -140,8 +139,8 @@ export class Method {
 }
 
 export class Class {
-  #methods: Record<Method> = {};
-  method(name: string, labels?: Labels) {
+  #methods: { [_: Identifier]: Method } = {};
+  method(name: Identifier, labels?: Labels) {
     if (!this.#methods[name] && labels) {
       this.#methods[name] ||= new Method(labels);
     }

@@ -1,6 +1,6 @@
 import { Table } from "../collections/table.ts";
 import { TokenType } from "./lex.ts";
-import { Parse } from "./parse2.ts";
+import { Parse } from "./parse.ts";
 
 export enum ValueT {
   Access,

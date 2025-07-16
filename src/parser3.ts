@@ -1,4 +1,4 @@
-import { Lexer, Token, TokenType } from "./lexer.ts";
+import { Lexer, TokenType } from "./lexer.ts";
 
 export type Term =
   | [0, string]
@@ -6,32 +6,36 @@ export type Term =
   | [2, Term, [string, Term][]];
 
 export class ParseError extends Error {
-  constructor(readonly token: Token, msg: string) {
+  constructor(readonly token: number, msg: string) {
     super(msg);
   }
 }
 
 export class Parser {
-  private current: Token;
+  private current: number = 0;
   private lexer: Lexer;
   constructor(private input: string) {
     this.lexer = new Lexer(input);
-    this.current = this.lexer.next();
   }
 
   #advance() {
-    this.current = this.lexer.next();
+    this.current++;
   }
 
   #quote() {
-    return this.input.substring(this.current.from, this.current.to);
+    return this.lexer.lexeme(this.current);
+  }
+
+  #type() {
+    return this.lexer.types[this.current];
   }
 
   #error(msg: string) {
+    const { line, column } = this.lexer.lineAndColumn(this.current);
     return new ParseError(
       this.current,
-      `Error at line ${this.current.line}, column ${this.current.column}, token ${
-        TokenType[this.current.type]
+      `Error at line ${line}, column ${column}, token ${
+        TokenType[this.#type()]
       } "${this.#quote()}": ${msg}`,
     );
   }
@@ -39,13 +43,13 @@ export class Parser {
   #consume(type: TokenType) {
     if (!this.#match(type)) {
       throw this.#error(
-        `expected ${TokenType[type]}, found ${TokenType[this.current.type]}`,
+        `expected ${TokenType[type]}, found ${TokenType[this.#type()]}`,
       );
     }
   }
 
   #match(type: TokenType) {
-    if (this.current.type === type) {
+    if (this.#type() === type) {
       this.#advance();
       return true;
     }
@@ -55,7 +59,7 @@ export class Parser {
   #term0(): Term {
     const ops: ("A" | "K" | "L")[] = [];
     for (;;) {
-      switch (this.current.type) {
+      switch (this.#type()) {
         case TokenType.AT:
           ops.push("A");
           this.#advance();

@@ -1,5 +1,43 @@
 # Scryptic
 
+## 2015-07-17
+
+Memory safety without garbage collector... but not like rust. I.e. you get very
+limited access to the heap.
+
+### ECS for DI
+
+Maybe DI is no good, because waht you want is a bump allocator: just hang on
+until shutdown. But could services be entities like that?
+
+### ECS for DOM
+
+...makes more sense: so may properties in common. but that would be how the
+browser would have to work, rather than some virtual dom.
+
+like in the vritual dom, you just have a bitset that says someting about whether
+the component should be connected.
+
+### zeroed initialization
+
+Radically go against the idea of using the type system to prevent invalid
+states, just make the only way to create on object to create a zeroed out
+version...
+
+IDK, is encapsulation that bad? if so, the images idea covers all we need: let
+the type system limit how an argument created or mutated, and turn that into a
+type. Then again, if modularity and composibility relies on interfaces, what
+does encapuslation add?
+
+### scryptic
+
+This project was about the variant of the lambda calculus. So a dynamic
+language.
+
+### VM reorg
+
+Let's see:
+
 ## 2025-07-16
 
 At run time that is a limited number of implementations for each 'trait' or

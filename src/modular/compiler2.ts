@@ -1,8 +1,8 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
-import { Automaton, TokenType } from "./lexer.ts";
-import { Op, Parser } from "./yap.ts";
 import { Table } from "../collections/table.ts";
 import { cyrb53 } from "./cyrb53.ts";
+import { Parse } from "../assembly/parse.ts";
+import { TokenType } from "../assembly/lex.ts";
 
 enum Jump {
   Goto,
@@ -11,87 +11,59 @@ enum Jump {
 }
 
 export class Compiler {
-  #automaton: Automaton = new Automaton();
-  #parser: Parser = new Parser();
   #labels: Labels = new Labels();
   #stmts: Statements = new Statements();
   #exprs: Expressions = new Expressions();
 
   constructor(
-    private readonly source: string,
+    readonly parse: Parse,
   ) {
-    this.#automaton.readString(source);
-    this.#parser.visitAll(this.#automaton.types);
-    this.#maybeStatements(0, -1);
+    this.#maybeStatements(parse.children(), -1);
   }
 
   #type(id: number) {
-    return this.#automaton.types[this.#parser.frames.token(id)];
+    return this.parse.lex.types[this.parse.tokens[id]];
   }
 
   #index(id: number) {
-    return this.#automaton.indices[this.#parser.frames.token(id)];
+    return this.parse.lex.types[this.parse.tokens[id]];
   }
 
   #children(id: number) {
-    return this.#parser.frames.children(id);
+    return this.parse.children(id);
   }
 
-  #op(source: number, op: Op) {
-    const op2 = this.#parser.frames.op(source);
-    assert(op2 === op, `${Op[op2]} !== ${Op[op]}`);
-  }
-
-  #statements(source: number, target: number, nextId: number) {
-    this.#op(source, Op.Stmts);
-    if (this.#parser.frames.isLeaf(source)) {
-      this.#stmts.set(target, -1, Jump.Goto, nextId);
-      return;
+  #statements(source: number[], target: number, nextId: number) {
+    while (source.length > 1) {
+      const n2 = this.#stmts.alloc();
+      this.#statement(source.pop() as number, n2, nextId);
+      nextId = n2;
     }
-    const [_, t] = this.#children(source);
-    this.#statement(
-      source + 1,
-      target,
-      this.#maybeStatements(t, nextId),
-    );
+    this.#statement(source.pop() as number, target, nextId);
   }
 
-  #maybeStatements(source: number, nextId: number) {
-    this.#op(source, Op.Stmts);
-    const children = this.#children(source);
-    if (children.length < 2) {
-      return nextId;
+  #maybeStatements(source: number[], nextId: number) {
+    while (source.length > 0) {
+      const n2 = this.#stmts.alloc();
+      this.#statement(source.pop() as number, n2, nextId);
+      nextId = n2;
     }
-    const [_, t] = children;
-    const target = this.#stmts.alloc();
-    this.#statement(
-      source + 1,
-      target,
-      this.#maybeStatements(t, nextId),
-    );
-    return target;
+    return nextId;
   }
 
-  #matchType(id: number, ...types: TokenType[]) {
-    return types.includes(this.#type(id));
+  #lexeme(id: number) {
+    return this.parse.lex.lexeme(this.parse.tokens[id]);
   }
 
-  #labelOrIdentifier(id: number) {
-    if (!this.#matchType(id, TokenType.IDENTIFIER, TokenType.LABEL)) {
-      return undefined;
-    }
-    const from = this.#index(id);
-    let to = from;
-    while (to < this.source.length && /[0-9A-Za-z]/.test(this.source[++to]));
-    return this.source.slice(from, to);
+  #isLeaf(node: number) {
+    return this.parse.sizes[node] === 1;
   }
 
   #statement(source: number, target: number, nextId: number) {
-    this.#op(source, Op.Stmt);
     switch (this.#type(source)) {
       case TokenType.BRACE_LEFT:
         this.#statements(
-          source + 3,
+          this.#children(source),
           target,
           nextId,
         );
@@ -101,9 +73,9 @@ export class Compiler {
           target,
           -1,
           Jump.Goto,
-          this.#parser.frames.isLeaf(source)
+          this.#isLeaf(source)
             ? this.#labels.breakAt()
-            : this.#labels.breakTo(this.#labelOrIdentifier(source + 1)),
+            : this.#labels.breakTo(this.#lexeme(source - 1)),
         );
         return;
       case TokenType.CONTINUE: {
@@ -111,50 +83,38 @@ export class Compiler {
           target,
           -1,
           Jump.Goto,
-          this.#parser.frames.isLeaf(source)
+          this.#isLeaf(source)
             ? this.#labels.continueAt()
-            : this.#labels.continueTo(this.#labelOrIdentifier(source + 1)),
+            : this.#labels.continueTo(this.#lexeme(source - 1)),
         );
         return;
       }
       case TokenType.IF: {
         const children = this.#children(source);
         const [i, t, e] = children;
-        const a = this.#maybeStatements(t + 2, nextId);
+        const a = this.#maybeStatements(this.#children(t), nextId);
         let b = nextId;
-        if (!this.#parser.frames.isLeaf(e)) {
-          b = this.#maybeStatements(e + 3, nextId);
+        if (!this.#isLeaf(e)) {
+          b = this.#maybeStatements(this.#children(t), nextId);
         }
         this.#stmts.set(target, this.#expr(i), Jump.If, a, b);
-        return;
-      }
-      case TokenType.LABEL: {
-        const label = this.#labelOrIdentifier(source);
-        const [_, c, b] = this.#children(source);
-        const id = this.#stmts.alloc();
-        this.#labels.push(label, nextId, target);
-        this.#statements(
-          b + 2,
-          id,
-          target,
-        );
-        this.#labels.pop();
-        this.#stmts.set(target, this.#expr(c), Jump.If, id, nextId);
         return;
       }
       case TokenType.RETURN:
         this.#stmts.set(
           target,
-          this.#parser.frames.isLeaf(source) ? this.#expr(source + 1) : -1,
+          this.#isLeaf(source) ? this.#expr(source - 1) : -1,
           Jump.Return,
         );
         return;
       case TokenType.WHILE: {
-        const label = this.#labelOrIdentifier(source);
-        const [c, b] = this.#children(source);
-        this.#labels.push(label, nextId, target);
+        const a = this.#children(source);
+        const b = a.pop() as number;
+        const c = a.pop() as number;
+        const label = a.pop();
+        this.#labels.push(this.#lexeme(label ?? source), nextId, target);
         const id = this.#maybeStatements(
-          b + 2,
+          this.#children(b),
           target,
         );
         this.#labels.pop();
@@ -169,7 +129,7 @@ export class Compiler {
       default:
         this.#stmts.set(
           target,
-          this.#expr(source + 1),
+          this.#expr(source - 1),
           Jump.Goto,
           nextId,
         );
@@ -178,22 +138,24 @@ export class Compiler {
   }
 
   #name(id: number) {
-    const name = this.#labelOrIdentifier(id);
-    assert(name !== undefined);
-    return this.#exprs.addName(name);
+    assert(new Set([
+      TokenType.IDENTIFIER,
+      TokenType.LABEL,
+    ]).has(this.#type(id)));
+    return this.#exprs.addName(this.#lexeme(id));
   }
 
   #exprHead(id: number): number {
-    this.#op(id, Op.ExprHead);
+    assert(id >= 0);
     const type = this.#type(id);
     if (type === TokenType.VAR) {
-      return this.#exprs.store(-1, type, this.#name(id + 1));
+      return this.#exprs.store(-1, type, this.#name(id - 1));
     }
     if (type === TokenType.IDENTIFIER) {
       return this.#exprs.store(-1, type, this.#name(id));
     }
     if (type === TokenType.PAREN_LEFT) {
-      return this.#expr(id + 1);
+      return this.#expr(id - 1);
     }
     if (
       type === TokenType.FALSE || type === TokenType.THIS ||
@@ -204,40 +166,37 @@ export class Compiler {
     return this.#exprs.store(
       -1,
       type,
-      this.#parser.frames.isLeaf(id) ? this.#index(id) : this.#exprHead(id + 1),
+      this.#isLeaf(id) ? this.#index(id) : this.#exprHead(id - 1),
     );
   }
 
-  #args(source: number): number {
-    this.#op(source, Op.Args);
-    const exprs = [];
-    let children = this.#children(source);
-    while (children.length === 2) {
-      exprs.push(this.#expr(children[0]));
-      children = this.#children(children[1]);
-    }
-    return this.#exprs.storeArray(
-      exprs,
-    );
+  #args(sources: number[]): number {
+    return this.#exprs.storeArray(sources.map((source) => this.#expr(source)));
   }
 
   #expr(source: number): number {
-    this.#op(source, Op.Expr);
-    const [_, t] = this.#children(source);
-    const left = this.#exprHead(source + 1);
-    if (this.#parser.frames.isLeaf(t)) return left;
-    const typeT = this.#type(t);
+    const children = this.#children(source);
+    switch (children.length) {
+      case 0:
+      case 1:
+        return this.#exprHead(source);
+      default:
+        break;
+    }
+    const typeT = this.#type(source);
     if (typeT === TokenType.PAREN_LEFT) {
+      const [f, ...xs] = children;
       return this.#exprs.store(
-        left,
+        this.#exprHead(f),
         typeT,
-        this.#args(t + 1),
+        this.#args(xs),
       );
     }
+    const [l, r] = children;
     if (typeT === TokenType.DOT) {
-      return this.#exprs.store(left, typeT, this.#name(t + 1));
+      return this.#exprs.store(this.#exprHead(l), typeT, this.#name(r));
     }
-    return this.#exprs.store(left, typeT, this.#expr(t + 1));
+    return this.#exprs.store(this.#exprHead(l), typeT, this.#expr(r));
   }
 
   show() {

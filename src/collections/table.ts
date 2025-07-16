@@ -1,6 +1,6 @@
 export class Table<A> {
   #mask = 7;
-  #indices = new Uint32Array(this.#mask + 1);
+  #indices = new Float64Array(this.#mask + 1);
   #values: (A | undefined)[] = new Array(this.#mask + 1);
   #load = 0;
   get(index: number) {
@@ -39,7 +39,7 @@ export class Table<A> {
     this.#load = 0;
     const indices = this.#indices;
     const values = this.#values;
-    this.#indices = new Uint32Array(this.#mask + 1);
+    this.#indices = new Float64Array(this.#mask + 1);
     this.#values = new Array(this.#mask + 1);
     for (let i = 0, l = indices.length; i < l; i++) {
       const value = values[i];

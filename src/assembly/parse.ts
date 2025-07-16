@@ -1,17 +1,13 @@
-import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Lex, TokenType } from "./lex.ts";
 
 export enum NodeType {
   BLOCK,
-  CALL,
   CLASS,
   CONTROL,
   EXPR,
-  INFIX,
   JUMP,
+  LABEL,
   METHOD,
-  PREFIX,
-  STMT,
 }
 
 const PRECEDENCE_A: number[] = [];
@@ -38,20 +34,11 @@ export class Parse {
   private next = 0;
   size = 0;
 
-  #opened: number[] = [];
-
-  #open(type: NodeType, token: number) {
+  #close(type: NodeType, token: number, start: number) {
     this.tokens[this.size] = token;
     this.types[this.size] = type;
-    this.sizes[this.size] = -this.size;
-    this.#opened.push(this.size++);
-  }
-
-  #close(type?: NodeType) {
-    const i = this.#opened.pop();
-    assert(i !== undefined);
-    if (type !== undefined) assert(this.types[i] === type, NodeType[type]);
-    this.sizes[i] += this.size;
+    this.sizes[this.size] = this.size - start + 1;
+    this.size++;
   }
 
   constructor(readonly lex: Lex) {
@@ -62,7 +49,6 @@ export class Parse {
         this.#stmt();
       }
     }
-    assert(this.#opened.length === 0, "" + this.#opened.length);
   }
 
   #top() {
@@ -89,19 +75,21 @@ export class Parse {
   }
 
   #stmt() {
-    this.#open(NodeType.STMT, this.next);
+    const start = this.size;
+    let token = this.next;
     switch (this.#pop()) {
       case TokenType.BRACE_LEFT:
         this.#block();
         break;
       case TokenType.BREAK:
       case TokenType.CONTINUE:
-        this.#open(NodeType.JUMP, this.next - 1);
-        this.#match(TokenType.LABEL);
-        this.#close();
+        if (this.#match(TokenType.LABEL)) {
+          // does this help?
+          this.#close(NodeType.LABEL, token, start);
+        }
+        this.#close(NodeType.JUMP, token, start);
         break;
       case TokenType.IF:
-        this.#open(NodeType.CONTROL, this.next - 1);
         this.#exprRoot();
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
@@ -109,29 +97,28 @@ export class Parse {
           this.#consume(TokenType.BRACE_LEFT);
           this.#block();
         }
-        this.#close();
+        this.#close(NodeType.CONTROL, token, start);
         break;
       case TokenType.LABEL:
-        this.#open(NodeType.CONTROL, this.next - 1);
+        this.#close(NodeType.LABEL, token, start);
+        token = this.next; // what happens to the label now?
         this.#consume(TokenType.WHILE);
         this.#exprRoot();
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
-        this.#close();
+        this.#close(NodeType.CONTROL, token, start);
         break;
       case TokenType.RETURN:
-        this.#open(NodeType.JUMP, this.next - 1);
         if (this.#top() !== TokenType.BRACE_RIGHT) {
           this.#exprRoot();
         }
-        this.#close();
+        this.#close(NodeType.JUMP, token, start);
         break;
       case TokenType.WHILE:
-        this.#open(NodeType.CONTROL, this.next - 1);
         this.#exprRoot();
         this.#consume(TokenType.BRACE_LEFT);
         this.#block();
-        this.#close();
+        this.#close(NodeType.CONTROL, token, start);
         break;
       default:
         // back up!
@@ -144,26 +131,28 @@ export class Parse {
         }
         break;
     }
-    this.#close();
   }
 
   #block() {
-    this.#open(NodeType.BLOCK, this.next - 1);
+    const start = this.size;
+    const token = this.next - 1;
     while (this.#top() !== TokenType.BRACE_RIGHT) {
       this.#stmt();
     }
     this.#consume(TokenType.BRACE_RIGHT);
-    this.#close();
+    this.#close(NodeType.BLOCK, token, start);
   }
 
   #identifier() {
-    this.#open(NodeType.PREFIX, this.next);
+    const start = this.size;
+    const token = this.next;
     this.#consume(TokenType.IDENTIFIER);
-    this.#close();
+    this.#close(NodeType.EXPR, token, start);
   }
 
   #prefix() {
-    this.#open(NodeType.PREFIX, this.next);
+    const start = this.size;
+    const token = this.next;
     switch (this.#pop()) {
       case TokenType.FALSE:
       case TokenType.IDENTIFIER:
@@ -182,23 +171,24 @@ export class Parse {
       case TokenType.PAREN_LEFT:
         this.#expr(0);
         this.#consume(TokenType.PAREN_RIGHT);
-        break;
+        // avoid creating a node for this one.
+        return;
       default:
         throw this.#error("expression expected");
     }
-    this.#close();
+    this.#close(NodeType.EXPR, token, start);
+    return;
   }
 
   #exprRoot() {
-    this.#open(NodeType.EXPR, this.next);
     this.#expr(0);
-    this.#close(NodeType.EXPR);
   }
 
   #expr(precedence: number) {
+    const start = this.size;
     this.#prefix();
     for (;;) {
-      const bin = this.#pop();
+      const bin = this.#top();
       switch (bin) {
         case TokenType.AND:
         case TokenType.BE:
@@ -209,43 +199,43 @@ export class Parse {
         case TokenType.NOT_LESS:
         case TokenType.NOT_MORE:
         case TokenType.OR:
-          if (PRECEDENCE_A[bin] > precedence) {
-            this.#open(NodeType.INFIX, this.next - 1);
+          if (PRECEDENCE_A[bin] >= precedence) {
+            const token = this.next++;
             this.#expr(PRECEDENCE_B[bin]);
-            this.#close();
+            this.#close(NodeType.EXPR, token, start);
             continue;
           }
-          break;
-        case TokenType.DOT:
-          this.#open(NodeType.INFIX, this.next - 1);
+          return;
+        case TokenType.DOT: {
+          const token = this.next++;
           this.#identifier();
-          this.#close();
+          this.#close(NodeType.EXPR, token, start);
           continue;
-        case TokenType.PAREN_LEFT:
-          this.#open(NodeType.CALL, this.next - 1);
+        }
+        case TokenType.PAREN_LEFT: {
+          const token = this.next++;
           if (!this.#match(TokenType.PAREN_RIGHT)) {
             do this.#expr(0); while (this.#match(TokenType.COMMA));
             this.#consume(TokenType.PAREN_RIGHT);
           }
-          this.#close();
+          this.#close(NodeType.EXPR, token, start);
           continue;
+        }
         default:
-          break;
+          return;
       }
-      this.next--;
-      break;
     }
-    return;
   }
 
   #class() {
-    this.#open(NodeType.CLASS, this.next++);
+    const start = this.size;
+    const token = this.next++;
     this.#identifier();
     this.#consume(TokenType.BRACE_LEFT);
     while (!this.#match(TokenType.BRACE_RIGHT)) {
       this.#method();
     }
-    this.#close();
+    this.#close(NodeType.CLASS, token, start);
   }
 
   #error(msg: string) {
@@ -259,7 +249,8 @@ export class Parse {
     if (this.#top() !== TokenType.IDENTIFIER && this.#top() !== TokenType.NEW) {
       throw this.#error(`expected method, found ${TokenType[this.#top()]}`);
     }
-    this.#open(NodeType.METHOD, this.next++);
+    const start = this.size;
+    const token = this.next++;
     // args lists
     this.#consume(TokenType.PAREN_LEFT);
     if (!this.#match(TokenType.PAREN_RIGHT)) {
@@ -268,14 +259,28 @@ export class Parse {
     }
     this.#consume(TokenType.BRACE_LEFT);
     this.#block();
-    this.#close();
+    this.#close(NodeType.METHOD, token, start);
+  }
+
+  // in reverses order, ideal for pop, though...
+  children(node: number = this.size): number[] {
+    const result: number[] = [];
+    for (
+      let i = node - 1, i0 = node - (this.sizes[node] ?? node);
+      i > i0;
+      i -= this.sizes[i]
+    ) {
+      result.push(i);
+    }
+    result.reverse();
+    return result;
   }
 
   toString() {
     const depths: number[] = new Array(this.size).keys().map(() => 0).toArray();
     for (let i = 0; i < this.size; i++) {
       for (let j = 1; j < this.sizes[i]; j++) {
-        depths[i + j]++;
+        depths[i - j]++;
       }
     }
     const lines: string[] = [];

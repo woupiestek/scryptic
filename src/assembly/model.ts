@@ -1,6 +1,6 @@
 import { SplayMap } from "../collections/splay.ts";
 import { TokenType } from "./lex.ts";
-import { NodeType, Parse } from "./parse2.ts";
+import { NodeType, Parse } from "./parse.ts";
 
 export enum Kind {
   Access,
@@ -343,7 +343,6 @@ export class Model {
 
   #block(values: Values, block: number): Alternatives {
     const statements = this.parse.children(block);
-    console.log("what!?", TokenType[this.#tokenType(block)]);
     const jump =
       this.parse.types[statements[statements.length - 1]] === NodeType.JUMP
         ? statements.pop()
@@ -412,7 +411,6 @@ export class Model {
   interpret(values: Values, statements: number[]): Alternatives {
     let alternatives = this.lift(values);
     for (const statement of statements) {
-      console.log(NodeType[this.parse.types[statement]]);
       switch (this.#tokenType(statement)) {
         case TokenType.BRACE_LEFT:
           alternatives = this.flatMap(

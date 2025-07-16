@@ -1,6 +1,5 @@
-import { UIntSet } from "../collections/uintset.ts";
-import { Automaton, TokenType } from "./lexer.ts";
-import { Frames, Op, Parser } from "./yap.ts";
+import { Lex, TokenType } from "../assembly/lex.ts";
+import { NodeType, Parse } from "../assembly/parse.ts";
 
 export function prettyPrint(parents: number[]): string {
   // get roots, left child and right sibling vectors
@@ -46,93 +45,12 @@ export function prettyPrint(parents: number[]): string {
 export class Expressions {
   parents: number[] = [];
 
-  constructor(readonly frames: Frames) {
-    const lParens = new UIntSet();
-
-    for (let i = 0, l = frames.size(); i < l; i++) {
-      switch (frames.op(i)) {
-        case Op.Args: {
-          // Args -> ExprTail -> Expr(Tail)
-          const parent = frames.token(frames.parent(i));
-          const sibling = frames.token(frames.parent(frames.parent(i)));
-          // if the sibling is part of an expression, integrate this one!
-          this.parents[parent] = this.parents[sibling] === sibling
-            ? parent
-            : this.parents[sibling];
-          this.parents[sibling] = parent;
-          break;
-        }
-        case Op.Identifier: // reuse expr logic for member access
-        {
-          const iden = frames.token(i);
-          const parentOp = frames.op(frames.parent(i));
-          if (parentOp === Op.ExprTail) {
-            // Expr -> ExprTail -> Expr(Tail)
-            const parent = frames.token(frames.parent(i));
-            const sibling = frames.token(frames.parent(frames.parent(i)));
-            this.parents[iden] = parent;
-            // if the sibling is part of an expression, integrate this one!
-            this.parents[parent] = this.parents[sibling] === sibling
-              ? parent
-              : this.parents[sibling];
-            this.parents[sibling] = parent;
-            break;
-          }
-          if (parentOp === Op.ExprHead) {
-            this.parents[frames.token(i)] = frames.token(
-              frames.parent(i),
-            );
-          }
-          break;
-        }
-        case Op.Expr: {
-          const expr = frames.token(i);
-          const parentOp = frames.op(frames.parent(i));
-          if (parentOp === Op.Args) {
-            this.parents[expr] = frames.token(frames.parent(frames.parent(i)));
-            break;
-          }
-          if (parentOp === Op.ExprTail || parentOp === Op.ArgsTail) {
-            // Expr -> ExprTail -> Expr(Tail)
-            const parent = frames.token(frames.parent(i));
-            const sibling = frames.token(frames.parent(frames.parent(i)));
-            this.parents[expr] = parent;
-            // if the sibling is part of an expression, integrate this one!
-            this.parents[parent] = this.parents[sibling] === sibling
-              ? parent
-              : this.parents[sibling];
-            this.parents[sibling] = parent;
-            break;
-          }
-          if (parentOp === Op.ExprHead) {
-            const paren = frames.token(
-              frames.parent(i),
-            );
-            // parenthetical case
-            this.parents[frames.token(i)] = paren;
-            lParens.add(paren);
-            break;
-          }
-          this.parents[expr] = expr;
-          break;
-        }
-        case Op.ExprHead:
-          if (frames.op(frames.parent(i)) === Op.ExprHead) {
-            this.parents[frames.token(i)] = frames.token(
-              frames.parent(i),
-            );
-          }
-          break;
-        default:
-          break;
-      }
-    }
-
-    for (let i = 0, l = this.parents.length; i < l; i++) {
-      const j = this.parents[i];
-      if (lParens.has(j)) {
-        this.parents[i] = this.parents[j];
-        delete this.parents[j];
+  constructor(readonly parse: Parse) {
+    for (let i = 0; i < parse.size; i++) {
+      if (parse.types[i] !== NodeType.EXPR) continue;
+      this.parents[i] = i;
+      for (const ch of this.parse.children(i)) {
+        this.parents[ch] = i;
       }
     }
   }
@@ -145,18 +63,21 @@ export class Expressions {
 export class Statements {
   #parents: number[] = [];
 
-  constructor(readonly frames: Frames) {
-    for (let i = 0, l = frames.size(); i < l; i++) {
-      const grampaw = frames.parent(frames.parent(i));
-      if (frames.op(i) === Op.Stmt) {
-        this.#parents[frames.token(i)] = frames.token(grampaw);
-        continue;
+  constructor(readonly parse: Parse) {
+    for (const i of parse.children()) {
+      this.#parents[i] = i;
+    }
+    for (let i = 0, l = parse.size; i < l; i++) {
+      switch (parse.types[i]) {
+        case NodeType.BLOCK:
+        case NodeType.CONTROL:
+        case NodeType.JUMP:
+          break;
+        default:
+          continue;
       }
-      if (
-        frames.op(i) === Op.Block || frames.op(i) === Op.Else ||
-        frames.op(i) === Op.BlockEnd || frames.op(i) === Op.Label
-      ) {
-        this.#parents[frames.token(i)] = frames.token(frames.parent(i));
+      for (const ch of this.parse.children(i)) {
+        this.#parents[ch] = i;
       }
     }
   }
@@ -171,22 +92,20 @@ export class Data {
   types: TokenType[];
   indices: number[];
   // frames
-  ops: Op[];
+  nodeTypes: NodeType[];
   tokens: number[];
-  parents: number[];
+  sizes: number[];
   expressions;
 
   constructor(readonly source: string) {
-    const automaton = new Automaton();
-    automaton.readString(source);
-    this.types = automaton.types;
-    this.indices = automaton.indices;
-    const parser = new Parser();
-    parser.visitAll(this.types);
-    this.ops = parser.frames.ops;
-    this.tokens = parser.frames.tokens;
-    this.parents = parser.frames.parents;
-    this.expressions = new Expressions(parser.frames);
+    const lex = new Lex(source);
+    this.types = lex.types;
+    this.indices = lex.indices;
+    const parse = new Parse(lex);
+    this.nodeTypes = parse.types;
+    this.tokens = parse.tokens;
+    this.sizes = parse.sizes;
+    this.expressions = new Expressions(parse);
   }
 
   type(id: number) {
@@ -269,46 +188,5 @@ export class StaticSingleAssignment {
         lhs.set(this.names[id], i);
       }
     }
-  }
-}
-
-export class BasicBlocks {
-  constructor(private data: Data) {
-    this.#traverse();
-  }
-
-  #empty(id: number) {
-    switch (this.data.types[this.data.tokens[id]]) {
-      case TokenType.BRACE_RIGHT:
-      case TokenType.BREAK:
-      case TokenType.CONTINUE:
-      case TokenType.END:
-      case TokenType.RETURN:
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  //#labels: Map<number, number> = new Map();
-  readonly next: Map<number, number> = new Map();
-
-  #traverse() {
-    const stmts: number[] = [];
-    this.data.ops.forEach((op, i) => {
-      if (op === Op.Stmts) stmts.push(i);
-    });
-
-    const set = new Set(
-      stmts.map((stmt) => this.data.indices[this.data.tokens[stmt]]),
-    );
-    console.log(set);
-    const str = Array(this.data.source.length).keys().map((i) =>
-      set.has(i) ? "*" : " "
-    ).toArray().join("");
-    console.log(this.data.source);
-    console.log(str);
-
-    stmts.forEach((stmt) => this.next.set(this.data.parents[stmt], stmt));
   }
 }

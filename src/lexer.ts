@@ -13,35 +13,46 @@ export enum TokenType {
   IS,
 }
 
-export class Token {
-  constructor(
-    readonly type: TokenType,
-    readonly from: number,
-    readonly to: number,
-    readonly line: number,
-    readonly column: number,
-  ) {}
-}
-
 export class Lexer {
   private from = 0;
   private current = 0;
-  private line = 1;
-  private startLine = 1;
-  constructor(private input: string) {}
+  readonly types: TokenType[] = [];
+  readonly indices: number[] = [];
+  constructor(private input: string) {
+    while (this.current < this.input.length) {
+      this.#next();
+    }
+  }
+
+  lineAndColumn(token: number) {
+    let line = 1;
+    let column = 1;
+    for (let i = 0; i < this.indices[token]; i++) {
+      if (this.input[i] === "\n") {
+        column = 1;
+        line++;
+      } else if (
+        this.input[i] !== "\r"
+      ) {
+        column++;
+      }
+    }
+    return { line, column };
+  }
+
+  lexeme(token: number) {
+    return this.input.slice(this.indices[token], this.indices[token + 1])
+      .trim();
+  }
 
   #space() {
     for (; this.current < this.input.length; this.current++) {
       switch (this.input.charCodeAt(this.current)) {
         case 12:
-          this.line++;
-          this.startLine = this.current;
-          continue;
         case 9:
         case 10:
         case 11:
         case 32:
-          continue;
         case 13:
           continue;
         default:
@@ -50,17 +61,12 @@ export class Lexer {
     }
   }
 
-  #token(type: TokenType): Token {
-    return new Token(
-      type,
-      this.from,
-      this.current,
-      this.line,
-      this.current - this.startLine + 1,
-    );
+  #token(type: TokenType): void {
+    this.types.push(type);
+    this.indices.push(this.from);
   }
 
-  #identifier(): Token {
+  #identifier(): void {
     for (; this.current < this.input.length; this.current++) {
       const x = this.input.charCodeAt(this.current);
       switch (x >> 5) {
@@ -81,7 +87,7 @@ export class Lexer {
     return this.#token(TokenType.IDENTIFIER);
   }
 
-  next(): Token {
+  #next(): void {
     this.#space();
     this.from = this.current;
     if (this.current >= this.input.length) return this.#token(TokenType.END);

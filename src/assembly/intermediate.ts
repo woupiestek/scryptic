@@ -2,8 +2,7 @@ import { NumberTrie } from "../collections/numberTrie2.ts";
 import { Table } from "../collections/table.ts";
 import { Trie } from "../collections/trie.ts";
 import { TokenType } from "./lex.ts";
-import { NodeType } from "./parse.ts";
-import { Parse } from "./parse2.ts";
+import { NodeType, Parse } from "./parse.ts";
 
 function tupleString(...strings: unknown[]): string {
   return `(${strings.join(" ")})`;
@@ -412,7 +411,6 @@ export class Optimizer {
       }
       case TokenType.LOG: {
         const [value] = this.parse.children(node);
-        console.log(this.parse.children(node));
         return this.expression(value).bind((v) =>
           this.updateWorld((w) =>
             this.store.value(this.parse.tokens[node], [ValueType.Log, w, v])

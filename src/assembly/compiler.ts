@@ -1,29 +1,41 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import {
   Class,
+  Identifier,
   Instruction,
   Label,
   Labels,
   Method,
   NULL_LABEL,
   Op,
+  Register,
 } from "./class.ts";
 import { TokenType } from "./lex.ts";
 import { NodeType, Parse } from "./parse.ts";
 import { UIntSet } from "../collections/uintset.ts";
 
-type NamedLabel = {
-  name?: string;
-  break: Label;
-  continue: Label;
-};
+type NamedLabel = number & { readonly __tag: unique symbol };
+class NamedLabels {
+  names: (string | undefined)[] = [];
+  breaks: Label[] = [];
+  continues: Label[] = [];
+  top = -1 as NamedLabel;
+
+  push(n: string | undefined, b: Label, c: Label) {
+    this.names[++this.top] = n;
+    this.breaks[this.top] = b;
+    this.continues[this.top] = c;
+  }
+
+  pop() {
+    return this.top--;
+  }
+}
 
 type TypedLabel = {
   label: Label;
   written: UIntSet;
 };
-
-type Register = number & { readonly __tag: unique symbol };
 
 type Local = number & { readonly __tag: unique symbol };
 
@@ -88,7 +100,7 @@ class Locals {
 export class Compiler {
   labels = new Labels();
   #current: TypedLabel = { label: this.labels.label(), written: new UIntSet() };
-  #names: NamedLabel[] = [];
+  #names: NamedLabels = new NamedLabels();
   #locals = new Locals();
 
   constructor(
@@ -173,7 +185,7 @@ export class Compiler {
     };
   }
 
-  static #BOOL_BI: [number, boolean, boolean][] = [];
+  static #BOOL_BI: [Op.JumpIfEqual | Op.JumpIfLess, boolean, boolean][] = [];
   static {
     Compiler.#BOOL_BI[TokenType.IS] = [Op.JumpIfEqual, true, false];
     Compiler.#BOOL_BI[TokenType.IS_NOT] = [Op.JumpIfEqual, false, false];
@@ -188,16 +200,16 @@ export class Compiler {
   }
 
   #booleanBinary(
-    x: number[],
-    y: number,
+    node: number,
     onFalse: Label,
   ) {
-    const a = Compiler.#BOOL_BI[this.#tokenType(y)];
+    const [left, right] = this.parse.children(node);
+    const a = Compiler.#BOOL_BI[this.#tokenType(node)];
     if (a) {
       const [op, negate, reverse] = a;
       const target = negate ? this.#switch(onFalse) : onFalse;
-      const reg1 = this.#expression(x);
-      const reg2 = this.#expression(this.#children(y).toArray());
+      const reg1 = this.#expression(left);
+      const reg2 = this.#expression(right);
       this.#emit(
         reverse ? [op, target, reg2, reg1] : [op, target, reg1, reg2],
       );
@@ -205,31 +217,31 @@ export class Compiler {
       return;
     }
 
-    switch (this.#tokenType(y)) {
+    switch (this.#tokenType(node)) {
       case TokenType.AND: {
-        this.#boolean(x, onFalse);
+        this.#boolean(left, onFalse);
         const b = this.labels.label(this.#next());
         this.labels.next(this.#current.label, b);
         this.#goto(b);
-        this.#boolean(this.#children(y).toArray(), onFalse);
+        this.#boolean(right, onFalse);
         return;
       }
       case TokenType.OR: {
         const b = this.labels.label(this.#next());
-        this.#boolean(x, b);
+        this.#boolean(left, b);
         this.#goto(b);
-        this.#boolean(this.#children(y).toArray(), onFalse);
+        this.#boolean(right, onFalse);
         return;
       }
       case TokenType.BE: {
-        const reg = this.#assignment(x, y);
+        const reg = this.#assignment(node);
         this.#emit([Op.JumpIfFalse, onFalse, reg]);
         this.#repay(reg);
         return;
       }
       default:
         throw this.#error(
-          y,
+          node,
           "Malformed boolean expression",
         );
     }
@@ -241,16 +253,14 @@ export class Compiler {
   }
 
   #boolean(
-    expression: number[],
+    expression: number,
     onFalse: Label,
   ) {
-    const node = expression.pop();
-    assert(typeof node === "number");
-    switch (this.#tokenType(node)) {
-      case TokenType.PAREN_LEFT:
-        // asume parenthetical
-        this.#boolean(this.#children(node).toArray(), onFalse);
-        return;
+    switch (this.#tokenType(expression)) {
+      // case TokenType.PAREN_LEFT:
+      //   // asume parenthetical
+      //   this.#boolean(expression, onFalse);
+      //   return;
       case TokenType.DOT: {
         const reg = this.#expression(expression);
         this.#emit([
@@ -270,7 +280,7 @@ export class Compiler {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR:
-        this.#booleanBinary(expression, node, onFalse);
+        this.#booleanBinary(expression, onFalse);
         return;
       case TokenType.TRUE:
         return;
@@ -279,7 +289,7 @@ export class Compiler {
         return;
       case TokenType.NOT: {
         this.#boolean(
-          this.#children(node).toArray(),
+          expression - 1,
           this.#switch(onFalse),
         );
         return;
@@ -288,7 +298,7 @@ export class Compiler {
         this.#emit([
           Op.JumpIfFalse,
           onFalse,
-          this.#getRegister(node),
+          this.#getRegister(expression),
         ]);
         return;
       }
@@ -296,22 +306,21 @@ export class Compiler {
         this.#emit([
           Op.JumpIfFalse,
           onFalse,
-          this.#getThis(node),
+          this.#getThis(expression),
         ]);
         return;
       }
       default:
-        throw this.#error(node, "Expected boolean");
+        throw this.#error(expression, "Expected boolean");
     }
   }
 
-  #assignment(x: number[], y: number): Register {
-    const left = x.pop();
-    assert(typeof left === "number");
+  #assignment(node: number): Register {
+    const [left, right] = this.parse.children(node);
     const tokenType = this.#tokenType(left);
     if (tokenType === TokenType.IDENTIFIER) {
       const local = this.#resolve(left);
-      const r1 = this.#expression(this.#children(y).toArray());
+      const r1 = this.#expression(right);
       if (this.#locals.register(local) === -1) {
         this.#locals.register(local, r1);
       } else {
@@ -328,7 +337,7 @@ export class Compiler {
     }
 
     if (tokenType === TokenType.VAR) {
-      const r1 = this.#expression(this.#children(y).toArray());
+      const r1 = this.#expression(right);
       const index = this.#locals.alloc();
       this.#emit([
         Op.Move,
@@ -336,20 +345,21 @@ export class Compiler {
         r1,
       ]);
 
-      this.#current.written.add(this.#declare(left + 1, index));
+      this.#current.written.add(this.#declare(left - 1, index));
       return index;
     }
 
     if (tokenType === TokenType.DOT) {
+      const [object, field] = this.parse.children(left);
       // calculate object store in register 1
-      const register1 = this.#expression(x);
+      const register1 = this.#expression(object);
       // now calculate the right hand side and store in register 2
-      const register2 = this.#expression(this.#children(y).toArray());
+      const register2 = this.#expression(right);
       // move the result to the heap
       this.#emit([
         Op.SetField,
         register1,
-        this.#lexeme(left + 1), // the name of the field!
+        this.#lexeme(field) as Identifier,
         register2,
       ]);
       this.#repay(register1);
@@ -362,84 +372,59 @@ export class Compiler {
     );
   }
 
-  #binary(lhs: number[], rest: number): Register {
-    switch (this.#tokenType(rest)) {
-      case TokenType.BE:
-      case TokenType.AND:
-      case TokenType.IS_NOT:
-      case TokenType.IS:
-      case TokenType.LESS:
-      case TokenType.MORE:
-      case TokenType.NOT_LESS:
-      case TokenType.NOT_MORE:
-      case TokenType.OR: {
-        const continuation = this.labels.label(this.#next());
-        const falseBranch = this.labels.label(continuation);
-        this.labels.next(this.#current.label, continuation);
-        const index = this.#locals.alloc();
-        this.#emit([Op.Constant, index, true]);
-        this.#booleanBinary(lhs, rest, falseBranch);
-        this.#goto(falseBranch);
-        this.#emit([Op.Constant, index, false]);
-        this.#goto(continuation);
-        return index;
-      }
-      default:
-        throw this.#error(
-          rest,
-          "Unsupported operation",
-        );
-    }
+  #binary(node: number): Register {
+    const continuation = this.labels.label(this.#next());
+    const falseBranch = this.labels.label(continuation);
+    this.labels.next(this.#current.label, continuation);
+    const index = this.#locals.alloc();
+    this.#emit([Op.Constant, index, true]);
+    this.#booleanBinary(node, falseBranch);
+    this.#goto(falseBranch);
+    this.#emit([Op.Constant, index, false]);
+    this.#goto(continuation);
+    return index;
   }
 
-  #call(operator: number[], operands: number): Register {
-    const node = operator.pop();
-    assert(typeof node === "number");
-    if (this.#tokenType(node) === TokenType.DOT) {
-      const args = [
-        this.#expression(operator),
-      ];
-      const children = [...this.#children(operands)];
-      if (children.length > 0) args.push(this.#expression(children));
-      // what about multiple parameters?
+  #call(call: number): Register {
+    const [operator, ...operands] = this.parse.children(call);
+    if (this.#tokenType(operator) === TokenType.DOT) {
+      const [object, field] = this.parse.children(operator);
       this.#emit([
         Op.InvokeVirtual,
-        this.#lexeme(node + 1),
-        args,
+        this.#lexeme(field) as Identifier,
+        [object, ...operands].map((it) => this.#expression(it)),
       ]);
-      // args.forEach((it) => this.#repay(it));
       const index = this.#locals.alloc();
       this.#emit([Op.MoveResult, index]);
       return index;
     }
-    if (this.#tokenType(node) === TokenType.NEW) {
+    if (this.#tokenType(operator) === TokenType.NEW) {
       const index = this.#locals.alloc();
-      const klaz = this.#lexeme(node + 1);
+      const klaz = this.#lexeme(operator - 1);
       this.#emit([
         Op.New,
         index,
         this.classes[klaz] ||= new Class(),
       ]);
-
       const args = [index];
-      const children = [...this.#children(operands)];
-      if (children.length) args.push(this.#expression(children));
+      args.push(...operands.map((it) => this.#expression(it)));
       this.#emit([
         Op.InvokeStatic,
-        this.classes[klaz].method("new", this.labels),
+        this.classes[klaz].method("new" as Identifier, this.labels),
         args,
       ]);
       // args.forEach((it) => this.#repay(it));
       return index;
     }
-    throw this.#error(node, "uncallable operand");
+    throw this.#error(
+      call,
+      `uncallable operator ${TokenType[this.#tokenType(operator)]}`,
+    );
   }
 
   #expression(
-    nodes: number[],
+    node: number,
   ): Register {
-    const node = nodes.pop();
-    assert(typeof node === "number");
     switch (this.#tokenType(node)) {
       case TokenType.TRUE: {
         const index = this.#locals.alloc();
@@ -471,17 +456,14 @@ export class Compiler {
       case TokenType.LOG: {
         // type checking might make sense for 'print'
         // need print now to inspect memory
-        const register = this.#expression(this.#children(node).toArray());
+        const register = this.#expression(node - 1);
         this.#emit([Op.Log, register]);
         return register;
       }
       case TokenType.PAREN_LEFT:
-        // could just be a parens, alas
-        if (nodes.length === 0) {
-          return this.#expression(this.#children(node).toArray());
-        } else return this.#call(nodes, node);
+        return this.#call(node);
       case TokenType.BE:
-        return this.#assignment(nodes, node);
+        return this.#assignment(node);
       case TokenType.AND:
       case TokenType.IS_NOT:
       case TokenType.IS:
@@ -490,21 +472,22 @@ export class Compiler {
       case TokenType.NOT_LESS:
       case TokenType.NOT_MORE:
       case TokenType.OR:
-        return this.#binary(nodes, node);
+        return this.#binary(node);
       case TokenType.IDENTIFIER:
         return this.#getRegister(node);
       case TokenType.THIS:
         return this.#getThis(node);
       case TokenType.DOT: {
+        const [object, field] = this.parse.children(node);
         const register = this.#expression(
-          nodes,
+          object,
         );
         const index = this.#locals.alloc();
         this.#emit([
           Op.GetField,
           index,
           register,
-          this.#lexeme(node + 1),
+          this.#lexeme(field) as Identifier,
         ]);
         this.#repay(register);
         return index;
@@ -512,7 +495,7 @@ export class Compiler {
       case TokenType.VAR: {
         const index = this.#locals.alloc();
         this.#declare(
-          node + 1,
+          node - 1,
           index,
         );
         return index;
@@ -538,24 +521,14 @@ export class Compiler {
     return this.#locals.add(this.#lexeme(variable), register);
   }
 
-  *#children(node: number) {
-    for (
-      let i = node + 1;
-      i < node + this.parse.sizes[node];
-      i += this.parse.sizes[i]
-    ) {
-      yield i;
-    }
-  }
-
   #class(declaration: number) {
-    const [h, ...t] = this.#children(declaration);
+    const [h, ...t] = this.parse.children(declaration);
     const klaz = this.classes[this.#lexeme(h)] ||= new Class();
     const _this = this.#locals.add("this", this.#locals.alloc());
     for (const methodDeclaration of t) {
       this.#method(
         methodDeclaration,
-        klaz.method(this.#lexeme(methodDeclaration), this.labels),
+        klaz.method(this.#lexeme(methodDeclaration) as Identifier, this.labels),
       );
     }
     this.#locals.truncate(_this);
@@ -566,7 +539,7 @@ export class Compiler {
     method: Method,
   ) {
     assert(this.parse.types[declaration] === NodeType.METHOD);
-    const args = [...this.#children(declaration)];
+    const args = [...this.parse.children(declaration)];
     const block = args.pop() ?? -1;
     method.arity = args.length;
     const current = this.#current;
@@ -585,13 +558,16 @@ export class Compiler {
   }
 
   #block(block: number) {
-    assert(this.parse.types[block] === NodeType.BLOCK);
+    assert(
+      this.parse.types[block] === NodeType.BLOCK,
+      "what!?\n" + this.parse.toString(),
+    );
     const size = this.#locals.size;
-    for (const statement of this.#children(block)) {
-      if (this.parse.types[statement] === NodeType.STMT) {
-        this.#statement(statement);
-      } else if (this.parse.types[statement] === NodeType.JUMP) {
+    for (const statement of this.parse.children(block)) {
+      if (this.parse.types[statement] === NodeType.JUMP) {
         this.#jump(statement);
+      } else {
+        this.#statement(statement);
       }
     }
     this.#locals.truncate(size);
@@ -599,11 +575,11 @@ export class Compiler {
 
   #getNamedLabel(node: number, name?: string): NamedLabel {
     if (name === undefined) {
-      if (this.#names.length > 0) return this.#names[this.#names.length - 1];
+      return this.#names.top;
     } else {
-      for (let i = this.#names.length - 1; i >= 0; i--) {
-        if (this.#names[i].name === name) {
-          return this.#names[i];
+      for (let i = this.#names.top; i >= 0; i--) {
+        if (this.#names.names[i] === name) {
+          return i;
         }
       }
     }
@@ -623,27 +599,29 @@ export class Compiler {
       case TokenType.BREAK:
         this.labels.next(
           this.#current.label,
-          this.#getNamedLabel(
-            statement,
-            this.#label(statement),
-          )
-            .break,
+          this.#names.breaks[
+            this.#getNamedLabel(
+              statement,
+              this.#label(statement),
+            )
+          ],
         );
         return;
       case TokenType.CONTINUE:
         this.labels.next(
           this.#current.label,
-          this.#getNamedLabel(
-            statement,
-            this.#label(statement),
-          )
-            .continue,
+          this.#names.continues[
+            this.#getNamedLabel(
+              statement,
+              this.#label(statement),
+            )
+          ],
         );
         return;
       case TokenType.RETURN: {
         this.labels.next(this.#current.label, NULL_LABEL);
         if (this.parse.sizes[statement] === 1) return;
-        const reg = this.#expression(this.#children(statement + 1).toArray());
+        const reg = this.#expression(statement - 1);
         this.#emit([Op.Return, reg]);
         this.#repay(reg);
         return;
@@ -656,15 +634,15 @@ export class Compiler {
   #statement(statement: number) {
     switch (this.#tokenType(statement)) {
       case TokenType.BRACE_LEFT:
-        this.#block(statement + 1);
+        this.#block(statement);
         return;
       case TokenType.IF: {
-        const [condition, onTrue, onFalse] = this.#children(statement + 1);
+        const [condition, onTrue, onFalse] = this.parse.children(statement);
         const continuation = this.labels.label(this.#next());
         const thenBranch = this.labels.label(continuation);
         const elseBranch = this.labels.label(continuation);
         this.labels.next(this.#current.label, thenBranch);
-        this.#boolean(this.#children(condition).toArray(), elseBranch);
+        this.#boolean(condition, elseBranch);
         // record assignments for the else branch
         const we = new UIntSet(
           this.#current.written,
@@ -690,48 +668,26 @@ export class Compiler {
       }
       // similar needed for label
       case TokenType.WHILE: {
-        const [condition, onTrue] = this.#children(statement + 1);
-        const continuation = this.labels.label(this.#next());
-        const loopA = this.labels.label(this.#next());
-        const loopB = this.labels.label(loopA);
-        this.labels.next(this.#current.label, loopA);
-        this.labels.next(loopA, loopB);
-
-        this.#goto(loopA);
-        this.#boolean(this.#children(condition).toArray(), continuation);
-        const written = new UIntSet(
-          this.#current.written,
-        );
-        this.#goto(loopB);
-        this.#names.push({
-          break: continuation,
-          continue: loopA,
-        });
-        this.#block(onTrue);
-        this.#names.pop();
-        this.#current = { label: continuation, written };
-        return;
-      }
-      // similar needed for label
-      case TokenType.LABEL: {
-        const label = this.#lexeme(statement);
-        const [condition, onTrue] = this.#children(statement + 1);
+        const children = this.parse.children(statement);
+        const onTrue = children.pop() ?? -1;
+        const condition = children.pop() ?? -1;
+        const label = children.pop();
         const continuation = this.labels.label(this.#next());
         const loopA = this.labels.label(this.#next());
         const loopB = this.labels.label(loopA);
         this.labels.next(this.#current.label, loopA);
         this.labels.next(loopA, loopB);
         this.#goto(loopA);
-        this.#boolean(this.#children(condition).toArray(), continuation);
+        this.#boolean(condition, continuation);
         const written = new UIntSet(
           this.#current.written,
         );
         this.#goto(loopB);
-        this.#names.push({
-          name: label,
-          break: continuation,
-          continue: loopA,
-        });
+        this.#names.push(
+          label === undefined ? undefined : this.#lexeme(label),
+          continuation,
+          loopA,
+        );
         this.#block(onTrue);
         this.#names.pop();
         this.#current = { label: continuation, written };
@@ -740,10 +696,10 @@ export class Compiler {
       case TokenType.BREAK:
       case TokenType.CONTINUE:
       case TokenType.RETURN:
-        this.#jump(statement + 1);
+        this.#jump(statement);
         return;
       default:
-        this.#expression(this.#children(statement + 1).toArray());
+        this.#expression(statement);
         return;
     }
   }
@@ -752,21 +708,11 @@ export class Compiler {
 
   #compile() {
     this.method.start = this.#current.label;
-    for (let i = 0; i < this.parse.size; i += this.parse.sizes[i]) {
-      switch (this.parse.types[i]) {
-        case NodeType.CLASS:
-          this.#class(i);
-          break;
-        case NodeType.STMT:
-          this.#statement(i);
-          break;
-        default:
-          throw this.#error(
-            i,
-            `Expected statement or class declaration, but found ${
-              NodeType[this.parse.types[i]]
-            }`,
-          );
+    for (const node of this.parse.children()) {
+      if (this.parse.types[node] === NodeType.CLASS) {
+        this.#class(node);
+      } else {
+        this.#statement(node);
       }
     }
     this.labels.merge();

@@ -1,33 +1,38 @@
 import { Term } from "./model.ts";
-import { Lexer, Token, TokenType } from "./lexer.ts";
+import { Lexer, TokenType } from "./lexer.ts";
 
 export class ParseError extends Error {
-  constructor(readonly token: Token, msg: string) {
+  constructor(readonly token: number, msg: string) {
     super(msg);
   }
 }
 
 export class Parser {
-  private current: Token;
+  private current = 0;
   private lexer: Lexer;
+  sizes: number[] = [];
   constructor(private input: string) {
     this.lexer = new Lexer(input);
-    this.current = this.lexer.next();
   }
 
   #advance() {
-    this.current = this.lexer.next();
+    this.current++;
   }
 
   #quote() {
-    return this.input.substring(this.current.from, this.current.to);
+    return this.lexer.lexeme(this.current);
+  }
+
+  #type() {
+    return this.lexer.types[this.current];
   }
 
   #error(msg: string) {
+    const { line, column } = this.lexer.lineAndColumn(this.current);
     return new ParseError(
       this.current,
-      `Error at line ${this.current.line}, column ${this.current.column}, token ${
-        TokenType[this.current.type]
+      `Error at line ${line}, column ${column}, token ${
+        TokenType[this.#type()]
       } "${this.#quote()}": ${msg}`,
     );
   }
@@ -35,13 +40,13 @@ export class Parser {
   #consume(type: TokenType) {
     if (!this.#match(type)) {
       throw this.#error(
-        `expected ${TokenType[type]}, found ${TokenType[this.current.type]}`,
+        `expected ${TokenType[type]}, found ${TokenType[this.#type()]}`,
       );
     }
   }
 
   #match(type: TokenType) {
-    if (this.current.type === type) {
+    if (this.#type() === type) {
       this.#advance();
       return true;
     }
@@ -50,16 +55,16 @@ export class Parser {
 
   #term0(): Term {
     let term: Term;
-    switch (this.current.type) {
+    switch (this.#type()) {
       case TokenType.BRACE_LEFT: {
-        this.current = this.lexer.next();
+        this.current++;
         term = this.term();
         this.#consume(TokenType.BRACE_RIGHT);
         break;
       }
       case TokenType.IDENTIFIER:
         term = ["ident", this.#quote()];
-        this.current = this.lexer.next();
+        this.current++;
         break;
       default:
         throw this.#error(`unexpected token`);
@@ -68,7 +73,7 @@ export class Parser {
   }
 
   #term1(): Term {
-    switch (this.current.type) {
+    switch (this.#type()) {
       case TokenType.BACKSLASH: {
         this.#advance();
         return ["lambda", this.#term1()];
@@ -82,10 +87,10 @@ export class Parser {
   }
 
   #term2(): Term {
-    if (this.current.type === TokenType.IDENTIFIER) {
+    if (this.#type() === TokenType.IDENTIFIER) {
       const key = this.#quote();
-      this.current = this.lexer.next();
-      if (this.current.type === TokenType.IS) {
+      this.current++;
+      if (this.#type() === TokenType.IS) {
         this.#advance();
         const value = this.#term1();
         this.#consume(TokenType.COMMA);
