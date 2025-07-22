@@ -46,7 +46,7 @@ export class VM {
     this.frames = Array.from({ length: VM.MAX_FRAMES }).map((_) => new Frame());
   }
   get(i: number): Value {
-    return this.stack[this.frames[this.fp].stackTop - i] || null;
+    return this.stack[this.frames[this.fp].stackTop - i] || undefined;
   }
   classOf(i: number): Class {
     const instance: Value = this.get(i);
@@ -58,15 +58,15 @@ export class VM {
   less(i: number, j: number): boolean {
     const x = this.get(i);
     const y = this.get(j);
-    if (x === null || y === null) {
-      throw new Error("null pointer found");
+    if (x === undefined || y === undefined) {
+      throw new Error("undefined pointer found");
     }
     return x < y;
   }
   set(i: number, value: Value) {
     this.stack[this.frames[this.fp].stackTop - i] = value;
   }
-  #result: Value = null;
+  #result: Value = undefined;
   run(method: Method, labels: Labels) {
     this.fp = 0;
     this.frames[this.fp].load(method, 0);
@@ -92,7 +92,7 @@ export class VM {
           continue;
         case Op.MoveResult:
           this.set(instruction[1], this.#result);
-          this.#result = null;
+          this.#result = undefined;
           continue;
         case Op.New:
           this.set(instruction[1], new Instance(instruction[2]));

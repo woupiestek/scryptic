@@ -1,5 +1,33 @@
 # Scryptic
 
+## 2015-07-22
+
+### sizes
+
+Make size comparison to a 64-bit word? The products don't work.
+
+## 2015-07-21
+
+### VM reorg
+
+Trouble is that all ideas require a garbage collector, which is preciesly what I
+came to typescript to avoid.
+
+### optimizations
+
+Here we try again... I don't like the phony functions, but I need a way to tie
+differn values in branches back together.
+
+The niced solution might just be to have labels that look like functions or
+sets:
+
+`{ x,y,z | exprs;* jump }`
+
+How though!?
+
+At this point, changing the AST is inconvenient, and I wonder if it is needed.
+How to get around it?
+
 ## 2015-07-17
 
 Memory safety without garbage collector... but not like rust. I.e. you get very
@@ -33,10 +61,6 @@ does encapuslation add?
 
 This project was about the variant of the lambda calculus. So a dynamic
 language.
-
-### VM reorg
-
-Let's see:
 
 ## 2025-07-16
 

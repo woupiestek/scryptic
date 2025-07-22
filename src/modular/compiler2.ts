@@ -1,6 +1,6 @@
 import { assert } from "https://deno.land/std@0.178.0/testing/asserts.ts";
 import { Table } from "../collections/table.ts";
-import { cyrb53 } from "./cyrb53.ts";
+import { cyrb53 } from "../collections/cyrb53.ts";
 import { Parse } from "../assembly/parse.ts";
 import { TokenType } from "../assembly/lex.ts";
 

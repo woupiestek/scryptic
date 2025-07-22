@@ -17,7 +17,7 @@ export enum Op {
 }
 
 export type Register = number & { readonly __tag: unique symbol };
-type Constant = string | number | Class | null | boolean;
+type Constant = string | Class | boolean | undefined;
 export type Identifier = string & { readonly __tag: unique symbol };
 
 export type Instruction =

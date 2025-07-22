@@ -10,4 +10,4 @@ export class Instance {
   }
 }
 
-export type Value = boolean | Class | Instance | null | number | string;
+export type Value = boolean | Class | Instance | string | undefined;
