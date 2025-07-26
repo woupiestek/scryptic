@@ -80,19 +80,100 @@ export class KeepGoing {
           JSON.parse(parse.lex.lexeme(token)),
         );
       }
-
       for (const j of parse.children(i)) {
         this.parents[j] = i;
       }
     }
     this.types[parse.size] = Type.ROOT;
-    // this.#findJumpTargets();
     this.#gotosAndGraph();
+
+    // propagate targets up to meet previous targets
+    this.#connectGraph();
+
     this.#unrollExpressions();
   }
 
+  #flow: { sources: number[]; targets: number[] } = {
+    sources: [],
+    targets: [],
+  };
+
+  #findTarget(i: number) {
+    for (let j = i;; j = this.parents[j]) {
+      if (this.targets.has(j)) {
+        return j;
+      }
+    }
+  }
+
+  // the issue: proper treatment of else branches.
+  // particularly when the else branch is not there!
+  #connectGraph() {
+    const targets: number[] = [];
+    const elses: number[] = [];
+    //const ifBranches: number[] = [];
+
+    for (let i = this.types.length - 1; i >= 0; i--) {
+      switch (this.types[i]) {
+        case Type.GOTO:
+          targets[this.parents[i]] = this.values[i];
+          break;
+        case Type.WHILE:
+          targets[this.parents[i]] = i;
+          break;
+        case Type.BRACE_LEFT:
+          if (this.types[this.parents[i]] === Type.WHILE) {
+            targets[this.parents[i]] = i;
+          } else if (this.types[this.parents[i]] === Type.IF) {
+            // one or two blocks in the if, 
+            // this should deal with both cases
+            const ppi = this.parents[this.parents[i]];
+            elses[ppi] = targets[ppi];
+            targets[ppi] = i;
+          }
+          break;
+        default:
+          break;
+      }
+    }
+    targets.map((t, p) => {
+      if (t !== undefined) {
+        this.#flow.targets.push(t);
+        this.#flow.sources.push(p);
+      }
+    });
+    elses.map((t, p) => {
+      if (t !== undefined) {
+        this.#flow.targets.push(t);
+        this.#flow.sources.push(p);
+      }
+    });
+    this.#flow.sources = this.#flow.sources.map((p) => this.#findTarget(p));
+  }
+
+  #findWhile(i: number, labels: string[]) {
+    const label = labels[i];
+    let w = this.parents[i];
+    if (label === undefined) {
+      while (this.types[w] !== Type.WHILE) {
+        if (this.parents[w] === w) {
+          throw new Error("jump outside of while");
+        }
+        w = this.parents[w];
+      }
+    } else {
+      while (w !== this.parents[w] && labels[w] !== label) {
+        if (w === this.parents[w]) {
+          throw new Error("labelled jump outside of labelled while");
+        }
+        w = this.parents[w];
+      }
+    }
+    return w;
+  }
+
   #gotosAndGraph() {
-    const labels: { [_: number]: string } = {};
+    const labels: string[] = [];
     const previous: number[] = [];
     const next: number[] = [];
     for (let i = 0; i <= this.parse.size; i++) {
@@ -123,27 +204,12 @@ export class KeepGoing {
       switch (type) {
         case Type.BRACE_LEFT:
           this.values[this.#addNode(i, Type.GOTO)] = next[i];
+          this.targets.add(i);
           this.targets.add(next[i]);
           return;
         case Type.BREAK:
           {
-            const label = labels[i];
-            let w = this.parents[i];
-            if (label === undefined) {
-              while (this.types[w] !== Type.WHILE) {
-                if (this.parents[w] === w) {
-                  throw new Error("break outside of while");
-                }
-                w = this.parents[w];
-              }
-            } else {
-              while (w !== this.parents[w] && labels[w] !== label) {
-                if (w === this.parents[w]) {
-                  throw new Error("labelled break outside of labelled while");
-                }
-                w = this.parents[w];
-              }
-            }
+            const w = this.#findWhile(i, labels);
             this.types[i] = Type.GOTO;
             this.values[i] = next[w];
             this.targets.add(next[w]);
@@ -151,27 +217,15 @@ export class KeepGoing {
           return;
         case Type.CONTINUE:
           {
-            const label = labels[i];
-            let w = this.parents[i];
-            if (label === undefined) {
-              while (this.types[w] !== Type.WHILE) {
-                if (w === this.parents[w]) {
-                  throw new Error("break outside of while");
-                }
-                w = this.parents[w];
-              }
-            } else {
-              while (w !== this.parents[w] && labels[w] !== label) {
-                if (w === this.parents[w]) {
-                  throw new Error("labelled break outside of labelled while");
-                }
-                w = this.parents[w];
-              }
-            }
+            const w = this.#findWhile(i, labels);
             this.types[i] = Type.GOTO;
             this.values[i] = w;
             this.targets.add(w);
           }
+          return;
+        case Type.ROOT:
+        case Type.WHILE:
+          this.targets.add(i);
           return;
       }
     });

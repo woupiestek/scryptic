@@ -57,3 +57,12 @@ for (const goodCase of goodCases) {
     console.log(KG.toString());
   });
 }
+
+Deno.test(`see graph`, () => {
+  const lex = new Lex(
+    'var x = "wrong!"; #a while true \{ if x != "right!" \{ x = "right!"; continue #a \} break #a \} log x',
+  );
+  const parse = new Parse(lex);
+  const KG = new KeepGoing(parse);
+  console.log(KG.toString());
+});
