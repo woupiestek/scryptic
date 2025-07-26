@@ -1,5 +1,110 @@
 # Scryptic
 
+## 2015-07-26
+
+### resolution
+
+There are different times at which variables can be resolved:
+
+- compile time
+- link time
+- load time
+- run time
+
+The lambda calculus does not distingish. The lazy interpretation suggest
+delaying all of it to the last possible movement, effectively compiling each
+function right before it is executed.
+
+### garbage in managed languages
+
+Yeah, so the idea is to build the array machines in java or typescript. The
+array machine allocates arrays, and makes itself responsible for that part of
+memory. Perhaps garbage collection becomes so trivial that the user can do it
+themselves. More likely, the array machine will have to do some garbage
+collection for the code it interprets.
+
+### language features
+
+Bare bones, the arrays machine manages arrays of primitive types. To get
+something else, use struct of arrays and indices into other arrays, plus
+discriminated unions. The interpreter is supposed to support this of course. The
+arrays are the only way to access memory on the heap, and that is what functions
+can manipulate.
+
+A method should operate on the arrays that are the member of the class, but when
+is this array resolved? Ideally, the classes are allocated at load time.
+
+Think about lambda calculus: the method is a closure, generated at load time. It
+has a pointer to its source code, and an 'object' that contains the arrays to
+operate on. o/c the method is actually a method on this object,
+
+### generic classes
+
+This is interesting, because there is a choice here: Create a new class-object
+for each instance, keeping its own arrays. Have a single class object, means
+having an array of references to other class objects. One question that arises
+is when the resoltuion happens, and ultimately, load time seems the most
+reasonable.
+
+Perhaps combine the options as follows:
+
+- classes are considered templates. At load time, the type arguments are
+  resolved, and a specific allocation is made for the class.
+- generic enums change the dynamics, however. There definitly show up in
+  arguments to methods.
+
+Note: when the generic argument appears on the class, a specific class object
+can be created for every type argument. The generic argument of the function is
+harder, and requires more stuff to be passed along.
+
+### keep going
+
+Struggling with the optimisations. Identify where nodes start (and perhaps end),
+create the graph as a source target table. Source is the jump statement, or if
+none, the last statement in a block. o/c random blocks, which cause me headaces
+anyway,
+
+### dreaming
+
+Ideas excite me, implementation is an issue.
+
+Images: just define types as sets of lambda terms, possibly with argument in
+other sets. The each set must be subset of a simple type, which is determined by
+questing the types of the lambda terms in the set. perhaps this lead to certain
+sets being forbidden, because the type cannot be solved.
+
+### types
+
+keep track of variable names read, written, and consider what declared means
+
+### machine vs language
+
+A language actually conventient to work with.
+
+- functions and objects
+- types defined by unions of images... but where to use the types? optionally on
+  function args?
+
+Variables captured means a class object is created for the function
+
+Note: the repl seems to have different requirements. Do I need it though? Maybe
+a repl that just handles files.
+
+### map reduce on the array machine
+
+A monoid is any type T with a function T[] -> T that commutes, i.e. the two ways
+to build T[][] -> T are extensionally equivalent. The type system does not care
+about this, but template property tests could be applied to implementation, as a
+feature of the language.
+
+Foldable may be defined as having a map to the free monoid. Could just be
+iterable: language level support for the iterable trait, which is a way to get
+an iterator out of any type.
+
+### easier loop syntax?
+
+`loop a? { ... break a ... continue a ... }`
+
 ## 2015-07-22
 
 ### sizes

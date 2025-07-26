@@ -84,8 +84,7 @@ export class Parse {
       case TokenType.BREAK:
       case TokenType.CONTINUE:
         if (this.#match(TokenType.LABEL)) {
-          // does this help?
-          this.#close(NodeType.LABEL, token, start);
+          this.#close(NodeType.LABEL, token + 1, start);
         }
         this.#close(NodeType.JUMP, token, start);
         break;
