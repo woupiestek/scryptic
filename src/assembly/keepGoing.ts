@@ -125,7 +125,7 @@ export class KeepGoing {
           if (this.types[this.parents[i]] === Type.WHILE) {
             targets[this.parents[i]] = i;
           } else if (this.types[this.parents[i]] === Type.IF) {
-            // one or two blocks in the if, 
+            // one or two blocks in the if,
             // this should deal with both cases
             const ppi = this.parents[this.parents[i]];
             elses[ppi] = targets[ppi];
