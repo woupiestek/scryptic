@@ -1,5 +1,5 @@
 // pick graph representation
-type FlowGraph<A> = {
+export type FlowGraph<A> = {
   root: A;
   sources: A[];
   targets: A[];
@@ -29,95 +29,109 @@ export function depthFirstSearch<A>(graph: FlowGraph<A>) {
 }
 
 // better fit for the chosen representation
-export function search<A>(graph: FlowGraph<A>) {
+// but Lengauer-Tarjan does not work well with it.
+export function dfs2<A>(graph: FlowGraph<A>) {
   const vertices: A[] = [graph.root];
   const parents: number[] = [0];
+  let parent = 0;
   let todo = graph.sources.map((_, i) => i);
   while (todo.length) {
     const next = [];
     for (const i of todo) {
       const target = graph.targets[i];
       if (vertices.includes(target)) continue;
-      const parent = vertices.indexOf(graph.sources[i]);
-      if (parent >= 0) {
+      if (graph.sources[i] === vertices[parent]) {
         parents.push(parent);
-        vertices.push(target);
-      } else next.push(i);
+        parent = vertices.push(target) - 1;
+        continue;
+      }
+      next.push(i);
+    }
+    if (todo.length === next.length) {
+      if (parent === 0) break;
+      parent--;
     }
     todo = next;
   }
   const predecessors: number[][] = vertices.map(() => []);
-  graph.targets.forEach((t, i) =>
-    predecessors[vertices.indexOf(t)].push(vertices.indexOf(graph.sources[i]))
-  );
+  graph.targets.forEach((t, i) => {
+    const it = vertices.indexOf(t);
+    if (it < 0) return;
+    const is = vertices.indexOf(graph.sources[i]);
+    if (is < 0) return;
+    predecessors[it].push(is);
+  });
   return { parents, predecessors, vertices };
 }
 
 /*
  * Lengauer-Tarjan for the dominance tree
- *
- * I cannot wrap my head around this yet.
  */
 export class FindDominators {
   #semi: number[];
   idom: number[] = [];
-  parents: number[] = [];
+  parents: number[];
   #bucket: number[][];
-  // forest?
-  #ancestor: number[] = [];
+
+  // forest? yep! represented as parent vector
+  #ancestor: number[];
+
   #label: number[];
   #size: number[];
-  #child: number[] = []; // or 0!?
+  #child: number[]; // or 0!?
 
+  // tree rebalance
   #update(w: number) {
     let s = w;
-    let t = this.#child[s];
+    let cs = this.#child[s];
     while (
-      this.#semi[this.#label[w]] < this.#semi[this.#label[t]]
+      this.#child[cs] !== cs &&
+      this.#semi[this.#label[w]] < this.#semi[this.#label[cs]]
     ) {
+      const sccs = this.#size[this.#child[cs]];
       if (
-        this.#size[s] + this.#size[this.#child[t]] >=
-          2 * this.#size[t]
+        this.#size[s] + sccs >= 2 * this.#size[cs]
       ) {
-        this.#ancestor[this.#child[s]] = s;
-        this.#child[s] = this.#child[t];
+        this.#ancestor[cs] = s;
+        this.#child[s] = this.#child[cs];
       } else {
-        this.#size[t] = this.#size[s];
-        s = this.#ancestor[s] = t;
+        this.#size[cs] = this.#size[s];
+        s = this.#ancestor[s] = cs;
       }
-      t = this.#child[s];
+      cs = this.#child[s];
     }
     this.#label[s] = this.#label[w];
     return s;
   }
 
+  // merge trees
   #link(w: number) {
+    this.#ancestor[w] = this.parents[w];
     const v = this.parents[w];
     let s = this.#update(w);
-    this.#size[v] += this.#size[w];
     if (this.#size[v] < 2 * this.#size[w]) {
       const t = s;
       s = this.#child[v];
       this.#child[v] = t;
     }
-    while (s > 0) {
+    this.#size[v] += this.#size[w];
+    while (s !== this.#child[s]) {
       this.#ancestor[s] = v;
       s = this.#child[s];
     }
   }
 
+  // find node with minimal semi on path to root in the forest.
   #eval(v: number) {
-    if (this.#ancestor[v] === undefined) return this.#label[v];
     this.#compress(v);
-    const z = this.#ancestor[v];
-    return this.#semi[this.#label[z]] < this.#semi[this.#label[v]]
-      ? this.#label[z]
-      : this.#label[v];
+    const lv = this.#label[v];
+    const lav = this.#label[this.#ancestor[v]];
+    return this.#semi[lav] < this.#semi[lv] ? lav : lv;
   }
 
   #compress(v: number) {
     const u = this.#ancestor[v];
-    if (u === undefined) return;
+    if (u === v) return v;
     this.#compress(u);
     if (this.#semi[this.#label[v]] > this.#semi[this.#label[u]]) {
       this.#label[v] = this.#label[u];
@@ -135,30 +149,32 @@ export class FindDominators {
     this.#semi = Array(parents.length).keys().toArray();
     this.#bucket = this.#semi.map(() => []);
     this.#label = [...this.#semi];
+    this.#ancestor = [...this.#semi];
+    this.#child = [...this.#semi];
     this.#size = this.#semi.map(() => 1);
 
     for (let w = parents.length - 1; w > 0; w--) {
-      for (const v of this.#bucket[w]) {
-        const u = this.#eval(v);
-        this.idom[v] = this.#semi[u] < this.#semi[v] ? u : w;
-      }
+      // compute a minimal semi across predecessors
       for (const v of predecessors[w]) {
-        const x = this.#eval(v);
-        if (this.#semi[w] > this.#semi[x]) this.#semi[w] = this.#semi[x];
+        const s = this.#semi[this.#eval(v)];
+        if (this.#semi[w] > s) this.#semi[w] = s;
       }
       this.#bucket[this.#semi[w]].push(w);
       this.#link(w);
-    }
-    for (const v of this.#bucket[0]) {
-      const u = this.#eval(v);
-      this.idom[v] = this.#semi[u] < this.#semi[v] ? u : 0;
+
+      const z = this.parents[w];
+      for (const v of this.#bucket[z]) {
+        const u = this.#eval(v);
+        this.idom[v] = this.#semi[u] < this.#semi[v] ? u : z;
+      }
+      this.#bucket[z].length = 0;
     }
 
+    this.idom[0] = 0;
     for (let w = 1; w < parents.length; w++) {
       if (this.idom[w] !== this.#semi[w]) {
         this.idom[w] = this.idom[this.idom[w]];
       }
     }
-    this.idom[0] = 0;
   }
 }

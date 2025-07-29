@@ -1,13 +1,8 @@
 import { UIntSet } from "../collections/uintset.ts";
+import { FlowGraph } from "./dominanceTree.ts";
 import { TokenType } from "./lex.ts";
 import { NodeType, Parse } from "./parse.ts";
 import { StringPool } from "./stringpool.ts";
-
-// label -- instruction -- args --
-//
-// label: { name?: ... }
-// instruction { parent: label, operator }
-// value { parent: instruction, class: _, instance:_ }
 
 export enum Type {
   AND,
@@ -63,6 +58,7 @@ export class KeepGoing {
   }
 
   constructor(readonly parse: Parse) {
+    this.flowGraph.root = parse.size;
     this.parents = Array(parse.size + 1).keys().toArray();
     for (let i = parse.size; i >= 0; i--) {
       const token = parse.tokens[i];
@@ -87,13 +83,16 @@ export class KeepGoing {
     this.types[parse.size] = Type.ROOT;
     this.#gotosAndGraph();
 
+    this.#next();
+
     // propagate targets up to meet previous targets
     this.#connectGraph();
 
     this.#unrollExpressions();
   }
 
-  #flow: { sources: number[]; targets: number[] } = {
+  flowGraph: FlowGraph<number> = {
+    root: 0,
     sources: [],
     targets: [],
   };
@@ -111,8 +110,6 @@ export class KeepGoing {
   #connectGraph() {
     const targets: number[] = [];
     const elses: number[] = [];
-    //const ifBranches: number[] = [];
-
     for (let i = this.types.length - 1; i >= 0; i--) {
       switch (this.types[i]) {
         case Type.GOTO:
@@ -138,17 +135,19 @@ export class KeepGoing {
     }
     targets.map((t, p) => {
       if (t !== undefined) {
-        this.#flow.targets.push(t);
-        this.#flow.sources.push(p);
+        this.flowGraph.targets.push(t);
+        this.flowGraph.sources.push(p);
       }
     });
     elses.map((t, p) => {
       if (t !== undefined) {
-        this.#flow.targets.push(t);
-        this.#flow.sources.push(p);
+        this.flowGraph.targets.push(t);
+        this.flowGraph.sources.push(p);
       }
     });
-    this.#flow.sources = this.#flow.sources.map((p) => this.#findTarget(p));
+    this.flowGraph.sources = this.flowGraph.sources.map((p) =>
+      this.#findTarget(p)
+    );
   }
 
   #findWhile(i: number, labels: string[]) {
@@ -170,6 +169,50 @@ export class KeepGoing {
       }
     }
     return w;
+  }
+
+  #next() {
+    const previous = Array(this.parse.size + 1).keys().toArray();
+    const last = [...previous];
+    for (let i = 0; i <= this.parse.size; i++) {
+      previous[this.parents[i]] = last[this.parents[i]];
+      last[this.parents[i]] = i;
+    }
+
+    const sources: number[] = [];
+    const targets: number[] = [];
+
+    previous.forEach((p, i) => {
+      switch (this.types[p]) {
+        case Type.BRACE_LEFT:
+          sources.push(last[p]);
+          targets.push(i);
+          return;
+        case Type.BREAK:
+        case Type.CONTINUE:
+        case Type.IF:
+          sources.push(last[last[p]]);
+          targets.push(i);
+          if (previous[last[p]] !== last[p]) {
+            sources.push(last[previous[last[p]]]);
+            targets.push(i);
+          }
+          break;
+        case Type.WHILE:
+          // todo
+          sources.push(last[p]);
+          targets.push(last[p]);
+          sources.push(last[last[p]]);
+          targets.push(last[p]);
+          break;
+        default:
+          sources.push(previous[i]);
+          targets.push(i);
+          break;
+      }
+    });
+
+    console.log(sources, targets);
   }
 
   #gotosAndGraph() {
