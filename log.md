@@ -1,6 +1,21 @@
 # Scryptic
 
-## 2015-07-26
+## 2025-07-31
+
+### Pizlo
+
+Static single use is oppose to static single assignment.
+
+There is a distance between the arrays and graphs and the code example in the
+paper. But I guess the trick is that what they calls expression are small
+structs, different ones for each kind.
+
+Instead of introducing variables, eliminate them with a back pointer. How to do
+the SSA then? With forward pointers.
+
+This optimization project just doesn't interest me anymore.
+
+## 2025-07-26
 
 ### resolution
 

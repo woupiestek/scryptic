@@ -175,6 +175,7 @@ export class KeepGoing {
     const previous = Array(this.parse.size + 1).keys().toArray();
     const last = [...previous];
     for (let i = 0; i <= this.parse.size; i++) {
+      if (this.parse.types[this.parents[i]] === NodeType.EXPR) continue;
       previous[this.parents[i]] = last[this.parents[i]];
       last[this.parents[i]] = i;
     }
@@ -197,6 +198,8 @@ export class KeepGoing {
             sources.push(last[previous[last[p]]]);
             targets.push(i);
           }
+          sources.push(last[p]);
+          targets.push(last[last[p]]);
           break;
         case Type.WHILE:
           // todo
