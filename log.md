@@ -1,5 +1,204 @@
 # Scryptic
 
+## 2025-08-05
+
+### like this?
+
+Two operators that take a mapping and apply it:
+
+- substitute `M [A]`
+- apply `M (A)`
+
+```
+x [A] -> A_x
+alpha M [A] -> M(A)
+kappa M [A] -> M
+lambda M [A] -> lambda ( M [id] [kappa o A] )
+x = M; N [A] -> N (A + x -> M [A])
+M(A) [B] -> (M [B])(N [B])
+lambda M (A) -> M[A]
+```
+
+### array machine
+
+Reminder: this is just a way to implement VMs. Instead of small allocations,
+Allocate stricts of arrays for each type, and store each filed in its own array.
+Given this structure, are there interesting languages design things to do?
+
+One feature is that sizes don't matter as much anymore: everything in an array
+can be packed tightly, and everyting outside uses indices of fixed size.
+
+There is a link between (dynamic) arrays and types, which could impact
+generics...
+
+Note the difference between the arrays backing a type A and the type of arrays
+A[]. The latter could be slices of the former.
+
+### scryptic for generics
+
+I have a problem with this: `switch(a) { case B b: [...]; case C c: [...]}` How
+does this work when B and C are generic? But requied names for type argument
+might help here. It remains a problem if the user decides `B == C` and supplies
+`a`: As what should it be treated? Maybe switching on generic type should just
+not be supported.
+
+### modules
+
+Replace classes with type classes/traits. What is the difference? A trait is
+more like a collections of classes than a class by itself.
+
+### ergonomics
+
+- much abstraction: allow almost lisplike levels of this, to avoid rewriting
+  stuff all the time some trick to make solution that works with a default case
+  work in cases of arbitrary complexity would also be welcome.
+- integrated collections: specialized syntax for map reduce, since that is what
+  I do all the time. Once again, this from in macros sounds atractive to me.
+- coproducts, over enums, types and maybe integers too. The last one is mostly
+  for early bounds checking.
+
+Could it be lisp like--i.e. interpreted all the way down--but still based on the
+array machine?
+
+This whole issue then is closures: each function that returns closures needs a
+struct of arrays to store captives. Alternatively: (local) functions are not
+truly first class. Some wrapping is required to make that happen, and the
+wrapping makes the decisions.
+
+Lambda lifting yes, but then mutability aware!
+
+- I.e. a local variable that can persist after return gets a column in the
+  table, where it is allocated.
+- A local function similarly is stored as a method associated to the implicit
+  class. So ultimately function can have both arrays of values and local
+  functions associated, and each closure is just an index into this array.
+
+- Classes are a thing: declare member and methods.
+- Each function gets an implicit associated class... or not? Obviously not if no
+  local functions are used. Also, every return may capture a different set of
+  variables, Leading to different tables for different branches.
+
+### inject allocator as dependency
+
+In this case no closures or objects are possible unless an argument is passed to
+a function to give access... Can be softened: if types are arrays, and allocator
+can be part of a type, so being passed in is invisible.
+
+### instances of generic modules
+
+If the generic module is a template... this is just the 'traits as tables' thing
+again: The instances of the trait have columns to store the type arguments, the
+instances, the functions. Potentially, you only need the index of the object and
+the locations of each of the methods. If so, the need to store concrete types
+may be mitigated...
+
+It is more difficult with a generic function because it implicitly is a function
+of the types as well. If the argument is trait bound, however, that type
+information is carried by the trait.
+
+### the two levels
+
+That is what it feels like: level one are classes, There are tables with columns
+for fields of primitives or instances of other classes and _final_ methods.
+
+Level two are traits: essentially closures, but with multiple functions
+operating on the same thunk, which is an instance of a class. So there is a
+cloumn for an object or value and a number of columns for methods, which may,
+however, be implemented anywhere.
+
+Closer to lambda calculus, the first level is invisible. I.e. most objects would
+be closures, the closure would consist of a final method and an index of the
+object to work on. The final method would know what columns the index is for.
+
+### mutability as a opt in.
+
+I thing the upvalues thing becomes easier without assignments, right? How much
+does that really help? I guess the table is filled on function declaration, and
+never looked back on.
+
+Ok, make the mutability explicit, to indicate some upvalue like solution will be
+wanted.
+
+Not that important after all.
+
+### generic function
+
+one of the args is limited to a trait. the function is expected to ask the trait
+how to deal with the value. that suggests the trait must know! so that is how it
+works: the function receives an index into a trait table the trait table has
+indices into class tables. mapping trait to trait member is resolved upon
+loading
+
+### assignment
+
+Yes for members, no for variables!
+
+### trait declarations
+
+Consider a trait declaration as an instruction for building a table. But allow
+anonymous and inline types...
+
+Despite not being first class, there would be type expressions and variables.
+
+No but the point is that classes are removed from the ontology. A type is
+
+- primitive space
+- array space
+- product
+- coproduct
+- function space
+- type variable
+
+Everything implies type erasure. Eager evaluation...
+
+Now classes could maybe come in as images. They track the run time origin of a
+value. When does this come into play? I suppose when running finalizers, delayed
+methods, etc.
+
+### classes
+
+Why classes? well, perhaps for strings. They might be arrays of byte, but there
+is no distinction between arbitrary arrays and other strings. Worse still,
+variation in implementation, like different character encodings or maybe even
+different data structures for special cases, don't spring forward from the
+definition.
+
+So have a string class, to guarantee that strings have an encoding and that the
+array is valid for that encoding.
+
+Where does this play a role? Classes seem strictly compile time: at this point
+the function requires a specific implementation,
+
+### images and reverse inheritence
+
+It is not unlike inheritance, although overriding is not exactly supported...
+
+The essential class contructors are:
+
+- `image f: class* -> class`
+- `union: class* -> class`
+
+The union combines multiple implmentations in one class, to mimic having
+multiple constructors or mutliple implmentations of an abstract class. The
+_direct image_ is the range over a box from the domain. The purpose is to track
+how a value is generated, so that subsequent functions can make assumptions. But
+what can the compiler or the vm realistically do here? Check class inequalities?
+Rely on fallible or mallicious users even if that can be insecure?
+
+It feel like downcasting should always get another run time check.
+
+### laziness
+
+The lazy pattern is to declare a thunk, i.e. instance+nullary method, evaluate
+the first time and use that value from then on.
+
+Nullary method could be reused though, leaving a single array of thunk instances
+and possibly an indicator whether evaluated.
+
+### type concerns
+
+Families of a monad might be the best compromise.
+
 ## 2025-07-31
 
 ### Pizlo
