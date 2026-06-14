@@ -1,5 +1,228 @@
 # Scryptic
 
+## 2026-06-14
+
+### set builder notation
+
+While function that produce modules are interesting, the really useful ones
+producte modules. This suggest treating these functions like sets.
+
+## 2026-06-11
+
+Revisiting to test some new ideas, not necessarily related.
+
+### the java killer
+
+So this should be a boring corporate language, better for building financcial
+sector software than java.
+
+Most OOP backends have two kind of objects anyway:
+
+1. beans, components, or modules, that mainly are collections of functions,
+   carrying possibly a small amount of state, or even 'run time constants':
+   configuration that are read from files, and don't change must after start up,
+   or only update occasionally. The services are left to a dependency injection
+   (DI) container. Long lived an small numbers.
+2. POJOs, JSONs, 'value objects' to carry data. Often used in collections. Short
+   lived, large numbers.
+
+For the former, the convenience and freedom of higher level languages is
+fantastic. The only problem is complexity. For the latter, higher level
+languages are generally bad for performance, and breaking up logic amongst many
+classes has dubious benefits for readability and development speed.
+
+So here is the pitch:
+
+- Keep the beans, add DI logic to the language, but bring everything down to a
+  few basic concepts.
+- Instead of declaring data classes, declare tables and store all data in those.
+
+This relates to the original goal of scriptic: there usually is a dedicated
+instance of each module type: 'the' instance. And so, there is no need to have
+separate variable names at the module level.
+
+A bean might just look like an object, perhaps using 'export' or 'public' so
+other members can be hidden. Or maybe not, just let everything be public.
+
+Fresh ingredients:
+
+- there should be row/object ids for acces to specific data items, and syntactic
+  sugar so that a method call on these id's becomes a function call that
+  recieves both the reference to the table and the object id.
+- no 'new' keyword for modules... in fact we should be comfortable with letting
+  the runtime provides one instance of each module/table/etc. as needed,
+  embracing global variables in a way.
+
+How do traditional stuff pan out?
+
+#### Generics
+
+Are we talking they generic in a 'data type', or in a 'bean type'? Each type of
+is stored in a table, and these tables use table ids that are the same size.
+Thus data generics reduce to bean geenrics: there is a function that takes a
+bean with the table trait and produces a new bean that bring new function in
+scope. Because those functions work with object ids, they are indeed generic
+over tables.
+
+This raises some questions: table trait? Type for the object ids? Yes, all of
+this is required. The traits specify what functions are availble on a bean, but
+they must also contain types, and offer guarantees about their size.
+
+#### Arrays
+
+So one idea is that the tables generally offer support for n-dimensional arrays
+of data of their type. Either way some bean must own the array and only lend
+array ids for other beans to borrow.
+
+#### Closures
+
+At the bean level again, they is handled by the runtime. In fact, all functions
+are likely closures, capturing whatever stuff from the scope they use, inclusing
+themselves. At the data level, it requries a constructions:
+
+- each way to construct a closure has a table for the captured elements
+- these tables must implement a closure trait, which is a higher order kind:
+  every function signature preduce a closure trait.
+- a call to these functions will be relatively slow.
+
+#### low level stuff
+
+So here is the hope that data orientation an array programming can really
+work... Add a measure of map reduce. I.e. the tables take functions and start
+behaving like tables of other elements.
+
+There are basic operations for primitive types. Then I assume limited algebraic
+types: sum and products, but no recursion or iteration. As soon as we hit
+anything dynamically sized, it must either be a module or owned by a module,
+that also provides the functions to work on it.
+
+ok, technically each primitve type could have a zero memory table that
+implements all the expected interfaces. It would modify the space
+requirements...
+
+Actually, that is an interesting point:
+
+- product types suggest product tables, and sum types suggest sum tables. Their
+  purpose is to give an interpretation to conrtuctors and pattern matches.
+
+This is all what tables seem to do that sets them apart from other beans.
+Perhaps every bean is just a table for the empty type.
+
+#### struct of arrays
+
+If tables also own arrays, and the columns of tables are arrays... At some
+point, it does not help anymore.
+
+Ultimately the module idea is about coarse graining ownership. Questions: Is
+fine grained control needed? Should it be supported? Should it be required?
+
+Row ids get lost, meaning that space in the table could be reused, though this
+could lead to fragmentation...
+
+So it might be good to just have that mechanism: a source of unique object ids,
+columns as weak maps from object ids to other values, and foreign key column
+going both ways. The table is not even needed anymore, the object pool is
+enough.
+
+To stay close to the spirit of the idea, it is main those foreign key columns
+that are interesting: those are used in trace an sweep.
+
+### the array based parser
+
+Of course the parser produces a parent vector, or a depth vector, or some other
+flat representation ofthe ast.
+
+## 2025-08-14
+
+### upvalues
+
+IDK what took me so long, but organising upvalues for each closure valued
+function as a struct of arrays seesm pretty straight forward. In fact, perhaps
+such functions should actually returns ids that implicitly refer to all data
+stored during the call.
+
+### linearity and identity
+
+Now we are on combining this with Scryptic. Everything could be an expression,
+but this creates trouble precisely where imperative compilers need phony values.
+
+- Any control flow structure can set multiple variables, while expression
+  typically only have one value
+- This combines with ternary expressions that then require else clauses.
+
+This also explains why mutable local variable are required: it is an efficient
+way to express and compute values with many optional computation paths.
+
+### the picture
+
+Maybe I misremember how closures worked. See: in Clox, each closure object has a
+number of upvalue objects, which may be shared with other closure objects. The
+upvalue object just adds indirection, I had in mind that there would be one
+object for each functions whose variables may be captured. This results in joint
+lifetimes, unusable memory, but it could actually be an advantage to make
+garbage collection more coarse grained.
+
+### let's try again
+
+Functions and closures, prodcuts and tuples. No, not each type an object, but
+each constructor an object. I don't actually how that last part works.
+
+## 2025-08-09
+
+### garbage collection
+
+#### continuous marking
+
+Instead of counting references, mark objects as potential garbage when they go
+out of scope. Durign a collection pass, all unmarked object are assumed white.
+
+#### generations
+
+Do mark and sweep on full generations recursively. Object would move around as
+they age, meaning that older generation grow slowly, but eventually reach the
+threshold for collection. That would trigger s more substatiatial cycle.
+
+### immutable lists
+
+Multiple heads, and use garbage collection to make lists more array like...
+
+## 2025-08-07
+
+### pointfree methods...
+
+This goes against the idea of scryptic, and instead serves the array machine
+idea, hoping to make it the kind of language I'd actually like to works with.
+
+Variables names in lambda calculus are convenient optics into functions spaces:
+each variable in `\x y z.x z(y z)` is connected to one of the argument types of
+the function. Find a different way to do taht an differen notations become
+possible, i.e. `\\\31(21)` for de bruin indices. Pipes or compositon operators
+for unary functions, and so on.
+
+To compose methods from methods but lifting the limitation of method bodies...
+
+`x .a y .b z` is normaly interpreted as `(x .a y) .b z` and not as
+`x .a (y .b z)` right? O/c this leaves out parens around args, but why keep the
+dots then?
+
+Essentially create arrays on the stack an pass them around. But then, aren't
+variables a great way to express the wiring?
+
+### linear composition
+
+If every argument is consumed, then variables are only useful for
+rearrangements. Do it with mutable references, and this becomes stronger.
+
+### way of work
+
+The basics of a language are taking shape: lambda calculus with tuplets, with
+conservative notation and support for practical programming stuff.. The point of
+various constructs is to empower the compiler and the VM to do more for the
+user, but if there is no need, don't do it!
+
+- i.e. tuples make ternaries more powerful
+- recursion & iterators to replace loops should be enough?
+
 ## 2025-08-05
 
 ### like this?

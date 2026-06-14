@@ -11,7 +11,7 @@ export class Parser {
   private current = 0;
   private lexer: Lexer;
   sizes: number[] = [];
-  constructor(private input: string) {
+  constructor(input: string) {
     this.lexer = new Lexer(input);
   }
 

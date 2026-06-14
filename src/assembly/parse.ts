@@ -28,7 +28,7 @@ PRECEDENCE_B[TokenType.BE] = 0;
 PRECEDENCE_B[TokenType.PAREN_LEFT] = 3;
 
 export class Parse {
-  types: number[] = [];
+  types: NodeType[] = [];
   tokens: number[] = [];
   sizes: number[] = [];
   private next = 0;
